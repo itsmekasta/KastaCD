@@ -47,17 +47,156 @@ local function GetIconForSpell(spellId, fallbackIcon)
     return fallbackIcon or FALLBACK_ICON
 end
 
+-- =============================================================
+-- FindUnitFrames
+--
+-- THE PROBLEM THIS FIXES: KastaCD only ever looked for Blizzard's
+-- default CompactRaidFrame1..40 globals. Unit-frame replacement
+-- addons like ElvUI build their party/raid frames through the oUF
+-- framework instead, so those globals are never populated the way
+-- KastaCD expected, and it found zero usable frames.
+--
+-- THE FIX (verified against actual ElvUI source, not guessed):
+-- ElvUI deliberately exposes its internal engine table as a GLOBAL
+-- named "ElvUI" specifically so other addons can hook into it — this
+-- is ElvUI's own documented integration pattern, the same one its
+-- official plugin template uses:
+--     local E = unpack(ElvUI)
+--     local UF = E:GetModule('UnitFrames')
+-- UF.headers is a live table keyed by group name ("party", "raid")
+-- pointing at the real header frame for that group. Party's header
+-- has no "Group" suffix (ElvUI spawns it directly via CreateHeader
+-- with no sub-groups, since headerstoload.party has no numGroups
+-- value); Raid's header in turn owns up to 3 child sub-headers
+-- (.groups[1], .groups[2], .groups[3]) for its raid-group buckets.
+-- Each individual member button is a secure-template child of
+-- whichever of those header frames is relevant, with its `.unit`
+-- attribute set by oUF's own header-spawning code — the same
+-- attribute Blizzard's frames and every other unit-frame addon use.
+--
+-- Reading UF.headers directly means KastaCD doesn't need to guess
+-- ElvUI's internal frame names at all, and won't break if a future
+-- ElvUI version changes its naming scheme, since this goes through
+-- ElvUI's own supported module/engine access point instead.
+-- =============================================================
+
+-- Walks every child (and grandchild) of a header frame, collecting
+-- any with a valid, currently-shown unit. Capped at 2 levels deep,
+-- which covers header -> sub-group -> member-button nesting.
+local function CollectUnitChildren(frame, out, depth)
+    if not frame or not frame.GetChildren then return end
+    depth = depth or 0
+    if depth > 2 then return end
+    local children = { frame:GetChildren() }
+    for _, child in ipairs(children) do
+        local unit = child.unit or child.displayedUnit
+        if unit and child:IsShown() and UnitExists(unit) then
+            table.insert(out, { unit = unit, frame = child })
+        else
+            CollectUnitChildren(child, out, depth + 1)
+        end
+    end
+end
+
+-- Best-effort fallback for OTHER unit-frame replacement addons
+-- (Grid, Grid2, Shadowed Unit Frames) that, unlike ElvUI, don't
+-- expose a documented external API to fetch their header frames by
+-- name. These prefixes are not independently verified against each
+-- addon's current source the way the ElvUI path above is — treat
+-- this tier as a reasonable guess, not a guarantee.
+local OTHER_HEADER_PREFIXES = {
+    "SUFHeaderraid", "SUFHeaderparty",
+    "GridLayoutHeader1", "Grid2LayoutHeader1",
+}
+
+-- Returns an array of { unit=<unitId>, frame=<frame> } for every
+-- currently visible party/raid member frame KastaCD can find, no
+-- matter which unit-frame addon (if any) is in use.
+function FindUnitFrames()
+    local unitFramePairs = {}
+
+    -- Step 1: ElvUI – checked FIRST because on this server ElvUI and
+    -- Blizzard CompactRaidFrames are both visible simultaneously.
+    -- ElvUI frames must win so icons attach to the visible ones.
+    if _G.ElvUI then
+        local found = {}
+        for i = 1, 5 do
+            local f = _G["ElvUF_PartyGroup1UnitButton" .. i]
+            if f then
+                local unit = f.unit or f.displayedUnit
+                if unit and f:IsShown() and UnitExists(unit) then
+                    table.insert(found, { unit = unit, frame = f })
+                end
+            end
+        end
+        for g = 1, 8 do
+            for i = 1, 5 do
+                local f = _G["ElvUF_RaidGroup" .. g .. "UnitButton" .. i]
+                if f then
+                    local unit = f.unit or f.displayedUnit
+                    if unit and f:IsShown() and UnitExists(unit) then
+                        table.insert(found, { unit = unit, frame = f })
+                    end
+                end
+            end
+        end
+        if #found > 0 then return found end
+    end
+
+    -- Step 2: Blizzard CompactRaidFrames.
+    for i = 1, 40 do
+        local f = _G["CompactRaidFrame" .. i]
+        if not f then break end
+        local unit = f.unit or f.displayedUnit
+        if unit and f:IsShown() and UnitExists(unit) then
+            table.insert(unitFramePairs, { unit = unit, frame = f })
+        end
+    end
+    if #unitFramePairs > 0 then return unitFramePairs end
+
+    -- Step 3: other header-based unit frame addons (best effort).
+    for _, prefix in ipairs(OTHER_HEADER_PREFIXES) do
+        for i = 1, 3 do
+            local headerName = (i == 1) and prefix or (prefix .. i)
+            local header = _G[headerName]
+            if header then
+                CollectUnitChildren(header, unitFramePairs)
+            end
+        end
+    end
+    if #unitFramePairs > 0 then return unitFramePairs end
+
+    -- Step 4: classic PartyMemberFrame fallback for servers/clients
+    -- that don't use CompactRaidFrames or any replacement addon at all.
+    for i = 1, 4 do
+        local f = _G["PartyMemberFrame" .. i]
+        local unit = "party" .. i
+        if f and f:IsShown() and UnitExists(unit) then
+            table.insert(unitFramePairs, { unit = unit, frame = f })
+        end
+    end
+
+    return unitFramePairs
+end
+
 -- -------------------------------------------------------------
 -- ClearIcons  –  destroy all icon frames and reset state
 -- -------------------------------------------------------------
+-- Graveyard: every container ever created, so ClearIcons can always
+-- find and hide them even across multiple rapid rebuild cycles.
+local _allContainers = {}
+
 function ClearIcons()
+    for _, container in ipairs(_allContainers) do
+        container:Hide()
+        container:ClearAllPoints()
+    end
     for _, iconList in pairs(iconContainers) do
-        local icons = iconList.icons or iconList
+        local icons = iconList.icons or {}
         for _, ico in ipairs(icons) do
             if ico.spellId then HideProcGlow(ico) end
             ico:Hide()
         end
-        if iconList.container then iconList.container:Hide() end
     end
     iconContainers = {}
     trackerState   = {}
@@ -188,26 +327,7 @@ function RebuildIcons()
     local enabled = GetEnabledSpells()
     if not next(enabled) then return end
 
-    -- Collect all visible raid frames (CompactRaidFrame, then classic fallback)
-    local unitFramePairs = {}
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if not f then break end
-        local unit = f.unit or f.displayedUnit
-        if unit and UnitExists(unit) then
-            table.insert(unitFramePairs, { unit=unit, frame=f })
-        end
-    end
-    -- Classic PartyMemberFrame fallback for servers that don't use CompactRaidFrames
-    if #unitFramePairs == 0 then
-        for i = 1, 4 do
-            local f = _G["PartyMemberFrame" .. i]
-            local unit = "party" .. i
-            if f and f:IsShown() and UnitExists(unit) then
-                table.insert(unitFramePairs, { unit=unit, frame=f })
-            end
-        end
-    end
+    local unitFramePairs = FindUnitFrames()
     if #unitFramePairs == 0 then return end
 
     local now = GetTime()
@@ -245,6 +365,7 @@ function RebuildIcons()
                             container:SetFrameStrata("MEDIUM")
                             container:SetFrameLevel(48)
                             container:SetSize(1, 1)
+                            table.insert(_allContainers, container)
 
                             local iconList = { container=container, icons={} }
                             iconContainers[containerKey] = iconList
@@ -293,10 +414,9 @@ end
 -- Called every ~0.5 s in case raid frames have moved.
 -- -------------------------------------------------------------
 local function RelayoutAllIcons()
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if not f then break end
-        local unit = f.unit or f.displayedUnit
+    for _, pair in ipairs(FindUnitFrames()) do
+        local unit = pair.unit
+        local f    = pair.frame
         if unit then
             for group = 1, SPELL_GROUP_COUNT do
                 local iconList = iconContainers[unit .. "_g" .. group]

@@ -39,18 +39,14 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── PLAYER_ENTERING_WORLD ──────────────────────────────────
     -- Fires on login, reload, and every zone transition that involves
     -- a loading screen.  We delay the rebuild slightly so that
-    -- CompactRaidFrames have time to populate their unit references.
+    -- party/raid frames (Blizzard's or a replacement addon's, e.g.
+    -- ElvUI) have time to populate their unit references.
     if event == "PLAYER_ENTERING_WORLD" then
         KastaCDInitDB()
         C_Timer.After(1.5, function()
             memberGUIDs = {}
-            for i = 1, 40 do
-                local f = _G["CompactRaidFrame" .. i]
-                if not f then break end
-                local unit = f.unit or f.displayedUnit
-                if unit and UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
+            for _, pair in ipairs(FindUnitFrames()) do
+                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
             end
             RebuildIcons()
         end)
@@ -68,13 +64,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.8, function()
             if not HasGroup() then ClearIcons(); return end
             memberGUIDs = {}
-            for i = 1, 40 do
-                local f = _G["CompactRaidFrame" .. i]
-                if not f then break end
-                local unit = f.unit or f.displayedUnit
-                if unit and UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
+            for _, pair in ipairs(FindUnitFrames()) do
+                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
             end
             RebuildIcons()
         end)

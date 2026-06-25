@@ -35,13 +35,14 @@ SlashCmdList["KASTACDDEBUG"] = function()
         print("  ", u, "=", g)
     end
 
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if not f then break end
-        local unit = f.unit or f.displayedUnit
-        local _, cls = unit and UnitExists(unit) and UnitClass(unit) or nil, nil
-        print(string.format("  RF[%d] unit=%s cls=%s shown=%s",
-            i, tostring(unit), tostring(cls), tostring(f:IsShown())))
+    local foundFrames = FindUnitFrames()
+    print("  detected frames:", #foundFrames)
+    for _, pair in ipairs(foundFrames) do
+        local unit = pair.unit
+        local _, cls = UnitClass(unit)
+        local frameName = pair.frame.GetName and pair.frame:GetName() or "(unnamed)"
+        print(string.format("  RF unit=%s cls=%s shown=%s frame=%s",
+            tostring(unit), tostring(cls), tostring(pair.frame:IsShown()), tostring(frameName)))
         for g = 1, SPELL_GROUP_COUNT do
             local ck = unit and (unit .. "_g" .. g)
             local il = ck and iconContainers[ck]
@@ -52,6 +53,61 @@ SlashCmdList["KASTACDDEBUG"] = function()
             end
         end
     end
+end
+
+-- -------------------------------------------------------------
+-- /kcdelvui  –  deep ElvUI frame diagnostic
+-- Run this in a party and paste the full output.
+-- -------------------------------------------------------------
+SLASH_KASTACDELVUI1 = "/kcdelvui"
+SlashCmdList["KASTACDELVUI"] = function()
+    print("=== KastaCD ElvUI Diagnostic ===")
+
+    -- 1. Is ElvUI present?
+    print("ElvUI global:", tostring(_G.ElvUI ~= nil))
+
+    -- 2. Scan _G for any ElvUF_ frames
+    local elvFrames = {}
+    for k, v in pairs(_G) do
+        if type(k) == "string" and k:find("^ElvUF_") and type(v) == "table" and v.IsShown then
+            local unit = v.unit or v.displayedUnit
+            table.insert(elvFrames, string.format("  %s  shown=%s  unit=%s  exists=%s",
+                k, tostring(v:IsShown()), tostring(unit), tostring(unit and UnitExists(unit) or false)))
+        end
+    end
+    table.sort(elvFrames)
+    print("ElvUF_ globals found:", #elvFrames)
+    for _, s in ipairs(elvFrames) do print(s) end
+
+    -- 3. What does FindUnitFrames() return?
+    local pairs_found = FindUnitFrames()
+    print("FindUnitFrames() returned:", #pairs_found)
+    for _, p in ipairs(pairs_found) do
+        print(string.format("  unit=%s  frame=%s  guid=%s",
+            tostring(p.unit),
+            tostring(p.frame.GetName and p.frame:GetName() or "(unnamed)"),
+            tostring(UnitGUID(p.unit))))
+    end
+
+    -- 4. memberGUIDs table
+    print("memberGUIDs:")
+    for u, g in pairs(memberGUIDs) do
+        print("  ", u, "=", g)
+    end
+
+    -- 5. iconContainers
+    print("iconContainers:", (function() local n=0; for _ in pairs(iconContainers) do n=n+1 end; return n end)())
+    for k in pairs(iconContainers) do print("  ", k) end
+
+    -- 6. Enabled spell count
+    local ec = 0
+    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec = ec + 1 end
+    print("Enabled spells:", ec)
+
+    -- 7. Content enabled?
+    print("IsContentEnabled:", tostring(IsContentEnabled()))
+
+    print("=== end ===")
 end
 
 -- -------------------------------------------------------------
