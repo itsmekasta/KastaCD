@@ -1,0 +1,30 @@
+## Interface: 70300
+## Title: KastaCD – Party Cooldown Tracker
+## Notes: Tracks party/raid cooldowns on raid frames.
+## Author: Kasta
+## Version: 1.0
+## SavedVariables: KastaCDDB
+
+# 1. Entry point: addon identity, version global, load message
+KastaCD.lua
+
+# 2. Spell database + static constants (no dependencies)
+KastaCD_SpellDB.lua
+
+# 3. SavedVariables / profile management (depends on SpellDB for defaults)
+KastaCD_DB.lua
+
+# 4. Core tracking, icon building, layout (depends on DB + SpellDB)
+KastaCD_Tracking.lua
+
+# 5. Combat log handler (depends on Tracking)
+KastaCD_CombatLog.lua
+
+# 6. Settings UI (depends on DB + Tracking)
+KastaCD_UI.lua
+
+# 7. Event frame + slash command (depends on everything above)
+KastaCD_Events.lua
+
+# 8. Debug commands: /kcddebug  /kcdlevel  (depends on everything above)
+KastaCD_Debug.lua

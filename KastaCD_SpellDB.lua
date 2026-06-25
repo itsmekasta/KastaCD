@@ -1,0 +1,168 @@
+-- =============================================================
+-- KastaCD_SpellDB.lua
+-- Static data: spell definitions, class info, position configs,
+-- subtab definitions, and other compile-time constants.
+-- No WoW API calls here — pure data tables.
+-- =============================================================
+
+SPELL_DB = {
+    -- ── WARRIOR ─────────────────────────────────────────────────
+    [871]    = { name="Shield Wall",          class="WARRIOR", icon=132362,  duration=8,  cooldown=240, category="DEFENSIVE", minLevel=18 },
+    [1160]   = { name="Demoralizing Shout",   class="WARRIOR", icon=132366,  duration=8,  cooldown=45,  category="DEFENSIVE", minLevel=4  },
+    [97462]  = { name="Rallying Cry",         class="WARRIOR", icon=132351,  duration=10, cooldown=180, category="DEFENSIVE", minLevel=24 },
+    [23920]  = { name="Spell Reflection",     class="WARRIOR", icon=132361,  duration=5,  cooldown=25,  category="DEFENSIVE", minLevel=66 },
+    [6552]   = { name="Pummel",               class="WARRIOR", icon=132938,  duration=0,  cooldown=15,  category="INTERRUPT", minLevel=14 },
+    [3411]   = { name="Intervene",            class="WARRIOR", icon=132365,  duration=0,  cooldown=30,  category="UTILITY",   minLevel=22 },
+    [107570] = { name="Storm Bolt",           class="WARRIOR", icon=613534,  duration=3,  cooldown=30,  category="UTILITY",   minLevel=100 },
+    [1719]   = { name="Recklessness",         class="WARRIOR", icon=132109,  duration=10, cooldown=90,  category="OFFENSIVE", minLevel=10 },
+    [107574] = { name="Avatar",               class="WARRIOR", icon=613534,  duration=20, cooldown=90,  category="OFFENSIVE", minLevel=100 },
+    [227847] = { name="Bladestorm",           class="WARRIOR", icon=132357,  duration=6,  cooldown=60,  category="OFFENSIVE", minLevel=100 },
+    -- ── PALADIN ─────────────────────────────────────────────────
+    [498]    = { name="Divine Protection",        class="PALADIN", icon=524353, duration=8,  cooldown=60,  category="DEFENSIVE", minLevel=18 },
+    [31821]  = { name="Aura Mastery",             class="PALADIN", icon=135872, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=100 },
+    [633]    = { name="Lay on Hands",             class="PALADIN", icon=135928, duration=0,  cooldown=600, category="DEFENSIVE", minLevel=10 },
+    [6940]   = { name="Blessing of Sacrifice",    class="PALADIN", icon=135966, duration=12, cooldown=120, category="DEFENSIVE", minLevel=20 },
+    [642]    = { name="Divine Shield",            class="PALADIN", icon=524354, duration=8,  cooldown=300, category="IMMUNITY",  minLevel=14 },
+    [1022]   = { name="Blessing of Protection",   class="PALADIN", icon=135964, duration=10, cooldown=300, category="IMMUNITY",  minLevel=8  },
+    [96231]  = { name="Rebuke",                   class="PALADIN", icon=523893, duration=0,  cooldown=15,  category="INTERRUPT", minLevel=16 },
+    [853]    = { name="Hammer of Justice",        class="PALADIN", icon=135963, duration=6,  cooldown=60,  category="UTILITY",   minLevel=6  },
+    [31884]  = { name="Avenging Wrath",           class="PALADIN", icon=135875, duration=20, cooldown=120, category="OFFENSIVE", minLevel=12 },
+    -- ── HUNTER ──────────────────────────────────────────────────
+    [109304] = { name="Exhilaration",        class="HUNTER", icon=132121, duration=0,  cooldown=120, category="DEFENSIVE", minLevel=30 },
+    [186265] = { name="Aspect of the Turtle",class="HUNTER", icon=132199, duration=8,  cooldown=180, category="IMMUNITY",  minLevel=50 },
+    [147362] = { name="Counter Shot",        class="HUNTER", icon=249170, duration=0,  cooldown=24,  category="INTERRUPT", minLevel=16 },
+    [109248] = { name="Binding Shot",        class="HUNTER", icon=463285, duration=3,  cooldown=45,  category="UTILITY",   minLevel=100 },
+    [187650] = { name="Freezing Trap",       class="HUNTER", icon=135834, duration=8,  cooldown=30,  category="UTILITY",   minLevel=18 },
+    [19574]  = { name="Bestial Wrath",       class="HUNTER", icon=132127, duration=15, cooldown=90,  category="OFFENSIVE", minLevel=10 },
+    [193526] = { name="Trueshot",            class="HUNTER", icon=613345, duration=15, cooldown=180, category="OFFENSIVE", minLevel=100 },
+    -- ── ROGUE ───────────────────────────────────────────────────
+    [1966]   = { name="Feint",            class="ROGUE", icon=132294, duration=5,  cooldown=15,  category="DEFENSIVE", minLevel=12 },
+    [5277]   = { name="Evasion",          class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE", minLevel=18 },
+    [31224]  = { name="Cloak of Shadows", class="ROGUE", icon=136177, duration=5,  cooldown=60,  category="IMMUNITY",  minLevel=36 },
+    [1766]   = { name="Kick",             class="ROGUE", icon=132219, duration=0,  cooldown=15,  category="INTERRUPT", minLevel=3  },
+    [2094]   = { name="Blind",            class="ROGUE", icon=136175, duration=60, cooldown=120, category="UTILITY",   minLevel=22 },
+    [79140]  = { name="Vendetta",         class="ROGUE", icon=132292, duration=20, cooldown=120, category="OFFENSIVE", minLevel=10 },
+    [13750]  = { name="Adrenaline Rush",  class="ROGUE", icon=136206, duration=20, cooldown=180, category="OFFENSIVE", minLevel=14 },
+    [121471] = { name="Shadow Blades",    class="ROGUE", icon=606542, duration=20, cooldown=180, category="OFFENSIVE", minLevel=100 },
+    -- ── PRIEST ──────────────────────────────────────────────────
+    [19236]  = { name="Desperate Prayer",     class="PRIEST", icon=135955, duration=0,  cooldown=90,  category="DEFENSIVE", minLevel=22 },
+    [33206]  = { name="Pain Suppression",     class="PRIEST", icon=135936, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=17 },
+    [62618]  = { name="Power Word: Barrier",  class="PRIEST", icon=253400, duration=10, cooldown=180, category="DEFENSIVE", minLevel=100 },
+    [64843]  = { name="Divine Hymn",          class="PRIEST", icon=135982, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=75 },
+    [47585]  = { name="Dispersion",           class="PRIEST", icon=237563, duration=6,  cooldown=120, category="IMMUNITY",  minLevel=18 },
+    [15487]  = { name="Silence",              class="PRIEST", icon=458230, duration=5,  cooldown=45,  category="INTERRUPT", minLevel=18 },
+    [10060]  = { name="Power Infusion",       class="PRIEST", icon=135939, duration=20, cooldown=120, category="OFFENSIVE", minLevel=10 },
+    [34433]  = { name="Shadowfiend",          class="PRIEST", icon=136199, duration=15, cooldown=180, category="OFFENSIVE", minLevel=18 },
+    -- ── DEATH KNIGHT ────────────────────────────────────────────
+    [48707]  = { name="Anti-Magic Shell",      class="DEATHKNIGHT", icon=237506, duration=5,  cooldown=60,  category="DEFENSIVE", minLevel=55 },
+    [48792]  = { name="Icebound Fortitude",    class="DEATHKNIGHT", icon=237525, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=57 },
+    [206977] = { name="Darkness",              class="DEATHKNIGHT", icon=136146, duration=8,  cooldown=120, category="DEFENSIVE", minLevel=100 },
+    [47528]  = { name="Mind Freeze",           class="DEATHKNIGHT", icon=237527, duration=0,  cooldown=15,  category="INTERRUPT", minLevel=58 },
+    [47476]  = { name="Strangulate",           class="DEATHKNIGHT", icon=136214, duration=5,  cooldown=60,  category="UTILITY",   minLevel=60 },
+    [49028]  = { name="Dancing Rune Weapon",   class="DEATHKNIGHT", icon=135277, duration=8,  cooldown=120, category="OFFENSIVE", minLevel=100 },
+    [42650]  = { name="Army of the Dead",      class="DEATHKNIGHT", icon=237511, duration=40, cooldown=480, category="OFFENSIVE", minLevel=58 },
+    -- ── SHAMAN ──────────────────────────────────────────────────
+    [108271] = { name="Astral Shift",        class="SHAMAN", icon=538564, duration=8,  cooldown=90,  category="DEFENSIVE", minLevel=100 },
+    [98008]  = { name="Spirit Link Totem",   class="SHAMAN", icon=237586, duration=6,  cooldown=180, category="DEFENSIVE", minLevel=100 },
+    [57994]  = { name="Wind Shear",          class="SHAMAN", icon=136018, duration=0,  cooldown=12,  category="INTERRUPT", minLevel=8   },
+    [192058] = { name="Wind Rush Totem",     class="SHAMAN", icon=537025, duration=5,  cooldown=120, category="UTILITY",   minLevel=100 },
+    [51514]  = { name="Hex",                 class="SHAMAN", icon=236548, duration=60, cooldown=30,  category="UTILITY",   minLevel=24  },
+    [114049] = { name="Ascendance",          class="SHAMAN", icon=571600, duration=15, cooldown=180, category="OFFENSIVE", minLevel=100 },
+    [51533]  = { name="Feral Spirit",        class="SHAMAN", icon=237585, duration=15, cooldown=120, category="OFFENSIVE", minLevel=10  },
+    [198067] = { name="Fire Elemental",      class="SHAMAN", icon=135790, duration=30, cooldown=150, category="OFFENSIVE", minLevel=10  },
+    -- ── MAGE ────────────────────────────────────────────────────
+    [45438]  = { name="Ice Block",            class="MAGE", icon=135841, duration=10, cooldown=240, category="IMMUNITY",  minLevel=30  },
+    [110959] = { name="Greater Invisibility", class="MAGE", icon=609815, duration=3,  cooldown=120, category="DEFENSIVE", minLevel=100 },
+    [55021]  = { name="Counterspell",         class="MAGE", icon=135856, duration=0,  cooldown=24,  category="INTERRUPT", minLevel=12  },
+    [12051]  = { name="Evocation",            class="MAGE", icon=136075, duration=6,  cooldown=90,  category="UTILITY",   minLevel=36  },
+    [113724] = { name="Ring of Frost",        class="MAGE", icon=464484, duration=10, cooldown=45,  category="UTILITY",   minLevel=100 },
+    [190319] = { name="Combustion",           class="MAGE", icon=135824, duration=10, cooldown=120, category="OFFENSIVE", minLevel=10  },
+    [12472]  = { name="Icy Veins",            class="MAGE", icon=135838, duration=20, cooldown=180, category="OFFENSIVE", minLevel=10  },
+    [12042]  = { name="Arcane Power",         class="MAGE", icon=136048, duration=10, cooldown=90,  category="OFFENSIVE", minLevel=10  },
+    -- ── WARLOCK ─────────────────────────────────────────────────
+    [104773] = { name="Unending Resolve",     class="WARLOCK", icon=136150, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=18  },
+    [6789]   = { name="Mortal Coil",          class="WARLOCK", icon=136175, duration=3,  cooldown=45,  category="UTILITY",   minLevel=100 },
+    [30283]  = { name="Shadowfury",           class="WARLOCK", icon=136201, duration=3,  cooldown=30,  category="UTILITY",   minLevel=30  },
+    [113861] = { name="Dark Soul: Knowledge", class="WARLOCK", icon=463284, duration=20, cooldown=120, category="OFFENSIVE", minLevel=18  },
+    -- ── MONK ────────────────────────────────────────────────────
+    [116849] = { name="Life Cocoon",                  class="MONK", icon=627485, duration=12, cooldown=180, category="DEFENSIVE", minLevel=17  },
+    [122783] = { name="Diffuse Magic",                class="MONK", icon=775460, duration=6,  cooldown=90,  category="DEFENSIVE", minLevel=75  },
+    [122278] = { name="Dampen Harm",                  class="MONK", icon=620827, duration=10, cooldown=120, category="DEFENSIVE", minLevel=75  },
+    [115176] = { name="Zen Meditation",               class="MONK", icon=642417, duration=8,  cooldown=300, category="IMMUNITY",  minLevel=60  },
+    [116705] = { name="Spear Hand Strike",            class="MONK", icon=608953, duration=0,  cooldown=15,  category="INTERRUPT", minLevel=12  },
+    [115078] = { name="Paralysis",                    class="MONK", icon=629534, duration=60, cooldown=45,  category="UTILITY",   minLevel=22  },
+    [137639] = { name="Storm, Earth, and Fire",       class="MONK", icon=642418, duration=15, cooldown=90,  category="OFFENSIVE", minLevel=100 },
+    [123904] = { name="Invoke Xuen, the White Tiger", class="MONK", icon=620832, duration=20, cooldown=120, category="OFFENSIVE", minLevel=10  },
+    -- ── DRUID ───────────────────────────────────────────────────
+    [22812]  = { name="Barkskin",            class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE", minLevel=16  },
+    [61336]  = { name="Survival Instincts",  class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", minLevel=36  },
+    [740]    = { name="Tranquility",         class="DRUID", icon=136107,  duration=8,  cooldown=180, category="DEFENSIVE", minLevel=38  },
+    [102342] = { name="Ironbark",            class="DRUID", icon=572025,  duration=12, cooldown=90,  category="DEFENSIVE", minLevel=100 },
+    [106839] = { name="Skull Bash",          class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", minLevel=30  },
+    [29166]  = { name="Innervate",           class="DRUID", icon=136048,  duration=10, cooldown=180, category="UTILITY",   minLevel=100 },
+    [106951] = { name="Berserk",             class="DRUID", icon=236149,  duration=15, cooldown=180, category="OFFENSIVE", minLevel=18  },
+    [194223] = { name="Celestial Alignment", class="DRUID", icon=1396760, duration=20, cooldown=180, category="OFFENSIVE", minLevel=100 },
+    -- ── DEMON HUNTER ────────────────────────────────────────────
+    [198589] = { name="Blur",           class="DEMONHUNTER", icon=1305150, duration=10, cooldown=60,  category="DEFENSIVE", minLevel=98  },
+    [209426] = { name="Darkness (DH)", class="DEMONHUNTER", icon=1305149, duration=8,  cooldown=300, category="DEFENSIVE", minLevel=100 },
+    [196555] = { name="Netherwalk",    class="DEMONHUNTER", icon=1220127, duration=5,  cooldown=180, category="IMMUNITY",  minLevel=98  },
+    [183752] = { name="Consume Magic", class="DEMONHUNTER", icon=1344654, duration=0,  cooldown=10,  category="UTILITY",   minLevel=98  },
+    [179057] = { name="Chaos Nova",    class="DEMONHUNTER", icon=1247261, duration=5,  cooldown=60,  category="UTILITY",   minLevel=98  },
+    [187827] = { name="Metamorphosis", class="DEMONHUNTER", icon=1247262, duration=30, cooldown=300, category="OFFENSIVE", minLevel=98  },
+}
+
+-- Subtabs shown in the per-class UI panels
+SUBTAB_DEFS = {
+    { key="OFFENSIVE", label="Offensives" },
+    { key="DEFENSIVE", label="Defensives" },
+    { key="INTERRUPT", label="Interrupts" },
+    { key="IMMUNITY",  label="Immunity"   },
+}
+
+-- Maps each spell category to which subtab it lives under
+-- (UTILITY spells appear on the Defensives subtab)
+CATEGORY_TO_SUBTAB = {
+    OFFENSIVE="OFFENSIVE", DEFENSIVE="DEFENSIVE",
+    INTERRUPT="INTERRUPT", IMMUNITY="IMMUNITY", UTILITY="DEFENSIVE",
+}
+
+-- Class display info: key, human label, and WoW class colour
+CLASS_INFO = {
+    { key="WARRIOR",     label="Warrior",      r=0.78, g=0.61, b=0.43 },
+    { key="PALADIN",     label="Paladin",       r=0.96, g=0.55, b=0.73 },
+    { key="HUNTER",      label="Hunter",        r=0.67, g=0.83, b=0.45 },
+    { key="ROGUE",       label="Rogue",         r=1.00, g=0.96, b=0.41 },
+    { key="PRIEST",      label="Priest",        r=1.00, g=1.00, b=1.00 },
+    { key="DEATHKNIGHT", label="Death Knight",  r=0.77, g=0.12, b=0.23 },
+    { key="SHAMAN",      label="Shaman",        r=0.00, g=0.44, b=0.87 },
+    { key="MAGE",        label="Mage",          r=0.25, g=0.78, b=0.92 },
+    { key="WARLOCK",     label="Warlock",       r=0.53, g=0.53, b=0.93 },
+    { key="MONK",        label="Monk",          r=0.00, g=1.00, b=0.59 },
+    { key="DRUID",       label="Druid",         r=1.00, g=0.49, b=0.04 },
+    { key="DEMONHUNTER", label="Demon Hunter",  r=0.64, g=0.19, b=0.79 },
+}
+
+-- Human-readable labels for the position dropdown
+POSITION_OPTS = {
+    "Top Left (inside)",     "Top Right (inside)",
+    "Bottom Left (inside)",  "Bottom Right (inside)",
+    "Center (inside)",
+    "Top Left (outside)",    "Top Right (outside)",
+    "Bottom Left (outside)", "Bottom Right (outside)",
+}
+
+-- Anchor configs matching POSITION_OPTS by index
+POSITION_CFG = {
+    { anchor="TOPLEFT",     relAnchor="TOPLEFT",     inside=true  },
+    { anchor="TOPRIGHT",    relAnchor="TOPRIGHT",    inside=true  },
+    { anchor="BOTTOMLEFT",  relAnchor="BOTTOMLEFT",  inside=true  },
+    { anchor="BOTTOMRIGHT", relAnchor="BOTTOMRIGHT", inside=true  },
+    { anchor="CENTER",      relAnchor="CENTER",      inside=true  },
+    { anchor="TOPRIGHT",    relAnchor="TOPLEFT",     inside=false },
+    { anchor="TOPLEFT",     relAnchor="TOPRIGHT",    inside=false },
+    { anchor="BOTTOMRIGHT", relAnchor="BOTTOMLEFT",  inside=false },
+    { anchor="BOTTOMLEFT",  relAnchor="BOTTOMRIGHT", inside=false },
+}
+
+CONTENT_TYPES     = { "Open World", "Dungeon", "Arena", "Battleground" }
+SPELL_GROUP_COUNT = 3
