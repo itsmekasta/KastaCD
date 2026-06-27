@@ -40,11 +40,13 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── PLAYER_ENTERING_WORLD ──────────────────────────────────
     -- Fires on login, reload, and every zone transition that involves
     -- a loading screen.  We delay the rebuild slightly so that
-    -- CompactRaidFrames have time to populate their unit references.
+    -- party/raid frames (Blizzard's or a replacement addon's, e.g.
+    -- ElvUI) have time to populate their unit references.
     if event == "PLAYER_ENTERING_WORLD" then
         KastaCDInitDB()
         C_Timer.After(1.5, function()
             memberGUIDs = {}
+<<<<<<< HEAD
             -- Always include the player themselves
             memberGUIDs["player"] = UnitGUID("player")
             -- Scan CompactRaidFrames (used in raid/party with default UI)
@@ -55,6 +57,10 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                 if unit and UnitExists(unit) then
                     memberGUIDs[unit] = UnitGUID(unit)
                 end
+=======
+            for _, pair in ipairs(FindUnitFrames()) do
+                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
+>>>>>>> b4d543e5036399ff222b584b6912a25253fefd97
             end
             -- Direct unit-token fallback: covers party1-4 even when
             -- CompactRaidFrames haven't populated yet (common on pservers)
@@ -80,6 +86,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.8, function()
             if not HasGroup() then ClearIcons(); return end
             memberGUIDs = {}
+<<<<<<< HEAD
             -- Always include the player themselves
             memberGUIDs["player"] = UnitGUID("player")
             -- CompactRaidFrames
@@ -90,6 +97,10 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                 if unit and UnitExists(unit) then
                     memberGUIDs[unit] = UnitGUID(unit)
                 end
+=======
+            for _, pair in ipairs(FindUnitFrames()) do
+                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
+>>>>>>> b4d543e5036399ff222b584b6912a25253fefd97
             end
             -- Direct unit-token fallback
             for i = 1, 4 do
