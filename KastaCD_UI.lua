@@ -145,7 +145,7 @@ function CreateKastaCDMenu()
     local SIDEBAR_W = 160
 
     -- ── Root frame ────────────────────────────────────────────
-    local frame = CreateFrame("Frame", "KastaCDMenu", UIParent, "BackdropTemplate")
+    local frame = CreateFrame("Frame", "KastaCDMenu", UIParent)
     frame:SetSize(FRAME_W, FRAME_H)
     frame:SetPoint("CENTER")
     frame:SetBackdrop({
@@ -705,6 +705,28 @@ function CreateKastaCDMenu()
 
                     row.spellId     = sid
                     row.groupButtons = {}
+
+                    -- Tooltip: show on the row itself so hovering anywhere
+                    -- over the spell entry (icon, name, buttons) shows info.
+                    row:EnableMouse(true)
+                    row:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
+                        if not ok then GameTooltip:SetText(data.name, 1, 1, 1) end
+                        local cdStr  = data.cooldown > 0 and (data.cooldown .. "s") or "None"
+                        local durStr = data.duration > 0 and (data.duration .. "s") or "None"
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddDoubleLine("Cooldown:", cdStr,  0.7,0.7,0.7, 1,1,1)
+                        GameTooltip:AddDoubleLine("Duration:", durStr, 0.7,0.7,0.7, 1,1,1)
+                        if data.minLevel and data.minLevel > 1 then
+                            GameTooltip:AddDoubleLine("Required level:", tostring(data.minLevel), 0.7,0.7,0.7, 1,1,1)
+                        end
+                        if data.specs then
+                            GameTooltip:AddLine("|cffaaaaaa(Spec-specific ability)|r")
+                        end
+                        GameTooltip:Show()
+                    end)
+                    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                     -- Group assignment buttons (1 / 2 / 3)
                     local groupCountLocal = (type(SPELL_GROUP_COUNT) == "number" and SPELL_GROUP_COUNT) or 3

@@ -147,7 +147,7 @@ end
 -- -------------------------------------------------------------
 -- Content-type detection
 -- -------------------------------------------------------------
-local function GetCurrentContentType()
+function GetCurrentContentType()
     local inInstance, instanceType = IsInInstance()
     if not inInstance then return "Open World" end
     if instanceType == "arena" then return "Arena" end

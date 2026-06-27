@@ -155,11 +155,11 @@ SPELL_DB = {
     [123904] = { name="Invoke Xuen, the White Tiger", class="MONK", icon=620832, duration=20, cooldown=120, category="OFFENSIVE", specs={269}      },  -- Windwalker only
     -- ── DRUID ───────────────────────────────────────────────────
     -- Shared (all specs)
-    [22812]  = { name="Barkskin",            class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE" },  -- All specs
     [106839] = { name="Skull Bash",          class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", specs={103,104} },  -- Feral/Guardian (melee forms only)
     -- Spec-specific
+    [22812]  = { name="Barkskin",            class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE", specs={102,104,105}      },  -- All specs
     [99]     = { name="Incapacitating Roar", class="DRUID", icon=236937,  duration=3,  cooldown=30,  category="UTILITY",   specs={104}      },  -- Guardian only
-    [61336]  = { name="Survival Instincts",  class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103,104}  },  -- Feral/Guardian
+    [61336]  = { name="Survival Instincts",  class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103}      },  -- Feral/Guardian
     [740]    = { name="Tranquility",         class="DRUID", icon=136107,  duration=8,  cooldown=180, category="DEFENSIVE", specs={105}      },  -- Restoration only
     [102342] = { name="Ironbark",            class="DRUID", icon=572025,  duration=12, cooldown=90,  category="DEFENSIVE", specs={105}      },  -- Restoration only
     [29166]  = { name="Innervate",           class="DRUID", icon=136048,  duration=10, cooldown=180, category="UTILITY",   specs={105}      },  -- Restoration only

@@ -14,3 +14,5 @@ f:SetScript("OnEvent", function(self)
     print("Thanks for using |cffff7f00[KastaCD - Party Cooldown Tracker v1.2] |cffffffff|Hurl:https://github.com/itsmekasta/KastaCD|h[https://github.com/itsmekasta/KastaCD]|h|r")
     self:UnregisterAllEvents()
 end)
+
+

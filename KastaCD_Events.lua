@@ -43,6 +43,30 @@ local function RefreshMemberGUIDs()
     end
 end
 
+-- Fire inspect requests for every current group member so GetUnitSpec()
+-- can populate UNIT_SPEC_CACHE and filter spec-locked spells correctly.
+-- Called before RebuildIcons so requests are in-flight as early as possible.
+local function RequestGroupInspects()
+    local units = {}
+    for i = 1, 40 do
+        local f = _G["CompactRaidFrame" .. i]
+        if not f then break end
+        local unit = f.unit or f.displayedUnit
+        if unit and UnitExists(unit) and unit ~= "player" then
+            units[unit] = true
+        end
+    end
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then units[unit] = true end
+    end
+    for unit in pairs(units) do
+        if NotifyInspect and CanInspect and CanInspect(unit) then
+            NotifyInspect(unit)
+        end
+    end
+end
+
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── ADDON_LOADED ───────────────────────────────────────────
     if event == "ADDON_LOADED" then
@@ -63,21 +87,30 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         KastaCDInitDB()
         C_Timer.After(1.5, function()
             RefreshMemberGUIDs()
+            RequestGroupInspects()
             RebuildIcons()
+            -- Second pass after inspect data has had time to arrive,
+            -- correcting any icons shown optimistically due to unknown spec.
+            C_Timer.After(3.0, RebuildIcons)
         end)
         return
     end
 
     -- ── GROUP_ROSTER_UPDATE ────────────────────────────────────
     if event == "GROUP_ROSTER_UPDATE" then
-        if not HasGroup() then
+        -- Fire an immediate clear so icons never linger when leaving a group.
+        -- The delayed path below will rebuild if we're still in a valid party
+        -- after the roster settles.
+        if not HasGroup() or (IsInRaid and IsInRaid()) then
             ClearIcons()
             return
         end
         C_Timer.After(0.8, function()
-            if not HasGroup() then ClearIcons(); return end
+            if not HasGroup() or (IsInRaid and IsInRaid()) then ClearIcons(); return end
             RefreshMemberGUIDs()
+            RequestGroupInspects()
             RebuildIcons()
+            C_Timer.After(3.0, RebuildIcons)
         end)
         return
     end
@@ -118,7 +151,17 @@ end)
 -- =============================================================
 SLASH_KASTACD1 = "/kcd"
 SlashCmdList["KASTACD"] = function()
-    CreateKastaCDMenu()
+    -- Wrap in pcall so any error during menu construction is shown
+    -- rather than silently leaving kcdMenu nil and erroring on IsShown.
+    local ok, err = pcall(CreateKastaCDMenu)
+    if not ok then
+        print("|cffff0000KastaCD: failed to open menu — " .. tostring(err) .. "|r")
+        return
+    end
+    if not kcdMenu then
+        print("|cffff0000KastaCD: menu could not be created.|r")
+        return
+    end
     if kcdMenu:IsShown() then
         kcdMenu:Hide()
     else
