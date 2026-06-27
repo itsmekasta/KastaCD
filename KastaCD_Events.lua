@@ -19,9 +19,32 @@ kcdEvent:RegisterEvent("CHARACTER_POINTS_CHANGED")
 kcdEvent:RegisterEvent("PLAYER_TALENT_UPDATE")
 kcdEvent:RegisterEvent("INSPECT_READY")
 
+-- Shared helper: populate memberGUIDs from CompactRaidFrames + direct unit tokens.
+local function RefreshMemberGUIDs()
+    memberGUIDs = {}
+    -- Always include the player themselves
+    memberGUIDs["player"] = UnitGUID("player")
+    -- CompactRaidFrames (default Blizzard UI)
+    for i = 1, 40 do
+        local f = _G["CompactRaidFrame" .. i]
+        if not f then break end
+        local unit = f.unit or f.displayedUnit
+        if unit and UnitExists(unit) then
+            memberGUIDs[unit] = UnitGUID(unit)
+        end
+    end
+    -- Direct unit-token fallback: covers party1-4 even when
+    -- CompactRaidFrames haven't populated yet (common on pservers)
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then
+            memberGUIDs[unit] = UnitGUID(unit)
+        end
+    end
+end
+
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── ADDON_LOADED ───────────────────────────────────────────
-    -- Initialise the DB as soon as our saved variables are available.
     if event == "ADDON_LOADED" then
         if select(1, ...) == "KastaCD" then
             KastaCDInitDB()
@@ -30,54 +53,22 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     end
 
     -- ── PLAYER_LOGOUT ──────────────────────────────────────────
-    -- Flush in-memory changes back to the stored profile before the
-    -- game writes SavedVariables to disk.
     if event == "PLAYER_LOGOUT" then
         PersistActiveProfile()
         return
     end
 
     -- ── PLAYER_ENTERING_WORLD ──────────────────────────────────
-    -- Fires on login, reload, and every zone transition that involves
-    -- a loading screen.  We delay the rebuild slightly so that
-    -- party/raid frames (Blizzard's or a replacement addon's, e.g.
-    -- ElvUI) have time to populate their unit references.
     if event == "PLAYER_ENTERING_WORLD" then
         KastaCDInitDB()
         C_Timer.After(1.5, function()
-            memberGUIDs = {}
-<<<<<<< HEAD
-            -- Always include the player themselves
-            memberGUIDs["player"] = UnitGUID("player")
-            -- Scan CompactRaidFrames (used in raid/party with default UI)
-            for i = 1, 40 do
-                local f = _G["CompactRaidFrame" .. i]
-                if not f then break end
-                local unit = f.unit or f.displayedUnit
-                if unit and UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
-=======
-            for _, pair in ipairs(FindUnitFrames()) do
-                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
->>>>>>> b4d543e5036399ff222b584b6912a25253fefd97
-            end
-            -- Direct unit-token fallback: covers party1-4 even when
-            -- CompactRaidFrames haven't populated yet (common on pservers)
-            for i = 1, 4 do
-                local unit = "party" .. i
-                if UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
-            end
+            RefreshMemberGUIDs()
             RebuildIcons()
         end)
         return
     end
 
     -- ── GROUP_ROSTER_UPDATE ────────────────────────────────────
-    -- Players join / leave the group.  Delay so the raid frame
-    -- widgets have updated their unit assignments first.
     if event == "GROUP_ROSTER_UPDATE" then
         if not HasGroup() then
             ClearIcons()
@@ -85,46 +76,19 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         end
         C_Timer.After(0.8, function()
             if not HasGroup() then ClearIcons(); return end
-            memberGUIDs = {}
-<<<<<<< HEAD
-            -- Always include the player themselves
-            memberGUIDs["player"] = UnitGUID("player")
-            -- CompactRaidFrames
-            for i = 1, 40 do
-                local f = _G["CompactRaidFrame" .. i]
-                if not f then break end
-                local unit = f.unit or f.displayedUnit
-                if unit and UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
-=======
-            for _, pair in ipairs(FindUnitFrames()) do
-                memberGUIDs[pair.unit] = UnitGUID(pair.unit)
->>>>>>> b4d543e5036399ff222b584b6912a25253fefd97
-            end
-            -- Direct unit-token fallback
-            for i = 1, 4 do
-                local unit = "party" .. i
-                if UnitExists(unit) then
-                    memberGUIDs[unit] = UnitGUID(unit)
-                end
-            end
+            RefreshMemberGUIDs()
             RebuildIcons()
         end)
         return
     end
 
     -- ── ZONE_CHANGED_NEW_AREA ──────────────────────────────────
-    -- Content type may have changed (e.g. entering arena).
-    -- Short delay so IsInInstance() returns the new value.
     if event == "ZONE_CHANGED_NEW_AREA" then
         C_Timer.After(1, RebuildIcons)
         return
     end
 
     -- ── Talent / spell changes ─────────────────────────────────
-    -- The player's available spells may have changed; rebuild so
-    -- newly learned spells appear and removed ones disappear.
     if event == "SPELLS_CHANGED"
     or event == "CHARACTER_POINTS_CHANGED"
     or event == "PLAYER_TALENT_UPDATE" then
@@ -139,14 +103,9 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     end
 
     -- ── INSPECT_READY ─────────────────────────────────────────
-    -- Fires when GetInspectSpecialization() data is ready for a unit.
-    -- The arg is the GUID of the inspected unit. Only clear that one
-    -- GUID's cache entry (not the whole cache) so we don't re-trigger
-    -- NotifyInspect for everyone and cause an infinite rebuild loop.
     if event == "INSPECT_READY" then
         local guid = select(1, ...)
         if guid and UNIT_SPEC_CACHE and UNIT_SPEC_CACHE[guid] == false then
-            -- Was pending; clear so GetUnitSpec() reads the fresh data next rebuild.
             UNIT_SPEC_CACHE[guid] = nil
             C_Timer.After(0.1, RebuildIcons)
         end

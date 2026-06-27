@@ -55,6 +55,60 @@ SlashCmdList["KASTACDDEBUG"] = function()
 end
 
 -- -------------------------------------------------------------
+-- /kcdelvui  –  deep ElvUI frame diagnostic
+-- Run this in a party and paste the full output.
+-- -------------------------------------------------------------
+SLASH_KASTACDELVUI1 = "/kcdelvui"
+SlashCmdList["KASTACDELVUI"] = function()
+    print("=== KastaCD ElvUI Diagnostic ===")
+
+    -- 1. Is ElvUI present?
+    print("ElvUI global:", tostring(_G.ElvUI ~= nil))
+
+    -- 2. Scan _G for any ElvUF_ frames
+    local elvFrames = {}
+    for k, v in pairs(_G) do
+        if type(k) == "string" and k:find("^ElvUF_") and type(v) == "table" and v.IsShown then
+            local unit = v.unit or v.displayedUnit
+            table.insert(elvFrames, string.format("  %s  shown=%s  unit=%s  exists=%s",
+                k, tostring(v:IsShown()), tostring(unit), tostring(unit and UnitExists(unit) or false)))
+        end
+    end
+    table.sort(elvFrames)
+    print("ElvUF_ globals found:", #elvFrames)
+    for _, s in ipairs(elvFrames) do print(s) end
+
+    -- 3. Direct unit token scan
+    print("Direct party unit scan:")
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then
+            print(string.format("  unit=%s  guid=%s", unit, tostring(UnitGUID(unit))))
+        end
+    end
+
+    -- 4. memberGUIDs table
+    print("memberGUIDs:")
+    for u, g in pairs(memberGUIDs) do
+        print("  ", u, "=", g)
+    end
+
+    -- 5. iconContainers
+    print("iconContainers:", (function() local n=0; for _ in pairs(iconContainers) do n=n+1 end; return n end)())
+    for k in pairs(iconContainers) do print("  ", k) end
+
+    -- 6. Enabled spell count
+    local ec = 0
+    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec = ec + 1 end
+    print("Enabled spells:", ec)
+
+    -- 7. Content enabled?
+    print("IsContentEnabled:", tostring(IsContentEnabled()))
+
+    print("=== end ===")
+end
+
+-- -------------------------------------------------------------
 -- /kcdlevel [spellID]
 -- -------------------------------------------------------------
 SLASH_KASTACDLEVEL1 = "/kcdlevel"
