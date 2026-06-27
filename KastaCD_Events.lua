@@ -8,7 +8,53 @@
 
 local kcdEvent = CreateFrame("Frame")
 
+-- =============================================================
+-- Version-check over the add-on comm channel (BigWigs-style).
+-- Every client broadcasts its own version to party/raid/guild;
+-- when we hear a HIGHER version than ours, we tell the player
+-- once. WoW add-ons cannot contact GitHub directly, so this
+-- peer-to-peer gossip is how updates get advertised in-game.
+-- =============================================================
+local COMM_PREFIX = "KastaCD"
+local notifiedNewVersion = false
+
+C_ChatInfo.RegisterAddonMessagePrefix(COMM_PREFIX)
+
+-- "1.2" / "1.10.3" -> { 1, 2 } / { 1, 10, 3 } so we compare
+-- numbers, not text ("1.9" < "1.10" is false as a string!).
+local function ParseVersion(str)
+    local parts = {}
+    for n in tostring(str):gmatch("%d+") do
+        parts[#parts + 1] = tonumber(n)
+    end
+    return parts
+end
+
+-- Is version string a NEWER than version string b?
+local function IsNewer(a, b)
+    local va, vb = ParseVersion(a), ParseVersion(b)
+    for i = 1, math.max(#va, #vb) do
+        local x, y = va[i] or 0, vb[i] or 0
+        if x ~= y then return x > y end
+    end
+    return false
+end
+
+-- Announce my version to whatever channels are valid right now.
+local function BroadcastVersion()
+    local msg = "V:" .. KASTACD_VERSION
+    if IsInRaid() then
+        C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "RAID")
+    elseif IsInGroup() then
+        C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "PARTY")
+    end
+    if IsInGuild() then
+        C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "GUILD")
+    end
+end
+
 kcdEvent:RegisterEvent("ADDON_LOADED")
+kcdEvent:RegisterEvent("CHAT_MSG_ADDON")
 kcdEvent:RegisterEvent("PLAYER_ENTERING_WORLD")
 kcdEvent:RegisterEvent("PLAYER_LOGOUT")
 kcdEvent:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -52,6 +98,20 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
+    -- ── CHAT_MSG_ADDON ─ someone announced their version ───────
+    if event == "CHAT_MSG_ADDON" then
+        local prefix, message = ...
+        if prefix == COMM_PREFIX and message:sub(1, 2) == "V:" then
+            local theirVersion = message:sub(3)
+            if not notifiedNewVersion and IsNewer(theirVersion, KASTACD_VERSION) then
+                notifiedNewVersion = true
+                print("|cffff7f00[KastaCD]|r A new version (" .. theirVersion ..
+                      ") is available! Get it at https://github.com/itsmekasta/KastaCD")
+            end
+        end
+        return
+    end
+
     -- ── PLAYER_LOGOUT ──────────────────────────────────────────
     if event == "PLAYER_LOGOUT" then
         PersistActiveProfile()
@@ -65,6 +125,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             RefreshMemberGUIDs()
             RebuildIcons()
         end)
+        -- Announce our version once channels are ready.
+        C_Timer.After(5, BroadcastVersion)
         return
     end
 
@@ -79,6 +141,9 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             RefreshMemberGUIDs()
             RebuildIcons()
         end)
+        -- New people joined: re-announce so they hear our version
+        -- and we hear theirs.
+        C_Timer.After(3, BroadcastVersion)
         return
     end
 
