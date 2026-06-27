@@ -176,21 +176,10 @@ KNOWN_UNIT_SPELLS = {}
 -- -------------------------------------------------------------
 UNIT_SPEC_CACHE = {}
 
--- Request inspect data for a unit so the game populates
--- GetInspectSpecialization(). Safe to call repeatedly; the game
--- throttles the underlying query itself.
-local function RequestInspect(unit)
-    if NotifyInspect and CanInspect and CanInspect(unit) then
-        NotifyInspect(unit)
-    end
-end
-
--- Return the cached spec ID for a unit, or nil if not yet known.
--- Also fires an inspect request so the cache fills in on the next
--- GROUP_ROSTER_UPDATE / RebuildIcons cycle.
+-- Request inspect data for group members so GetUnitSpec() can populate
+-- UNIT_SPEC_CACHE. Called from Events.lua before RebuildIcons.
 function GetUnitSpec(unit)
     if unit == "player" then
-        -- Local player: use the direct API, no inspect needed.
         if GetSpecialization then
             local idx = GetSpecialization()
             if idx then
@@ -204,32 +193,66 @@ function GetUnitSpec(unit)
     local guid = UnitGUID(unit)
     if not guid then return nil end
 
-    -- Return cached value if we already have it.
-    if UNIT_SPEC_CACHE[guid] ~= nil then
-        return UNIT_SPEC_CACHE[guid] or nil  -- false → nil (unknown)
-    end
+    -- Return cached value if confirmed (non-false).
+    local cached = UNIT_SPEC_CACHE[guid]
+    if cached and cached ~= false then return cached end
 
-    -- Not cached yet — try to read it now.
+    -- Try every party/raid/unit token that shares this GUID so we get
+    -- inspect data even after WoW switches from party to raid mode.
     local specId = nil
     if GetInspectSpecialization then
-        specId = GetInspectSpecialization(unit)
-        if specId and specId == 0 then specId = nil end  -- 0 = not ready
+        -- Try the unit itself first
+        local sid = GetInspectSpecialization(unit)
+        if sid and sid ~= 0 then specId = sid end
+
+        -- Try all party and raid tokens
+        if not specId then
+            for _, prefix in ipairs({"party", "raid"}) do
+                local limit = prefix == "party" and 4 or 40
+                for i = 1, limit do
+                    local alt = prefix .. i
+                    if UnitGUID(alt) == guid then
+                        local s = GetInspectSpecialization(alt)
+                        if s and s ~= 0 then specId = s; break end
+                    end
+                end
+                if specId then break end
+            end
+        end
     end
 
     if specId then
         UNIT_SPEC_CACHE[guid] = specId
-    else
-        -- Mark as "requested but not yet available" so we don't spam.
-        UNIT_SPEC_CACHE[guid] = false
-        RequestInspect(unit)
+        return specId
     end
 
-    return specId
+    -- Not available yet — fire inspect request and mark as pending.
+    -- Only request if not already pending (false = already requested).
+    if cached ~= false then
+        UNIT_SPEC_CACHE[guid] = false
+        if NotifyInspect and CanInspect and CanInspect(unit) then
+            NotifyInspect(unit)
+        end
+        -- Also try the alternate token in case this one isn't inspectable
+        for _, prefix in ipairs({"party", "raid"}) do
+            local limit = prefix == "party" and 4 or 40
+            for i = 1, limit do
+                local alt = prefix .. i
+                if UnitGUID(alt) == guid and CanInspect and CanInspect(alt) then
+                    NotifyInspect(alt)
+                    break
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 -- Call this whenever the group roster changes (from ClearIcons).
 function ClearSpecCache()
-    UNIT_SPEC_CACHE = {}
+    -- Wipe in-place to avoid global reassignment taint.
+    for k in pairs(UNIT_SPEC_CACHE) do UNIT_SPEC_CACHE[k] = nil end
 end
 
 -- -------------------------------------------------------------
@@ -238,12 +261,13 @@ end
 -- given specId matches one of the spell's allowed specs.
 -- -------------------------------------------------------------
 local function SpellMatchesSpec(data, specId)
-    -- No specs field = shared by all specs of that class.
+    -- No specs field = shared by all specs of that class. Always show.
     if not data.specs then return true end
-    -- Spec unknown yet — show the spell optimistically so the icon
-    -- appears immediately; it will be hidden on the next RebuildIcons
-    -- once the inspect data arrives and the spec is confirmed wrong.
-    if not specId then return true end
+    -- Spec unknown: hide spec-locked spells rather than showing everything.
+    -- This prevents the 3rd-join bug where WoW switches party→raid tokens,
+    -- inspect data isn't ready yet, and every class ability floods in.
+    -- Shared spells (no specs field) still appear immediately.
+    if not specId then return false end
     for _, s in ipairs(data.specs) do
         if s == specId then return true end
     end
