@@ -17,6 +17,7 @@ kcdEvent:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 kcdEvent:RegisterEvent("SPELLS_CHANGED")
 kcdEvent:RegisterEvent("CHARACTER_POINTS_CHANGED")
 kcdEvent:RegisterEvent("PLAYER_TALENT_UPDATE")
+kcdEvent:RegisterEvent("INSPECT_READY")
 
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── ADDON_LOADED ───────────────────────────────────────────
@@ -44,11 +45,22 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         KastaCDInitDB()
         C_Timer.After(1.5, function()
             memberGUIDs = {}
+            -- Always include the player themselves
+            memberGUIDs["player"] = UnitGUID("player")
+            -- Scan CompactRaidFrames (used in raid/party with default UI)
             for i = 1, 40 do
                 local f = _G["CompactRaidFrame" .. i]
                 if not f then break end
                 local unit = f.unit or f.displayedUnit
                 if unit and UnitExists(unit) then
+                    memberGUIDs[unit] = UnitGUID(unit)
+                end
+            end
+            -- Direct unit-token fallback: covers party1-4 even when
+            -- CompactRaidFrames haven't populated yet (common on pservers)
+            for i = 1, 4 do
+                local unit = "party" .. i
+                if UnitExists(unit) then
                     memberGUIDs[unit] = UnitGUID(unit)
                 end
             end
@@ -68,11 +80,21 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.8, function()
             if not HasGroup() then ClearIcons(); return end
             memberGUIDs = {}
+            -- Always include the player themselves
+            memberGUIDs["player"] = UnitGUID("player")
+            -- CompactRaidFrames
             for i = 1, 40 do
                 local f = _G["CompactRaidFrame" .. i]
                 if not f then break end
                 local unit = f.unit or f.displayedUnit
                 if unit and UnitExists(unit) then
+                    memberGUIDs[unit] = UnitGUID(unit)
+                end
+            end
+            -- Direct unit-token fallback
+            for i = 1, 4 do
+                local unit = "party" .. i
+                if UnitExists(unit) then
                     memberGUIDs[unit] = UnitGUID(unit)
                 end
             end
@@ -102,6 +124,21 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── COMBAT_LOG_EVENT_UNFILTERED ───────────────────────────
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCombatLog(...)
+        return
+    end
+
+    -- ── INSPECT_READY ─────────────────────────────────────────
+    -- Fires when GetInspectSpecialization() data is ready for a unit.
+    -- The arg is the GUID of the inspected unit. Only clear that one
+    -- GUID's cache entry (not the whole cache) so we don't re-trigger
+    -- NotifyInspect for everyone and cause an infinite rebuild loop.
+    if event == "INSPECT_READY" then
+        local guid = select(1, ...)
+        if guid and UNIT_SPEC_CACHE and UNIT_SPEC_CACHE[guid] == false then
+            -- Was pending; clear so GetUnitSpec() reads the fresh data next rebuild.
+            UNIT_SPEC_CACHE[guid] = nil
+            C_Timer.After(0.1, RebuildIcons)
+        end
         return
     end
 end)

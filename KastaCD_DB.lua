@@ -168,6 +168,88 @@ end
 -- upfront from minLevel gating without needing a prior cast.
 KNOWN_UNIT_SPELLS = {}
 
+-- -------------------------------------------------------------
+-- Spec cache  –  [guid] = specId (number) or false (unknown)
+-- Populated lazily on first call per unit; cleared by ClearSpecCache()
+-- which is called from ClearIcons() in Tracking.lua whenever the
+-- group roster changes.
+-- -------------------------------------------------------------
+UNIT_SPEC_CACHE = {}
+
+-- Request inspect data for a unit so the game populates
+-- GetInspectSpecialization(). Safe to call repeatedly; the game
+-- throttles the underlying query itself.
+local function RequestInspect(unit)
+    if NotifyInspect and CanInspect and CanInspect(unit) then
+        NotifyInspect(unit)
+    end
+end
+
+-- Return the cached spec ID for a unit, or nil if not yet known.
+-- Also fires an inspect request so the cache fills in on the next
+-- GROUP_ROSTER_UPDATE / RebuildIcons cycle.
+function GetUnitSpec(unit)
+    if unit == "player" then
+        -- Local player: use the direct API, no inspect needed.
+        if GetSpecialization then
+            local idx = GetSpecialization()
+            if idx then
+                local specId = GetSpecializationInfo(idx)
+                return specId
+            end
+        end
+        return nil
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then return nil end
+
+    -- Return cached value if we already have it.
+    if UNIT_SPEC_CACHE[guid] ~= nil then
+        return UNIT_SPEC_CACHE[guid] or nil  -- false → nil (unknown)
+    end
+
+    -- Not cached yet — try to read it now.
+    local specId = nil
+    if GetInspectSpecialization then
+        specId = GetInspectSpecialization(unit)
+        if specId and specId == 0 then specId = nil end  -- 0 = not ready
+    end
+
+    if specId then
+        UNIT_SPEC_CACHE[guid] = specId
+    else
+        -- Mark as "requested but not yet available" so we don't spam.
+        UNIT_SPEC_CACHE[guid] = false
+        RequestInspect(unit)
+    end
+
+    return specId
+end
+
+-- Call this whenever the group roster changes (from ClearIcons).
+function ClearSpecCache()
+    UNIT_SPEC_CACHE = {}
+end
+
+-- -------------------------------------------------------------
+-- Spec filter helper
+-- Returns true if the spell has no spec restriction, or if the
+-- given specId matches one of the spell's allowed specs.
+-- -------------------------------------------------------------
+local function SpellMatchesSpec(data, specId)
+    -- No specs field = shared by all specs of that class.
+    if not data.specs then return true end
+    -- Spec unknown yet — show the spell optimistically so the icon
+    -- appears immediately; it will be hidden on the next RebuildIcons
+    -- once the inspect data arrives and the spec is confirmed wrong.
+    if not specId then return true end
+    for _, s in ipairs(data.specs) do
+        if s == specId then return true end
+    end
+    return false
+end
+
 function IsSpellKnownForUnit(unit, spellId)
     local data = SPELL_DB[spellId]
     if not data then return false end
@@ -179,25 +261,39 @@ function IsSpellKnownForUnit(unit, spellId)
             local ov = FindSpellOverrideByID(spellId)
             if ov and ov ~= 0 then checkId = ov end
         end
-        if IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)) then return true end
-        if IsSpellKnown  and (IsSpellKnown(checkId)  or IsSpellKnown(spellId))  then return true end
+        if IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)) then
+            -- Still filter by spec even for the player.
+            local specId = GetUnitSpec("player")
+            return SpellMatchesSpec(data, specId)
+        end
+        if IsSpellKnown and (IsSpellKnown(checkId) or IsSpellKnown(spellId)) then
+            local specId = GetUnitSpec("player")
+            return SpellMatchesSpec(data, specId)
+        end
         return false
     end
 
-    -- Non-player units: no API to inspect their spellbook.
-    -- Gate on minLevel so icons appear the moment they join the group.
+    -- ── Non-player units ──────────────────────────────────────
     local lvl = UnitLevel(unit)
     if not lvl or lvl < 0 then return false end
     if lvl == 0 then lvl = 110 end  -- pserver quirk: 0 means max level
 
-    -- Combat-log sighting overrides the level gate (catches talent spells
-    -- that have no minLevel entry, or spells seen before level data arrives).
+    -- Spec check: hide icons for wrong-spec spells.
+    -- If the spec isn't known yet we show the spell optimistically
+    -- (SpellMatchesSpec returns true when specId is nil) and correct
+    -- on the next rebuild once inspect data comes in.
+    local specId = GetUnitSpec(unit)
+    if not SpellMatchesSpec(data, specId) then return false end
+
+    -- Combat-log sighting confirms the spell exists for this unit
+    -- regardless of level — catches talent spells with no minLevel.
     local guid = UnitGUID(unit)
     if guid and KNOWN_UNIT_SPELLS[guid] and KNOWN_UNIT_SPELLS[guid][spellId] then
         return true
     end
 
-    if not data.minLevel then return false end
+    -- No minLevel defined — assume available at the unit's current level.
+    if not data.minLevel then return true end
     return lvl >= data.minLevel
 end
 

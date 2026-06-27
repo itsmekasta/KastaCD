@@ -62,6 +62,8 @@ function ClearIcons()
     iconContainers = {}
     trackerState   = {}
     memberGUIDs    = {}
+    -- Invalidate cached spec IDs so the next RebuildIcons re-inspects.
+    if ClearSpecCache then ClearSpecCache() end
 end
 
 -- -------------------------------------------------------------
@@ -327,9 +329,9 @@ C_Timer.NewTicker(0.1, function()
     for unit, spells in pairs(trackerState) do
         for sid, state in pairs(spells) do
             local f = state.frame
-            if not f then break end
-
-            if state.phase == "uptime" then
+            if not f then
+                -- Skip this spell; don't abort the entire unit loop.
+            elseif state.phase == "uptime" then
                 local rem = state.endTime - now
                 if rem <= 0 then
                     -- Uptime expired → enter cooldown

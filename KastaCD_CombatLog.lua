@@ -9,10 +9,30 @@
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua
 -- =============================================================
 
-function HandleCombatLog(timestamp, subEvent, hideCaster,
-    sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
-    destGUID, destName, destFlags, destRaidFlags,
-    spellId, spellName, spellSchool)
+function HandleCombatLog(...)
+    -- Private servers (TrinityCore/AzerothCore 7.3.5) are inconsistent:
+    -- some pass combat log fields as direct event args (old pre-Legion style),
+    -- others implement CombatLogGetCurrentEventInfo(). Try the API first;
+    -- if it returns nothing fall back to the varargs passed in.
+    local timestamp, subEvent, hideCaster,
+        sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+        destGUID, destName, destFlags, destRaidFlags,
+        spellId, spellName, spellSchool
+
+    if CombatLogGetCurrentEventInfo then
+        timestamp, subEvent, hideCaster,
+            sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+            destGUID, destName, destFlags, destRaidFlags,
+            spellId, spellName, spellSchool = CombatLogGetCurrentEventInfo()
+    end
+
+    -- Fallback: pserver passed args directly via the event
+    if not subEvent then
+        timestamp, subEvent, hideCaster,
+            sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+            destGUID, destName, destFlags, destRaidFlags,
+            spellId, spellName, spellSchool = ...
+    end
 
     -- We only care about successful casts
     if subEvent ~= "SPELL_CAST_SUCCESS" then return end
