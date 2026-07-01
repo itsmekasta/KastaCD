@@ -4,6 +4,7 @@
 ## Author: Kasta
 ## Version: 1.5.1
 ## SavedVariables: KastaCDDB
+## OptionalDeps: SharedMedia, LibSharedMedia-3.0
 
 # 1. Entry point: addon identity, version global, load message
 KastaCD.lua

@@ -50,15 +50,20 @@ local intBarsParent  = nil
 -- ─────────────────────────────────────────────────────────────
 -- DB accessor with lazy defaults
 -- ─────────────────────────────────────────────────────────────
+-- Default statusbar texture, used whenever no SharedMedia texture has
+-- been picked (or SharedMedia/LibStub isn't installed at all).
+local DEFAULT_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+
 local function GetIntDB()
-    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false} end
+    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false,texturePath=DEFAULT_BAR_TEXTURE} end
     if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
     local db = KastaCDDB.intAnchor
-    if db.barWidth  == nil then db.barWidth  = 200 end
-    if db.barHeight == nil then db.barHeight = 20  end
-    if db.enabled   == nil then db.enabled   = true end
-    if db.locked    == nil then db.locked    = true end
-    if db.testMode  == nil then db.testMode  = false end
+    if db.barWidth    == nil then db.barWidth    = 200 end
+    if db.barHeight   == nil then db.barHeight   = 20  end
+    if db.enabled     == nil then db.enabled     = true end
+    if db.locked      == nil then db.locked      = true end
+    if db.testMode    == nil then db.testMode    = false end
+    if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
     return db
 end
 
@@ -256,6 +261,14 @@ function RebuildInterruptBars()
                 if not bf then
                     local row = CreateFrame("Frame", nil, intBarsParent)
 
+                    -- Border: a slightly larger solid-black layer behind
+                    -- the icon+bar combo, giving a clean 1px outline -
+                    -- same flat/minimal border technique used elsewhere.
+                    local border = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    border:SetPoint("TOPLEFT",     row, "TOPLEFT",     -1,  1)
+                    border:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT",  1, -1)
+                    border:SetColorTexture(0, 0, 0, 1)
+
                     -- Icon frame
                     local iconF = CreateFrame("Frame", nil, row)
                     iconF:SetSize(ICO, ICO)
@@ -283,18 +296,18 @@ function RebuildInterruptBars()
                     end)
                     iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-                    -- StatusBar (background + fill)
+                    -- StatusBar (background + fill). Texture is applied
+                    -- every rebuild below (not here) so changing it in
+                    -- settings updates already-existing bars immediately.
                     local sb = CreateFrame("StatusBar", nil, row)
                     sb:SetPoint("LEFT",  iconF, "RIGHT",  0, 0)
                     sb:SetPoint("RIGHT", row,   "RIGHT",  0, 0)
                     sb:SetHeight(BH)
-                    sb:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                     sb:SetMinMaxValues(0, 1)
                     sb:SetValue(1)
 
                     local sbBg = sb:CreateTexture(nil, "BACKGROUND")
                     sbBg:SetAllPoints()
-                    sbBg:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
                     sbBg:SetAlpha(0.25)
 
                     local nameText = sb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -325,15 +338,30 @@ function RebuildInterruptBars()
                 -- Resize status bar (in case barWidth changed)
                 bf.sb:SetHeight(BH)
 
+                -- Statusbar texture (applied every rebuild so a SharedMedia
+                -- selection change in settings takes effect immediately).
+                local barTex = db.texturePath or DEFAULT_BAR_TEXTURE
+                bf.sb:SetStatusBarTexture(barTex)
+                bf.sbBg:SetTexture(barTex)
+
                 -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)
                 if tex then bf.ico:SetTexture(tex) end
 
-                -- Class colour
+                -- Class colour: fill always class-colored, background
+                -- track starts grey if already on cooldown so there's no
+                -- flash of the wrong colour before the next 0.1s ticker
+                -- tick corrects it - the ticker owns this for everything
+                -- after the first draw.
                 local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
                 if cc then
                     bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
-                    bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
+                    local onCooldown = st and st.endTime and st.endTime > GetTime()
+                    if onCooldown then
+                        bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
+                    else
+                        bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
+                    end
                 end
 
                 -- Font (applied every rebuild so slider/dropdown changes take effect).
@@ -438,10 +466,17 @@ C_Timer.NewTicker(0.1, function()
         local bf = intBarFrames[unit]
         if bf and bf.row:IsShown() then
             local cd = st.cooldown or 1
+            local cc = RAID_CLASS_COLORS and st.class and RAID_CLASS_COLORS[st.class]
             if st.endTime and st.endTime > now then
                 local remaining = st.endTime - now
                 -- Inverted: 0 = just used, fills toward 1 = ready
                 bf.sb:SetValue(math.max(0, math.min(1, 1 - remaining / cd)))
+                -- Fill stays class-colored; grey the background track
+                -- instead while on cooldown - makes "still down" instantly
+                -- readable without checking the text, without losing the
+                -- class-color identity on the active bar itself.
+                if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
+                bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
                 local secs = math.ceil(remaining)
                 if secs >= 60 then
                     bf.cdText:SetText(math.floor(secs / 60) .. "m" .. string.format("%02d", secs % 60))
@@ -450,6 +485,10 @@ C_Timer.NewTicker(0.1, function()
                 end
             else
                 bf.sb:SetValue(1)
+                if cc then
+                    bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
+                    bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
+                end
                 bf.cdText:SetText("")
             end
         end

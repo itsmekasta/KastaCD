@@ -171,6 +171,129 @@ local function MakeToggle(parent, txt, isOn, point, relFrame, relPoint, x, y, on
 end
 
 -- =============================================================
+-- SharedMedia integration (optional - degrades to a small built-in
+-- fallback list if LibStub/LibSharedMedia-3.0 isn't installed, e.g. via
+-- the standalone "SharedMedia" addon).
+-- =============================================================
+local LSM = LibStub and LibStub:GetLibrary("LibSharedMedia-3.0", true)
+
+local FALLBACK_FONTS = {
+    { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF"  },
+    { name = "Arial Narrow",  path = "Fonts\\ARIALN.TTF"    },
+    { name = "Morpheus",      path = "Fonts\\MORPHEUS.TTF"  },
+    { name = "Skurri",        path = "Fonts\\SKURRI.TTF"    },
+}
+local FALLBACK_TEXTURES = {
+    { name = "Blizzard",   path = "Interface\\TargetingFrame\\UI-StatusBar" },
+    { name = "Solid",      path = "Interface\\Buttons\\WHITE8x8"            },
+}
+
+-- Button + scrollable popup that lists either SharedMedia entries for
+-- mediaType (LSM.MediaType.FONT / .STATUSBAR) or a small built-in
+-- fallback list when SharedMedia isn't installed / has nothing registered
+-- for that type. getCurrentPath()/applyFn(path) read and write the saved
+-- selection - same pattern the original hand-rolled font picker used,
+-- just shared between fonts and textures instead of duplicated per use.
+-- kind: "font" previews each row rendered in its own font; "texture"
+-- shows a small swatch of the actual statusbar art next to the name.
+-- Anything else (or omitted) just shows the plain name, no preview.
+local function MakeMediaPicker(panel, label, x, y, mediaType, fallbackList, getCurrentPath, applyFn, kind)
+    local options = {}
+    if LSM and mediaType then
+        for _, name in ipairs(LSM:List(mediaType)) do
+            table.insert(options, { name = name, path = LSM:Fetch(mediaType, name) })
+        end
+        table.sort(options, function(a, b) return a.name < b.name end)
+    end
+    if #options == 0 then
+        options = fallbackList
+    end
+
+    MakeLabel(panel, label, "TOPLEFT", panel, "TOPLEFT", x, y)
+
+    local function CurrentName()
+        local cur = getCurrentPath()
+        for _, o in ipairs(options) do
+            if o.path == cur then return o.name end
+        end
+        return options[1] and options[1].name or "Default"
+    end
+
+    local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btn:SetSize(160, 22)
+    btn:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y - 18)
+    btn:SetText(CurrentName())
+
+    local ROW_H    = 20
+    local visible   = math.min(#options, 10)
+    local popup = CreateFrame("Frame", nil, panel)
+    popup:SetFrameStrata("FULLSCREEN_DIALOG")
+    popup:SetSize(180, visible * ROW_H + 6)
+    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    popup:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left=3, right=3, top=3, bottom=3 },
+    })
+    popup:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+    popup:Hide()
+
+    local scroll = CreateFrame("ScrollFrame", nil, popup, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 3, -3)
+    scroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -22, 3)
+
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(150, math.max(1, #options * ROW_H))
+    scroll:SetScrollChild(child)
+
+    for i, o in ipairs(options) do
+        local eBtn = CreateFrame("Button", nil, child)
+        eBtn:SetSize(150, ROW_H)
+        eBtn:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * ROW_H)
+        eBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        local eTxt = eBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        eTxt:SetJustifyH("LEFT")
+        eTxt:SetText(o.name)
+
+        if kind == "font" then
+            -- Preview: render the entry's own name using its own font
+            -- file, so the list doubles as a live sample of each option.
+            -- Falls back to the default font if the file fails to load
+            -- at this size (e.g. a broken/incompatible font file).
+            eTxt:SetAllPoints()
+            local ok = pcall(function() eTxt:SetFont(o.path, 12, "OUTLINE") end)
+            if not ok then eTxt:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE") end
+        elseif kind == "texture" then
+            -- Preview: a small swatch of the actual statusbar art next to
+            -- the name, so users can see the texture before picking it.
+            local swatch = eBtn:CreateTexture(nil, "ARTWORK")
+            swatch:SetSize(36, ROW_H - 6)
+            swatch:SetPoint("LEFT", eBtn, "LEFT", 2, 0)
+            swatch:SetTexture(o.path)
+            eTxt:SetPoint("LEFT", swatch, "RIGHT", 4, 0)
+            eTxt:SetPoint("RIGHT", eBtn, "RIGHT", 0, 0)
+        else
+            eTxt:SetAllPoints()
+        end
+
+        local oPath, oName = o.path, o.name
+        eBtn:SetScript("OnClick", function()
+            applyFn(oPath)
+            btn:SetText(oName)
+            popup:Hide()
+        end)
+    end
+
+    btn:SetScript("OnClick", function()
+        popup:SetShown(not popup:IsShown())
+    end)
+
+    return btn, popup
+end
+
+-- =============================================================
 -- CreateKastaCDMenu  –  build the full UI (called once, lazily)
 -- =============================================================
 function CreateKastaCDMenu()
@@ -838,12 +961,12 @@ function CreateKastaCDMenu()
     -- silently drift out of sync if the frame/sidebar width ever changes.
     local ICX_ROW_W = 200 + 6 + 42
     local ICX = math.floor((CONTENT_W - ICX_ROW_W) / 2)
-    -- intY: block runs from y=0 (header) to y=-374 (bottom of the Lock
-    -- Anchor button, after the Position X/Y rows below), and the content
-    -- area is ~533px tall, so (533-374)/2 ≈ 80 centres it vertically -
-    -- the old -66 packed everything near the top with a large empty gap
-    -- at the bottom, especially after the description text was removed.
-    local intY = -80
+    -- intY: block runs from y=0 (header) to y=-422 (bottom of the Lock
+    -- Anchor button, after Position X/Y and Texture rows), and the
+    -- content area is ~533px tall, so (533-422)/2 ≈ 56 centres it
+    -- vertically. Recompute this any time a row is added/removed from
+    -- either tracker panel - it does NOT update itself automatically.
+    local intY = -56
     MakeLabel(panelInt, "Interrupt Tracker", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY)
 
     -- Enable toggle
@@ -920,73 +1043,26 @@ function CreateKastaCDMenu()
         end)
     intPYS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 220)
 
-    -- ── Font selector ─────────────────────────────────────────
-    local FONT_LIST = {
-        { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF"  },
-        { name = "Arial Narrow",  path = "Fonts\\ARIALN.TTF"    },
-        { name = "Morpheus",      path = "Fonts\\MORPHEUS.TTF"  },
-        { name = "Skurri",        path = "Fonts\\SKURRI.TTF"    },
-    }
-
-    local function CurrentFontName()
-        local cur = KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontPath or "Fonts\\FRIZQT__.TTF"
-        for _, f in ipairs(FONT_LIST) do
-            if f.path == cur then return f.name end
-        end
-        return "Friz Quadrata"
-    end
-
-    MakeLabel(panelInt, "Font:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 250)
-
-    local intFontBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
-    intFontBtn:SetSize(160, 22)
-    intFontBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 268)
-    intFontBtn:SetText(CurrentFontName())
-
-    -- Popup frame listing font options (hidden by default)
-    local intFontPopup = CreateFrame("Frame", nil, panelInt)
-    intFontPopup:SetFrameStrata("FULLSCREEN_DIALOG")
-    intFontPopup:SetSize(160, #FONT_LIST * 22)
-    intFontPopup:SetPoint("TOPLEFT", intFontBtn, "BOTTOMLEFT", 0, -2)
-    intFontPopup:SetBackdrop({
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left=3, right=3, top=3, bottom=3 },
-    })
-    intFontPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
-    intFontPopup:Hide()
-
-    for i, f in ipairs(FONT_LIST) do
-        local fBtn = CreateFrame("Button", nil, intFontPopup)
-        fBtn:SetSize(154, 20)
-        fBtn:SetPoint("TOPLEFT", intFontPopup, "TOPLEFT", 3, -3 - (i - 1) * 20)
-        local fTxt = fBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fTxt:SetAllPoints()
-        fTxt:SetJustifyH("LEFT")
-        fTxt:SetText(f.name)
-        fBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-        local fPath = f.path
-        local fName = f.name
-        fBtn:SetScript("OnClick", function()
+    -- ── Font selector (SharedMedia-aware) ─────────────────────
+    MakeMediaPicker(panelInt, "Font:", ICX, intY - 250, LSM and LSM.MediaType.FONT, FALLBACK_FONTS,
+        function() return KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontPath or "Fonts\\FRIZQT__.TTF" end,
+        function(path)
             if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
-            KastaCDDB.intAnchor.fontPath = fPath
-            intFontBtn:SetText(fName)
-            intFontPopup:Hide()
+            KastaCDDB.intAnchor.fontPath = path
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
-        end)
-    end
+        end, "font")
 
-    intFontBtn:SetScript("OnClick", function()
-        if intFontPopup:IsShown() then
-            intFontPopup:Hide()
-        else
-            intFontPopup:Show()
-        end
-    end)
+    -- ── Statusbar texture selector (SharedMedia-aware) ────────
+    MakeMediaPicker(panelInt, "Texture:", ICX, intY - 298, LSM and LSM.MediaType.STATUSBAR, FALLBACK_TEXTURES,
+        function() return KastaCDDB.intAnchor and KastaCDDB.intAnchor.texturePath or "Interface\\TargetingFrame\\UI-StatusBar" end,
+        function(path)
+            if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+            KastaCDDB.intAnchor.texturePath = path
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        end, "texture")
 
     -- ── Font size slider ──────────────────────────────────────
-    MakeLabel(panelInt, "Font Size:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 298)
+    MakeLabel(panelInt, "Font Size:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 346)
     local intFSS = MakeSlider(panelInt, 8, 18,
         (KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontSize) or 10, 200,
         function(v)
@@ -994,12 +1070,12 @@ function CreateKastaCDMenu()
             KastaCDDB.intAnchor.fontSize = v
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
         end)
-    intFSS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 316)
+    intFSS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 364)
 
     -- Anchor lock button
     local intLockBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
     intLockBtn:SetSize(130, 22)
-    intLockBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 352)
+    intLockBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 400)
     local function RefreshIntLockBtn()
         local locked = not KastaCDDB.intAnchor or KastaCDDB.intAnchor.locked ~= false
         intLockBtn:SetText(locked and "Unlock Anchor" or "Lock Anchor")
@@ -1101,66 +1177,26 @@ function CreateKastaCDMenu()
         end)
     ccPYS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 220)
 
-    -- ── Font selector ─────────────────────────────────────────
-    local function CCCurrentFontName()
-        local cur = KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.fontPath or "Fonts\\FRIZQT__.TTF"
-        for _, f in ipairs(FONT_LIST) do
-            if f.path == cur then return f.name end
-        end
-        return "Friz Quadrata"
-    end
-
-    MakeLabel(panelCC, "Font:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 250)
-
-    local ccFontBtn = CreateFrame("Button", nil, panelCC, "UIPanelButtonTemplate")
-    ccFontBtn:SetSize(160, 22)
-    ccFontBtn:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 268)
-    ccFontBtn:SetText(CCCurrentFontName())
-
-    -- Popup frame listing font options (hidden by default)
-    local ccFontPopup = CreateFrame("Frame", nil, panelCC)
-    ccFontPopup:SetFrameStrata("FULLSCREEN_DIALOG")
-    ccFontPopup:SetSize(160, #FONT_LIST * 22)
-    ccFontPopup:SetPoint("TOPLEFT", ccFontBtn, "BOTTOMLEFT", 0, -2)
-    ccFontPopup:SetBackdrop({
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left=3, right=3, top=3, bottom=3 },
-    })
-    ccFontPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
-    ccFontPopup:Hide()
-
-    for i, f in ipairs(FONT_LIST) do
-        local fBtn = CreateFrame("Button", nil, ccFontPopup)
-        fBtn:SetSize(154, 20)
-        fBtn:SetPoint("TOPLEFT", ccFontPopup, "TOPLEFT", 3, -3 - (i - 1) * 20)
-        local fTxt = fBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fTxt:SetAllPoints()
-        fTxt:SetJustifyH("LEFT")
-        fTxt:SetText(f.name)
-        fBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-        local fPath = f.path
-        local fName = f.name
-        fBtn:SetScript("OnClick", function()
+    -- ── Font selector (SharedMedia-aware) ─────────────────────
+    MakeMediaPicker(panelCC, "Font:", ICX, intY - 250, LSM and LSM.MediaType.FONT, FALLBACK_FONTS,
+        function() return KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.fontPath or "Fonts\\FRIZQT__.TTF" end,
+        function(path)
             if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
-            KastaCDDB.ccAnchor.fontPath = fPath
-            ccFontBtn:SetText(fName)
-            ccFontPopup:Hide()
+            KastaCDDB.ccAnchor.fontPath = path
             if type(RebuildCCBars) == "function" then RebuildCCBars() end
-        end)
-    end
+        end, "font")
 
-    ccFontBtn:SetScript("OnClick", function()
-        if ccFontPopup:IsShown() then
-            ccFontPopup:Hide()
-        else
-            ccFontPopup:Show()
-        end
-    end)
+    -- ── Statusbar texture selector (SharedMedia-aware) ────────
+    MakeMediaPicker(panelCC, "Texture:", ICX, intY - 298, LSM and LSM.MediaType.STATUSBAR, FALLBACK_TEXTURES,
+        function() return KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.texturePath or "Interface\\TargetingFrame\\UI-StatusBar" end,
+        function(path)
+            if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+            KastaCDDB.ccAnchor.texturePath = path
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end, "texture")
 
     -- ── Font size slider ──────────────────────────────────────
-    MakeLabel(panelCC, "Font Size:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 298)
+    MakeLabel(panelCC, "Font Size:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 346)
     local ccFSS = MakeSlider(panelCC, 8, 18,
         (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.fontSize) or 10, 200,
         function(v)
@@ -1168,12 +1204,12 @@ function CreateKastaCDMenu()
             KastaCDDB.ccAnchor.fontSize = v
             if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
-    ccFSS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 316)
+    ccFSS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 364)
 
     -- Anchor lock button
     local ccLockBtn = CreateFrame("Button", nil, panelCC, "UIPanelButtonTemplate")
     ccLockBtn:SetSize(130, 22)
-    ccLockBtn:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 352)
+    ccLockBtn:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 400)
     local function RefreshCCLockBtn()
         local locked = not KastaCDDB.ccAnchor or KastaCDDB.ccAnchor.locked ~= false
         ccLockBtn:SetText(locked and "Unlock Anchor" or "Lock Anchor")
