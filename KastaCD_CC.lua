@@ -320,12 +320,12 @@ function RebuildCCBars()
 
     EnsureCCAnchor()
 
-    -- Collect current party units. While solo with Test Mode on, there's
-    -- no real party to preview against, so substitute 5 fake units
-    -- instead - otherwise only the anchor/header would ever be visible,
-    -- since a lone player only ever produces one bar.
+    -- Collect current party units. Test Mode always substitutes 5 fake
+    -- units, whether solo or grouped, so it's a straightforward "show me
+    -- the demo" toggle usable anytime - not just when there's no real
+    -- party to preview against.
     local units = {}
-    local usingFakeUnits = db.testMode and not IsInGroup()
+    local usingFakeUnits = db.testMode
     if usingFakeUnits then
         for _, u in ipairs(TEST_FAKE_UNITS) do units[#units + 1] = u.token end
     else
