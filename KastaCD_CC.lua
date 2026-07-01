@@ -36,6 +36,12 @@ local CC_DEFAULT = {}
 -- always safe to guess since they're guaranteed available the moment the
 -- spec/class matches. A real combat-log cast is ground truth regardless
 -- of either flag, since you can't cast what you don't have.
+--
+-- `race` gates a racial ability to a specific UnitRace() token (e.g.
+-- "BloodElf") - only relevant to the guess path, same reasoning as
+-- isTalent. `class="ALL"` marks an entry as available to any class
+-- (mirrors SPELL_DB[208683]'s PvP Medallion convention), used together
+-- with `race` for racials that aren't tied to a single class at all.
 --   WARRIOR:     71=Arms, 72=Fury, 73=Protection
 --   PALADIN:     65=Holy, 66=Protection, 70=Retribution
 --   HUNTER:     253=Beast Mastery, 254=Marksmanship, 255=Survival
@@ -105,6 +111,18 @@ CC_SPELLS = {
     -- DEMONHUNTER
     [179057] = { class="DEMONHUNTER", cooldown=45,  specs={577},    isTalent=true },       -- Chaos Nova (Havoc talent)
     [217832] = { class="DEMONHUNTER", cooldown=90                   },                    -- Imprison
+
+    -- RACIALS (not tied to a single class - see the `race`/class="ALL"
+    -- comment above). Arcane Torrent is Blood Elf only; it exists as
+    -- several different spell IDs depending on the caster's resource
+    -- type (mana/energy/rage/etc). Legion 2-minute base cooldown.
+    [28730]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Mana)
+    [25046]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Energy - Rogue)
+    [69179]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Rage - Warrior)
+    [80483]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Focus - Hunter)
+    [50613]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Runic Power - Death Knight)
+    [129597] = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Chi - Monk)
+    [197908] = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Fury - Demon Hunter)
 }
 
 -- Per-unit state and bar frames
@@ -139,7 +157,7 @@ for _, u in ipairs(TEST_FAKE_UNITS) do TEST_FAKE_LOOKUP[u.token] = u end
 local DEFAULT_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 local function GetCCDB()
-    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false,texturePath=DEFAULT_BAR_TEXTURE} end
+    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false,texturePath=DEFAULT_BAR_TEXTURE,hideBorder=false} end
     if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
     local db = KastaCDDB.ccAnchor
     if db.barWidth    == nil then db.barWidth    = 200 end
@@ -148,6 +166,7 @@ local function GetCCDB()
     if db.locked      == nil then db.locked      = true end
     if db.testMode    == nil then db.testMode    = false end
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
+    if db.hideBorder  == nil then db.hideBorder  = false end
     return db
 end
 
@@ -162,10 +181,17 @@ end
 -- us which talent was picked (e.g. Shockwave and Storm Bolt are both
 -- valid for Protection), so guessing one would just be wrong as often as
 -- right. Those only ever appear once actually witnessed via combat log.
-local function PickGuessCC(class, specId)
+--
+-- raceToken (from UnitRace(unit)'s second return) gates race-restricted
+-- entries (class="ALL", e.g. Arcane Torrent) the same way specId gates
+-- spec-restricted ones - an entry with a race requirement is skipped for
+-- anyone who isn't that race, regardless of class/spec match.
+local function PickGuessCC(class, specId, raceToken)
     local fallback = nil
     for sid, info in pairs(CC_SPELLS) do
-        if info.class == class and not info.isTalent then
+        local classOk = info.class == class or info.class == "ALL"
+        local raceOk  = not info.race or info.race == raceToken
+        if classOk and raceOk and not info.isTalent then
             if not info.specs then
                 -- Baseline for every spec - good enough unless something
                 -- more specific (an exact spec match) turns up.
@@ -297,6 +323,38 @@ function SetCCAnchorPos(x, y)
     ccAnchorFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x / esc, y / esc)
 end
 
+-- Returns the anchor's current resolved x/y in the same units
+-- SetCCAnchorPos expects. If nothing's been saved yet (anchor still
+-- sitting at its CENTER-relative default), this reads the *actual* live
+-- position off the frame instead of returning 0/0 - otherwise the
+-- Position X/Y sliders in settings would snap the anchor to the corner
+-- of the screen the moment either one is touched, since writing one axis
+-- always writes both and the other would fall back to a wrong default.
+function GetCCAnchorPos()
+    EnsureCCAnchor()
+    local db = GetCCDB()
+    if db.savedX and db.savedY then
+        return db.savedX, db.savedY
+    end
+    local esc = ccAnchorFrame:GetEffectiveScale()
+    local usc = UIParent:GetEffectiveScale()
+    local x = ccAnchorFrame:GetLeft() * esc
+    local y = (ccAnchorFrame:GetTop() * esc) - (UIParent:GetTop() * usc)
+    return x, y
+end
+
+-- Clears a unit's stored state (real witnessed cast or guess alike), so
+-- the next rebuild re-evaluates their default guess from scratch. Needed
+-- because a spec change can make previously-witnessed "ground truth"
+-- state factually wrong (e.g. a Blood DK's witnessed Asphyxiate cast
+-- keeps showing after respeccing to Frost, which can't use it at all) -
+-- without this, stale ground-truth data persists forever since it's
+-- normally treated as permanently authoritative. Called from
+-- KastaCD_Events.lua whenever a spec change is detected.
+function ClearCCBarState(unit)
+    ccBarState[unit] = nil
+end
+
 -- ─────────────────────────────────────────────────────────────
 -- Rebuild all crowd-control bars
 -- ─────────────────────────────────────────────────────────────
@@ -399,8 +457,9 @@ function RebuildCCBars()
             -- Storm Bolt -> Shockwave) updates it immediately instead of
             -- getting stuck on the first guess.
             if not fakeInfo and not defCC and (not st or st.isPreview) then
-                local specId = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
-                defCC = PickGuessCC(class, specId)
+                local specId    = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
+                local raceToken = select(2, UnitRace(unit))
+                defCC = PickGuessCC(class, specId, raceToken)
                 isPreviewPick = true
             end
 
@@ -478,7 +537,7 @@ function RebuildCCBars()
                     cdText:SetJustifyV("MIDDLE")
                     cdText:SetTextColor(1, 1, 0.7)
 
-                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText }
+                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText, border=border }
                     ccBarFrames[unit] = bf
                 end
 
@@ -498,6 +557,10 @@ function RebuildCCBars()
                 local barTex = db.texturePath or DEFAULT_BAR_TEXTURE
                 bf.sb:SetStatusBarTexture(barTex)
                 bf.sbBg:SetTexture(barTex)
+
+                -- Border visibility (applied every rebuild so toggling it
+                -- in settings takes effect immediately).
+                bf.border:SetShown(not db.hideBorder)
 
                 -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)

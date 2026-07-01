@@ -139,11 +139,20 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     end
 
     -- ── Talent / spell / spec changes ──────────────────────────
+    -- Also clears the player's stored interrupt/CC bar state before
+    -- rebuilding: once a real cast has been witnessed it's normally
+    -- treated as permanently authoritative (never re-guessed), but a
+    -- talent/spec swap can make that witnessed spell factually wrong
+    -- (e.g. respeccing away from the class/spec that had it) - without
+    -- clearing it, the bar would keep showing the old spell until the
+    -- player actually casts whatever they swapped to.
     if event == "SPELLS_CHANGED"
     or event == "CHARACTER_POINTS_CHANGED"
     or event == "PLAYER_TALENT_UPDATE" then
         C_Timer.After(0.5, function()
             RebuildIcons()
+            if type(ClearIntBarState) == "function" then ClearIntBarState("player") end
+            if type(ClearCCBarState) == "function" then ClearCCBarState("player") end
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
             if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
@@ -153,12 +162,15 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── PLAYER_SPECIALIZATION_CHANGED ─────────────────────────
     -- The next SpecPollTicker tick (within 1s) will pick up the new
     -- spec on its own; this just rebuilds icons a beat after that so
-    -- the UI reflects it without waiting for an unrelated event.
+    -- the UI reflects it without waiting for an unrelated event. Clears
+    -- stored bar state first - see the comment above for why.
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         local unit = ...
         if unit == "player" then
             C_Timer.After(1.2, function()
                 RebuildIcons()
+                if type(ClearIntBarState) == "function" then ClearIntBarState("player") end
+                if type(ClearCCBarState) == "function" then ClearCCBarState("player") end
                 if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                 if type(RebuildCCBars) == "function" then RebuildCCBars() end
             end)
@@ -188,6 +200,12 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                     PollUnitSpec(unit)
                     if GetUnitSpec(unit) ~= oldSpec then
                         RebuildIcons()
+                        -- Clear this unit's stored bar state - see the
+                        -- comment on the talent/spec-change handler above
+                        -- for why a spec change can make a previously
+                        -- witnessed cast stale/wrong.
+                        if type(ClearIntBarState) == "function" then ClearIntBarState(unit) end
+                        if type(ClearCCBarState) == "function" then ClearCCBarState(unit) end
                         if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                         if type(RebuildCCBars) == "function" then RebuildCCBars() end
                     end

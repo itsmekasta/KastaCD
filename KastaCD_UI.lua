@@ -974,24 +974,30 @@ function CreateKastaCDMenu()
     intBHS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 124)
 
     -- ── Position X/Y sliders: pixel-perfect placement without dragging ──
+    -- Seeded from the anchor's real current position (not a hardcoded 0)
+    -- so touching one axis doesn't yank the other one to the corner of
+    -- the screen - see GetIntAnchorPos's comment for why.
+    local intCurX, intCurY = 0, 0
+    if type(GetIntAnchorPos) == "function" then intCurX, intCurY = GetIntAnchorPos() end
+
     MakeLabel(panelInt, "Position X:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 154)
-    local intPXS = MakeSlider(panelInt, -2000, 2000,
-        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.savedX) or 0, 200,
+    local intPXS = MakeSlider(panelInt, -2000, 2000, intCurX, 200,
         function(v)
-            local ia = KastaCDDB.intAnchor or {}
+            local _, y = 0, 0
+            if type(GetIntAnchorPos) == "function" then _, y = GetIntAnchorPos() end
             if type(SetIntAnchorPos) == "function" then
-                SetIntAnchorPos(v, ia.savedY or 0)
+                SetIntAnchorPos(v, y)
             end
         end)
     intPXS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 172)
 
     MakeLabel(panelInt, "Position Y:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 202)
-    local intPYS = MakeSlider(panelInt, -2000, 2000,
-        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.savedY) or 0, 200,
+    local intPYS = MakeSlider(panelInt, -2000, 2000, intCurY, 200,
         function(v)
-            local ia = KastaCDDB.intAnchor or {}
+            local x = 0
+            if type(GetIntAnchorPos) == "function" then x = GetIntAnchorPos() end
             if type(SetIntAnchorPos) == "function" then
-                SetIntAnchorPos(ia.savedX or 0, v)
+                SetIntAnchorPos(x, v)
             end
         end)
     intPYS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 220)
@@ -1044,6 +1050,21 @@ function CreateKastaCDMenu()
         end
         KastaCDDB.intAnchor.locked = not locked
         RefreshIntLockBtn()
+    end)
+
+    -- Hide Border toggle: sits next to the lock button rather than its
+    -- own row, to avoid re-triggering the panel's vertical centering math.
+    local intBorderCB = CreateFrame("CheckButton", nil, panelInt, "UICheckButtonTemplate")
+    intBorderCB:SetSize(22, 22)
+    intBorderCB:SetPoint("LEFT", intLockBtn, "RIGHT", 12, 0)
+    intBorderCB:SetChecked(KastaCDDB.intAnchor and KastaCDDB.intAnchor.hideBorder == true)
+    local intBorderLbl = panelInt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    intBorderLbl:SetPoint("LEFT", intBorderCB, "RIGHT", 2, 0)
+    intBorderLbl:SetText("Hide Border")
+    intBorderCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        KastaCDDB.intAnchor.hideBorder = self:GetChecked() and true or false
+        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
     end)
 
     -- =========================================================
@@ -1108,24 +1129,30 @@ function CreateKastaCDMenu()
     ccBHS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 124)
 
     -- ── Position X/Y sliders: pixel-perfect placement without dragging ──
+    -- Seeded from the anchor's real current position (not a hardcoded 0)
+    -- so touching one axis doesn't yank the other one to the corner of
+    -- the screen - see GetCCAnchorPos's comment for why.
+    local ccCurX, ccCurY = 0, 0
+    if type(GetCCAnchorPos) == "function" then ccCurX, ccCurY = GetCCAnchorPos() end
+
     MakeLabel(panelCC, "Position X:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 154)
-    local ccPXS = MakeSlider(panelCC, -2000, 2000,
-        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.savedX) or 0, 200,
+    local ccPXS = MakeSlider(panelCC, -2000, 2000, ccCurX, 200,
         function(v)
-            local ca = KastaCDDB.ccAnchor or {}
+            local _, y = 0, 0
+            if type(GetCCAnchorPos) == "function" then _, y = GetCCAnchorPos() end
             if type(SetCCAnchorPos) == "function" then
-                SetCCAnchorPos(v, ca.savedY or 0)
+                SetCCAnchorPos(v, y)
             end
         end)
     ccPXS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 172)
 
     MakeLabel(panelCC, "Position Y:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 202)
-    local ccPYS = MakeSlider(panelCC, -2000, 2000,
-        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.savedY) or 0, 200,
+    local ccPYS = MakeSlider(panelCC, -2000, 2000, ccCurY, 200,
         function(v)
-            local ca = KastaCDDB.ccAnchor or {}
+            local x = 0
+            if type(GetCCAnchorPos) == "function" then x = GetCCAnchorPos() end
             if type(SetCCAnchorPos) == "function" then
-                SetCCAnchorPos(ca.savedX or 0, v)
+                SetCCAnchorPos(x, v)
             end
         end)
     ccPYS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 220)
@@ -1178,6 +1205,21 @@ function CreateKastaCDMenu()
         end
         KastaCDDB.ccAnchor.locked = not locked
         RefreshCCLockBtn()
+    end)
+
+    -- Hide Border toggle: sits next to the lock button rather than its
+    -- own row, to avoid re-triggering the panel's vertical centering math.
+    local ccBorderCB = CreateFrame("CheckButton", nil, panelCC, "UICheckButtonTemplate")
+    ccBorderCB:SetSize(22, 22)
+    ccBorderCB:SetPoint("LEFT", ccLockBtn, "RIGHT", 12, 0)
+    ccBorderCB:SetChecked(KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.hideBorder == true)
+    local ccBorderLbl = panelCC:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ccBorderLbl:SetPoint("LEFT", ccBorderCB, "RIGHT", 2, 0)
+    ccBorderLbl:SetText("Hide Border")
+    ccBorderCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        KastaCDDB.ccAnchor.hideBorder = self:GetChecked() and true or false
+        if type(RebuildCCBars) == "function" then RebuildCCBars() end
     end)
 
     -- =========================================================

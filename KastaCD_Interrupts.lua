@@ -72,7 +72,7 @@ for _, u in ipairs(TEST_FAKE_UNITS) do TEST_FAKE_LOOKUP[u.token] = u end
 local DEFAULT_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 local function GetIntDB()
-    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false,texturePath=DEFAULT_BAR_TEXTURE} end
+    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false,texturePath=DEFAULT_BAR_TEXTURE,hideBorder=false} end
     if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
     local db = KastaCDDB.intAnchor
     if db.barWidth    == nil then db.barWidth    = 200 end
@@ -81,6 +81,7 @@ local function GetIntDB()
     if db.locked      == nil then db.locked      = true end
     if db.testMode    == nil then db.testMode    = false end
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
+    if db.hideBorder  == nil then db.hideBorder  = false end
     return db
 end
 
@@ -196,6 +197,38 @@ function SetIntAnchorPos(x, y)
     local esc = intAnchorFrame:GetEffectiveScale()
     intAnchorFrame:ClearAllPoints()
     intAnchorFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x / esc, y / esc)
+end
+
+-- Returns the anchor's current resolved x/y in the same units
+-- SetIntAnchorPos expects. If nothing's been saved yet (anchor still
+-- sitting at its CENTER-relative default), this reads the *actual* live
+-- position off the frame instead of returning 0/0 - otherwise the
+-- Position X/Y sliders in settings would snap the anchor to the corner
+-- of the screen the moment either one is touched, since writing one axis
+-- always writes both and the other would fall back to a wrong default.
+function GetIntAnchorPos()
+    EnsureIntAnchor()
+    local db = GetIntDB()
+    if db.savedX and db.savedY then
+        return db.savedX, db.savedY
+    end
+    local esc = intAnchorFrame:GetEffectiveScale()
+    local usc = UIParent:GetEffectiveScale()
+    local x = intAnchorFrame:GetLeft() * esc
+    local y = (intAnchorFrame:GetTop() * esc) - (UIParent:GetTop() * usc)
+    return x, y
+end
+
+-- Clears a unit's stored state (real witnessed cast or guess alike), so
+-- the next rebuild re-evaluates their default guess from scratch. Needed
+-- because a spec change can make previously-witnessed "ground truth"
+-- state factually wrong (e.g. a Protection Paladin's witnessed Avenger's
+-- Shield cast keeps showing after respeccing to Retribution, which uses
+-- Rebuke instead) - without this, stale ground-truth data persists
+-- forever since it's normally treated as permanently authoritative.
+-- Called from KastaCD_Events.lua whenever a spec change is detected.
+function ClearIntBarState(unit)
+    intBarState[unit] = nil
 end
 
 -- ─────────────────────────────────────────────────────────────
@@ -378,7 +411,7 @@ function RebuildInterruptBars()
                     cdText:SetJustifyV("MIDDLE")
                     cdText:SetTextColor(1, 1, 0.7)
 
-                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText }
+                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText, border=border }
                     intBarFrames[unit] = bf
                 end
 
@@ -398,6 +431,10 @@ function RebuildInterruptBars()
                 local barTex = db.texturePath or DEFAULT_BAR_TEXTURE
                 bf.sb:SetStatusBarTexture(barTex)
                 bf.sbBg:SetTexture(barTex)
+
+                -- Border visibility (applied every rebuild so toggling it
+                -- in settings takes effect immediately).
+                bf.border:SetShown(not db.hideBorder)
 
                 -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)

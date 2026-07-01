@@ -101,6 +101,7 @@ function KastaCDInitDB()
     if ia.fontSize  == nil then ia.fontSize  = 10                     end
     if ia.testMode  == nil then ia.testMode  = false                  end
     if ia.texturePath == nil then ia.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
+    if ia.hideBorder == nil then ia.hideBorder = false                end
 
     -- Crowd-control anchor settings
     if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
@@ -113,8 +114,7 @@ function KastaCDInitDB()
     if ca.fontPath  == nil then ca.fontPath  = "Fonts\\FRIZQT__.TTF" end
     if ca.fontSize  == nil then ca.fontSize  = 10                     end
     if ca.texturePath == nil then ca.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
-    if ca.fontPath  == nil then ca.fontPath  = "Fonts\\FRIZQT__.TTF" end
-    if ca.fontSize  == nil then ca.fontSize  = 10                     end
+    if ca.hideBorder == nil then ca.hideBorder = false                end
 
     PersistActiveProfile()
     ApplyActiveProfile()
