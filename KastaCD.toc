@@ -2,7 +2,7 @@
 ## Title: Kasta|cffff7f00CD|r – Cooldown Tracker
 ## Notes: Tracks party/raid cooldowns on raid frames.
 ## Author: Kasta
-## Version: 1.5
+## Version: 1.5.1
 ## SavedVariables: KastaCDDB
 
 # 1. Entry point: addon identity, version global, load message

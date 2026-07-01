@@ -219,3 +219,47 @@ SlashCmdList["KASTACDPOLL"] = function()
         end
     end
 end
+
+-- -------------------------------------------------------------
+-- /kcdcast
+-- Toggles a raw combat-log listener that prints every SPELL_CAST_SUCCESS
+-- the player triggers (spellId + name), regardless of SPELL_DB membership.
+-- Private servers frequently remap spell IDs, so this is the fastest way
+-- to confirm the real ID logged for an ability that "won't track" -
+-- cast it once with this on and read the printed ID off chat.
+-- -------------------------------------------------------------
+local castLogFrame
+SLASH_KASTACDCAST1 = "/kcdcast"
+SlashCmdList["KASTACDCAST"] = function()
+    if not castLogFrame then
+        castLogFrame = CreateFrame("Frame")
+        castLogFrame:SetScript("OnEvent", function(self, event, ...)
+            local subEvent, sourceGUID, spellId, spellName
+
+            if CombatLogGetCurrentEventInfo then
+                local _, se, _, sGUID, _, _, _, _, _, _, _, sId, sName =
+                    CombatLogGetCurrentEventInfo()
+                subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
+            end
+
+            -- Fallback: pserver passed args directly via the event, same as
+            -- the main HandleCombatLog handler in KastaCD_CombatLog.lua.
+            if not subEvent then
+                local _, se, _, sGUID, _, _, _, _, _, _, _, sId, sName = ...
+                subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
+            end
+
+            if subEvent == "SPELL_CAST_SUCCESS" and sourceGUID == UnitGUID("player") and spellId then
+                print(string.format("KastaCD cast log: [%d] %s", spellId, tostring(spellName)))
+            end
+        end)
+    end
+
+    if castLogFrame:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED") then
+        castLogFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        print("KastaCD: cast log OFF")
+    else
+        castLogFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        print("KastaCD: cast log ON - cast the ability you want to identify.")
+    end
+end
