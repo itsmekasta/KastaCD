@@ -177,7 +177,7 @@ SPELL_DB[207399] = { name="Ancestral Protection Totem", class="SHAMAN", icon=839
 -- ── MAGE ──────────────────────────────────────────────────────
 SPELL_DB[2139]   = { name="Counterspell",           class="MAGE", icon=135856, duration=0,  cooldown=24,  category="INTERRUPT",             minLevel=22 }
 SPELL_DB[45438]  = { name="Ice Block",              class="MAGE", icon=135841, duration=10, cooldown=240, category="IMMUNITY",              minLevel=22 }
-SPELL_DB[110959] = { name="Greater Invisibility",   class="MAGE", icon=575584, duration=20, cooldown=120, category="DEFENSIVE", isTalent=true }
+SPELL_DB[110959] = { name="Greater Invisibility",   class="MAGE", icon=575584, duration=20, cooldown=120, category="DEFENSIVE", specs={62}, isTalent=true }
 SPELL_DB[12042]  = { name="Arcane Power",           class="MAGE", icon=136048, duration=10, cooldown=90,  category="OFFENSIVE", specs={62}, minLevel=10 }
 SPELL_DB[190319] = { name="Combustion",             class="MAGE", icon=135824, duration=10, cooldown=120, category="OFFENSIVE", specs={63}, minLevel=10 }
 SPELL_DB[12472]  = { name="Icy Veins",              class="MAGE", icon=135838, duration=20, cooldown=180, category="OFFENSIVE", specs={64}, minLevel=10 }

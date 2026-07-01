@@ -105,6 +105,24 @@ local ccBarFrames = {}   -- [unit] = { row, sb, ico, nameText, cdText }
 local ccAnchorFrame = nil
 local ccBarsParent  = nil
 
+-- Five synthetic "party members" used only for Test Mode while solo (no
+-- real party exists to preview against). Picked for class-color variety
+-- and a spread of cooldown lengths (20s-90s) so the staggered start below
+-- shows several different animation states at once. Each token is fake
+-- and never resolves via the real UnitClass/UnitName/UnitGUID APIs - see
+-- the class/name-resolution branches in RebuildCCBars for how that's
+-- handled, and the ticker for how their cooldowns loop forever instead of
+-- sitting "ready" after the first cycle.
+local TEST_FAKE_UNITS = {
+    { token="KCDTESTCC1", name="Test Warrior",     class="WARRIOR",     spellId=46968,  cooldown=40 },
+    { token="KCDTESTCC2", name="Test Rogue",       class="ROGUE",       spellId=6770,   cooldown=20 },
+    { token="KCDTESTCC3", name="Test Mage",        class="MAGE",        spellId=122,    cooldown=25 },
+    { token="KCDTESTCC4", name="Test Priest",      class="PRIEST",      spellId=88625,  cooldown=30 },
+    { token="KCDTESTCC5", name="Test DemonHunter", class="DEMONHUNTER", spellId=217832, cooldown=90 },
+}
+local TEST_FAKE_LOOKUP = {}
+for _, u in ipairs(TEST_FAKE_UNITS) do TEST_FAKE_LOOKUP[u.token] = u end
+
 -- ─────────────────────────────────────────────────────────────
 -- DB accessor with lazy defaults
 -- ─────────────────────────────────────────────────────────────
@@ -302,11 +320,20 @@ function RebuildCCBars()
 
     EnsureCCAnchor()
 
-    -- Collect current party units
-    local units = { "player" }
-    for i = 1, 4 do
-        if UnitExists("party" .. i) then
-            units[#units + 1] = "party" .. i
+    -- Collect current party units. While solo with Test Mode on, there's
+    -- no real party to preview against, so substitute 5 fake units
+    -- instead - otherwise only the anchor/header would ever be visible,
+    -- since a lone player only ever produces one bar.
+    local units = {}
+    local usingFakeUnits = db.testMode and not IsInGroup()
+    if usingFakeUnits then
+        for _, u in ipairs(TEST_FAKE_UNITS) do units[#units + 1] = u.token end
+    else
+        units[1] = "player"
+        for i = 1, 4 do
+            if UnitExists("party" .. i) then
+                units[#units + 1] = "party" .. i
+            end
         end
     end
 
@@ -323,24 +350,47 @@ function RebuildCCBars()
     local yOff   = 0
     local anyBar = false
 
-    for _, unit in ipairs(units) do
-        local _, class = UnitClass(unit)
+    for i, unit in ipairs(units) do
+        local fakeInfo = TEST_FAKE_LOOKUP[unit]
+        local class
+        if fakeInfo then
+            class = fakeInfo.class
+        else
+            local _, c = UnitClass(unit)
+            class = c
+        end
         if class then
             local st     = ccBarState[unit]
             local defCC  = CC_DEFAULT[class]
             local isPreviewPick = false
 
+            -- Seed a fully "live" animated demo bar the first time a fake
+            -- unit is seen: staggered cooldown position (spread across
+            -- 0%-80% remaining) so the 5 preview bars show a mix of
+            -- states - just used, mid-cooldown, nearly ready - instead of
+            -- all sitting idle-ready. The ticker keeps looping it once it
+            -- reaches ready, so the animation runs continuously.
+            if fakeInfo and not st then
+                local frac = (i - 1) / 5
+                ccBarState[unit] = {
+                    spellId  = fakeInfo.spellId,
+                    cooldown = fakeInfo.cooldown,
+                    endTime  = GetTime() + fakeInfo.cooldown * (1 - frac),
+                    class    = class,
+                    isFake   = true,
+                }
+                st = ccBarState[unit]
+            end
+
             -- No static default for this class: guess a spec-appropriate
             -- spell so the bar shows something immediately, same as the
             -- interrupt tracker's INT_DEFAULT. Only substitutes for
             -- nothing or a *previous guess* (st.isPreview) - never a real
-            -- witnessed cast - and re-evaluates every rebuild so a
-            -- talent/spec swap (e.g. Storm Bolt -> Shockwave) updates it
-            -- immediately instead of getting stuck on the first guess.
-            -- Always active, not just in test mode, so a party member's
-            -- bar appears right after /reload instead of waiting for
-            -- them to actually cast something.
-            if not defCC and (not st or st.isPreview) then
+            -- witnessed cast, never a fake unit (already seeded above) -
+            -- and re-evaluates every rebuild so a talent/spec swap (e.g.
+            -- Storm Bolt -> Shockwave) updates it immediately instead of
+            -- getting stuck on the first guess.
+            if not fakeInfo and not defCC and (not st or st.isPreview) then
                 local specId = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
                 defCC = PickGuessCC(class, specId)
                 isPreviewPick = true
@@ -382,7 +432,10 @@ function RebuildCCBars()
                         if not sid then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
-                        if not ok then GameTooltip:SetText(UnitName(unit) or unit, 1, 1, 1) end
+                        if not ok then
+                            local fake = TEST_FAKE_LOOKUP[unit]
+                            GameTooltip:SetText((fake and fake.name) or UnitName(unit) or unit, 1, 1, 1)
+                        end
                         GameTooltip:AddLine(" ")
                         GameTooltip:AddDoubleLine("Cooldown:",
                             (liveSt.cooldown or 0) .. "s", 0.7, 0.7, 0.7, 1, 1, 1)
@@ -468,7 +521,7 @@ function RebuildCCBars()
                 bf.cdText:SetHeight(BH)
 
                 -- Name
-                bf.nameText:SetText(UnitName(unit) or unit)
+                bf.nameText:SetText((fakeInfo and fakeInfo.name) or UnitName(unit) or unit)
 
                 -- Initialise/refresh state. A preview pick is fabricated,
                 -- not ground truth, so it's always overwritten wholesale
@@ -590,6 +643,14 @@ C_Timer.NewTicker(0.1, function()
                     bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
                 end
                 bf.cdText:SetText("")
+
+                -- Fake demo units (solo Test Mode preview) loop forever
+                -- instead of sitting ready after the first cycle, so the
+                -- animation keeps demonstrating what an active cooldown
+                -- looks like without requiring a real cast.
+                if st.isFake then
+                    st.endTime = now + cd
+                end
             end
         end
     end
