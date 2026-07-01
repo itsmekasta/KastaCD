@@ -77,7 +77,7 @@ local function EnsureIntAnchor()
 
     local a = CreateFrame("Frame", "KastaCDIntAnchor", UIParent)
     a:SetSize(ROW, HEADER_H)
-    a:SetFrameStrata("DIALOG")   -- above the settings window (which is HIGH)
+    a:SetFrameStrata("MEDIUM")   -- above the settings window (which is HIGH)
     a:SetMovable(true)
     a:EnableMouse(true)
     a:RegisterForDrag("LeftButton")
@@ -171,6 +171,14 @@ function RebuildInterruptBars()
         return
     end
 
+    -- Hide entirely inside raid instances (10-man and above)
+    local _, instanceType = IsInInstance()
+    if instanceType == "raid" then
+        if intAnchorFrame then intAnchorFrame:Hide() end
+        for _, bf in pairs(intBarFrames) do bf.row:Hide() end
+        return
+    end
+
     EnsureIntAnchor()
 
     -- Collect current party units
@@ -247,13 +255,15 @@ function RebuildInterruptBars()
 
                     local nameText = sb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                     nameText:SetPoint("LEFT",   sb, "LEFT",   4, 0)
-                    nameText:SetPoint("RIGHT",  sb, "CENTER", 0, 0)
+                    nameText:SetPoint("RIGHT",  sb, "RIGHT", -40, 0)
                     nameText:SetJustifyH("LEFT")
+                    nameText:SetJustifyV("MIDDLE")
                     nameText:SetTextColor(1, 1, 1)
 
                     local cdText = sb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                     cdText:SetPoint("RIGHT", sb, "RIGHT", -4, 0)
                     cdText:SetJustifyH("RIGHT")
+                    cdText:SetJustifyV("MIDDLE")
                     cdText:SetTextColor(1, 1, 0.7)
 
                     bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText }
@@ -282,11 +292,14 @@ function RebuildInterruptBars()
                     bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
                 end
 
-                -- Font (applied every rebuild so slider/dropdown changes take effect)
+                -- Font (applied every rebuild so slider/dropdown changes take effect).
+                -- Height is pinned to BH so changing font size never shifts the bar's Y.
                 local fp = db.fontPath or "Fonts\\FRIZQT__.TTF"
                 local fs = db.fontSize or 10
                 bf.nameText:SetFont(fp, fs, "OUTLINE")
+                bf.nameText:SetHeight(BH)
                 bf.cdText:SetFont(fp, fs, "OUTLINE")
+                bf.cdText:SetHeight(BH)
 
                 -- Name
                 bf.nameText:SetText(UnitName(unit) or unit)

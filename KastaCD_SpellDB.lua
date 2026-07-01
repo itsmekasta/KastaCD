@@ -202,7 +202,7 @@ SPELL_DB[123904] = { name="Invoke Xuen, the White Tiger",  class="MONK", icon=62
 
 -- ── DRUID ─────────────────────────────────────────────────────
 SPELL_DB[106839] = { name="Skull Bash",             class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", specs={103,104},  minLevel=10 }
-SPELL_DB[22812]  = { name="Barkskin",               class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE",                   minLevel=10 }
+SPELL_DB[22812]  = { name="Barkskin",               class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE", specs={102,104,105},  minLevel=10 }
 SPELL_DB[99]     = { name="Incapacitating Roar",    class="DRUID", icon=236937,  duration=3,  cooldown=30,  category="UTILITY",   specs={104},      minLevel=10 }
 SPELL_DB[61336]  = { name="Survival Instincts",     class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103,104},  minLevel=10, maxCharges=2 }
 SPELL_DB[740]    = { name="Tranquility",            class="DRUID", icon=136107,  duration=8,  cooldown=180, category="DEFENSIVE", specs={105},      minLevel=10 }
