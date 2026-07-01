@@ -505,7 +505,13 @@ local function BuildClassGroup(ci, order)
                 local icon = (GetSpellTexture and GetSpellTexture(sid)) or data.icon
                 catArgs["s" .. sid] = {
                     type = "toggle", order = spellOrder,
-                    name = string.format("|T%s:16|t %s", tostring(icon), data.name),
+                    name = data.name,
+                    -- Real anchored icon (AceGUI CheckBox's native `image`
+                    -- field) instead of an inline |Tpath:size|t escape in
+                    -- the name string - the inline form was getting its
+                    -- top edge clipped by the label font's line-height,
+                    -- and inconsistently so between different icons.
+                    image = icon,
                     desc = BuildSpellDesc(sid, data),
                     get = function() return KastaCDDB.enabled[sid] == true end,
                     set = function(_, v)

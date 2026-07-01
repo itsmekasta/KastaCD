@@ -1,8 +1,14 @@
 --[[-----------------------------------------------------------------------------
 TabGroup Container
 Container that uses tabs on top to switch between groups.
+
+KastaCD-local patch: category tab labels (Offensive/Defensive/etc.) use a
+bigger font and taller tab buttons than stock - see the font override and
+SetHeight call in CreateTab. Version bumped by 1 so this patched copy
+always wins LibStub's version race against any unmodified AceGUI-3.0
+another addon might have loaded.
 -------------------------------------------------------------------------------]]
-local Type, Version = "TabGroup", 36
+local Type, Version = "TabGroup", 37
 local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
 if not AceGUI or (AceGUI:GetWidgetVersion(Type) or 0) >= Version then return end
 
@@ -111,6 +117,13 @@ local methods = {
 		tab.text:ClearAllPoints()
 		tab.text:SetPoint("LEFT", 14, -3)
 		tab.text:SetPoint("RIGHT", -12, -3)
+		-- KastaCD-local: stock template font (GameFontNormalSmall) was too
+		-- small for the category tabs (Offensive/Defensive/etc.); bumped
+		-- one step to GameFontNormal, plus a taller cell to match. Width
+		-- still auto-adjusts to the text via the existing
+		-- PanelTemplates_TabResize calls below/elsewhere in this file.
+		tab.text:SetFontObject("GameFontNormal")
+		tab:SetHeight(28)
 
 		tab:SetScript("OnClick", Tab_OnClick)
 		tab:SetScript("OnEnter", Tab_OnEnter)
@@ -261,7 +274,11 @@ local methods = {
 			starttab = endtab + 1
 		end
 		
-		self.borderoffset = (hastitle and 17 or 10)+((numrows)*20)
+		-- KastaCD-local: *28 instead of *20 - matches CreateTab's taller
+		-- (28px) tab buttons above, which this offset didn't originally
+		-- account for, so the content area started overlapping/hugging
+		-- the tab row.
+		self.borderoffset = (hastitle and 17 or 10)+((numrows)*28)
 		self.border:SetPoint("TOPLEFT", 1, -self.borderoffset)
 	end,
 
@@ -325,7 +342,7 @@ local function Constructor()
 	border:SetBackdropBorderColor(0.4, 0.4, 0.4)
 
 	local content = CreateFrame("Frame", nil, border)
-	content:SetPoint("TOPLEFT", 10, -7)
+	content:SetPoint("TOPLEFT", 10, -18) -- KastaCD-local: was -7, extra breathing room below the tab row
 	content:SetPoint("BOTTOMRIGHT", -10, 7)
 
 	local widget = {

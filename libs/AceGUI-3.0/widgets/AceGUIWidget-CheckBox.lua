@@ -1,7 +1,12 @@
 --[[-----------------------------------------------------------------------------
 Checkbox Widget
 -------------------------------------------------------------------------------]]
-local Type, Version = "CheckBox", 23
+-- KastaCD-local patch: bigger checkbox art (24->28px) and bigger label
+-- font (GameFontHighlight->GameFontHighlightLarge) - the spell toggle
+-- rows in the class panels were too small to read comfortably. Version
+-- bumped by 1 so this patched copy always wins LibStub's version race
+-- against any unmodified AceGUI-3.0 another addon might have loaded.
+local Type, Version = "CheckBox", 24
 local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
 if not AceGUI or (AceGUI:GetWidgetVersion(Type) or 0) >= Version then return end
 
@@ -163,7 +168,7 @@ local methods = {
 			highlight:SetTexture("Interface\\Buttons\\UI-RadioButton")
 			highlight:SetTexCoord(0.5, 0.75, 0, 1)
 		else
-			size = 24
+			size = 28 -- KastaCD-local: was 24
 			checkbg:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
 			checkbg:SetTexCoord(0, 1, 0, 1)
 			check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -217,7 +222,7 @@ local methods = {
 				self.desc:Hide()
 			end
 			--self.text:SetFontObject(GameFontHighlight)
-			self:SetHeight(24)
+			self:SetHeight(30) -- KastaCD-local: was 24, matches bigger checkbox/font
 		end
 	end,
 	
@@ -250,9 +255,11 @@ local function Constructor()
 	frame:SetScript("OnMouseDown", CheckBox_OnMouseDown)
 	frame:SetScript("OnMouseUp", CheckBox_OnMouseUp)
 
+	-- KastaCD-local: checkbox art and label font both bumped up (see
+	-- SetType's `size = 28` above and GameFontHighlightLarge below).
 	local checkbg = frame:CreateTexture(nil, "ARTWORK")
-	checkbg:SetWidth(24)
-	checkbg:SetHeight(24)
+	checkbg:SetWidth(28)
+	checkbg:SetHeight(28)
 	checkbg:SetPoint("TOPLEFT")
 	checkbg:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
 
@@ -260,9 +267,9 @@ local function Constructor()
 	check:SetAllPoints(checkbg)
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
 
-	local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 	text:SetJustifyH("LEFT")
-	text:SetHeight(18)
+	text:SetHeight(24)
 	text:SetPoint("LEFT", checkbg, "RIGHT")
 	text:SetPoint("RIGHT")
 
@@ -271,9 +278,13 @@ local function Constructor()
 	highlight:SetBlendMode("ADD")
 	highlight:SetAllPoints(checkbg)
 
+	-- KastaCD-local: bumped 16->22 to match the bigger checkbox/font. This
+	-- is a real anchored Texture region (not font-embedded), so unlike the
+	-- old |Tpath:size|t-in-text-string approach it can't get clipped by
+	-- the label font's line-height metrics.
 	local image = frame:CreateTexture(nil, "OVERLAY")
-	image:SetHeight(16)
-	image:SetWidth(16)
+	image:SetHeight(22)
+	image:SetWidth(22)
 	image:SetPoint("LEFT", checkbg, "RIGHT", 1, 0)
 
 	local widget = {

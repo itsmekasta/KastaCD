@@ -251,9 +251,11 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- =============================================================
--- Slash command  /kcd  –  open / close the settings menu
+-- Slash commands  /kcd, /kastacd, /kasta  –  open / close the settings menu
 -- =============================================================
 SLASH_KASTACD1 = "/kcd"
+SLASH_KASTACD2 = "/kastacd"
+SLASH_KASTACD3 = "/kasta"
 SlashCmdList["KASTACD"] = function()
     -- Wrap in pcall so any error during menu construction is shown
     -- rather than silently leaving kcdMenu nil and erroring on IsShown.

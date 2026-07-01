@@ -356,9 +356,12 @@ local methods = {
 
 		-- KastaCD-local: orange selected-row background, hidden by default,
 		-- shown/colored in UpdateButton. BACKGROUND layer sits below the
-		-- template's own text/icon regions.
+		-- template's own text/icon regions. Inset 3px left/right instead of
+		-- SetAllPoints() so it doesn't bleed past the tree's own row/border
+		-- edges (visible clipping when a row near the panel edge is selected).
 		local bg = button:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
+		bg:SetPoint("TOPLEFT", button, "TOPLEFT", 3, 0)
+		bg:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 0)
 		bg:SetColorTexture(1, 0.55, 0, 0.425) -- 50% of the original 0.85 alpha
 		bg:Hide()
 		button.bg = bg
