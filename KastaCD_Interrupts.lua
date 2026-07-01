@@ -47,11 +47,25 @@ INT_SPELLS = {
     -- (RACIAL_DEFAULT below) and any witnessed cast to a separate
     -- "#racial" bar per unit (see RebuildInterruptBars/HandleInterruptCast)
     -- instead of overwriting that unit's class-interrupt bar - a Blood Elf
-    -- Warrior gets both a Pummel bar AND an Arcane Torrent bar. Confirmed
-    -- via /kcdcast on this server: Legion consolidated the old
-    -- per-resource-type IDs (mana/energy/rage/etc) into this single
-    -- unified spell ID.
-    [155145] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent
+    -- Warrior gets both a Pummel bar AND an Arcane Torrent bar.
+    --
+    -- 155145 was confirmed via /kcdcast on this server, but that test
+    -- wasn't necessarily on every class - retail WoW historically used a
+    -- *different* spell ID per resource type (mana/energy/rage/runic
+    -- power/chi/focus/fury) before eventually unifying them, and this
+    -- server may not have that unification for every class. All the
+    -- known historical variants are listed below too, just in case - a
+    -- wrong guess here is harmless (worst case it just never gets cast),
+    -- so better to cover classes we haven't explicitly confirmed yet
+    -- (e.g. Monk/Chi, Death Knight/Runic Power) than to miss them.
+    [155145] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (confirmed on this server)
+    [28730]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Mana)
+    [25046]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Energy - Rogue)
+    [69179]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Rage - Warrior)
+    [80483]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Focus - Hunter)
+    [50613]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight)
+    [129597] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Chi - Monk)
+    [197908] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Fury - Demon Hunter)
 }
 
 -- Always-visible racial default per UnitRace() token - shown immediately
@@ -315,10 +329,21 @@ function RebuildInterruptBars()
         -- - this becomes a *second, additional* bar for that unit rather
         -- than replacing their class interrupt. Real units only; fake
         -- Test Mode units don't have a race to check.
+        --
+        -- ALSO appended whenever a real cast has already been witnessed
+        -- for that unit (intBarState already has "<unit>#racial" data),
+        -- regardless of whether the race-token match above succeeds -
+        -- private servers can report UnitRace()'s non-localized token in
+        -- an unexpected format, and without this fallback a real witnessed
+        -- cast would silently never get a bar frame to render into: this
+        -- unit-collection loop is the only thing that puts a "#racial"
+        -- key into the render list at all.
         local racialUnits = {}
         for _, u in ipairs(units) do
             local _, raceToken = UnitRace(u)
-            if raceToken and RACIAL_DEFAULT[raceToken] then
+            local hasDefault    = raceToken and RACIAL_DEFAULT[raceToken]
+            local hasWitnessed  = intBarState[u .. "#racial"] ~= nil
+            if hasDefault or hasWitnessed then
                 racialUnits[#racialUnits + 1] = u .. "#racial"
             end
         end
@@ -555,10 +580,8 @@ function RebuildInterruptBars()
                 bf.cdText:SetFont(fp, fs, "OUTLINE")
                 bf.cdText:SetHeight(BH)
 
-                -- Name (racial rows get a suffix so a Blood Elf's class-
-                -- interrupt bar and Arcane Torrent bar are distinguishable)
-                local baseName = (fakeInfo and fakeInfo.name) or UnitName(baseUnit) or baseUnit
-                bf.nameText:SetText(isRacialRow and (baseName .. " (Racial)") or baseName)
+                -- Name
+                bf.nameText:SetText((fakeInfo and fakeInfo.name) or UnitName(baseUnit) or baseUnit)
 
                 -- Initialise state if not yet tracked
                 if not intBarState[unit] then

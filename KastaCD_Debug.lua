@@ -372,3 +372,26 @@ SlashCmdList["KASTACDANCHOR"] = function()
         print("  => 'player' was NOT matched - icons should be hidden.")
     end
 end
+
+-- -------------------------------------------------------------
+-- /kcdrace
+-- Prints UnitRace()'s raw return values for the player and every party
+-- member. Used to verify the exact non-localized race token a private
+-- server reports (e.g. "BloodElf" vs "Blood Elf") against what
+-- RACIAL_DEFAULT in KastaCD_Interrupts.lua expects - a mismatch here
+-- means a race-based default (like Arcane Torrent) never shows up
+-- automatically, even though a real witnessed cast still tracks fine.
+-- -------------------------------------------------------------
+SLASH_KASTACDRACE1 = "/kcdrace"
+SlashCmdList["KASTACDRACE"] = function()
+    print("KastaCD race token debug:")
+    local units = { "player" }
+    for i = 1, 4 do
+        if UnitExists("party" .. i) then table.insert(units, "party" .. i) end
+    end
+    for _, unit in ipairs(units) do
+        local localized, nonLocalized = UnitRace(unit)
+        print(string.format("  %s: localized=%q  nonLocalized=%q",
+            unit, tostring(localized), tostring(nonLocalized)))
+    end
+end
