@@ -130,9 +130,14 @@ end
 -- Anchors directly to the found frame instead of computing absolute pixel
 -- coords — direct SetPoint means the anchor follows the frame automatically
 -- if it ever moves.
+-- Returns true if a real unit frame was found and the anchor snapped to
+-- it, false if it fell back to a saved/default position. RebuildIcons
+-- uses this to hide the player's own icons entirely when their frame
+-- can't be found (e.g. ElvUI's "show player in party frame" disabled) -
+-- see the comment there for why that's player-specific.
 local function TrySnapAnchor(unit)
     local a = kcdAnchors[unit]
-    if not a then return end
+    if not a then return false end
 
     local mf = nil
 
@@ -141,9 +146,17 @@ local function TrySnapAnchor(unit)
         if pair.unit == unit then mf = pair.frame; break end
     end
 
-    -- For the player slot, fall back to the dedicated PlayerFrame global when
-    -- no unit-frame addon covers it (vanilla UI with no raid-style frames).
-    if not mf and unit == "player" then
+    -- For the player slot, fall back to the dedicated PlayerFrame global
+    -- when no unit-frame addon covers it (vanilla UI with no raid-style
+    -- frames) - but NEVER when ElvUI is active. ElvUI hides Blizzard's
+    -- default frames itself, and that hide isn't guaranteed to re-fire
+    -- identically on a same-session /reload vs a fresh login (a known
+    -- class of addon-interaction quirk) - so PlayerFrame:IsShown() can
+    -- read "true" after a reload even though ElvUI's actual config still
+    -- says "don't show player." When ElvUI owns unit frames, its own
+    -- detection above is the only source of truth for the player slot;
+    -- if it says no frame, that means no frame, full stop.
+    if not mf and unit == "player" and not _G.ElvUI then
         local pf = _G["PlayerFrame"]
         if pf and pf.IsShown and pf:IsShown() and pf.GetRight then mf = pf end
     end
@@ -159,7 +172,7 @@ local function TrySnapAnchor(unit)
         else
             a:SetPoint("TOPLEFT", mf, "TOPRIGHT", ox, oy)
         end
-        return
+        return true
     end
 
     -- No frame found — restore saved position or keep default
@@ -171,6 +184,7 @@ local function TrySnapAnchor(unit)
         a:ClearAllPoints()
         a:SetPoint("TOPLEFT", UIParent, "TOPLEFT", saved.x / esc, saved.y / esc)
     end
+    return false
 end
 
 -- -------------------------------------------------------------
@@ -281,20 +295,34 @@ function FindUnitFrames()
     -- Step 1: ElvUI – checked FIRST because on this server ElvUI and
     -- Blizzard CompactRaidFrames are both visible simultaneously.
     -- ElvUI frames must win so icons attach to the visible ones.
+    --
+    -- Only check ONE of party-style / raid-style buttons, matching
+    -- whichever group type is actually active - not both unconditionally.
+    -- ElvUI's raid-style header (ElvUF_RaidGroup*) can end up populated
+    -- and :IsShown()==true even while genuinely in a 5-man party (seen
+    -- specifically after /reload, not after a fresh login - some
+    -- transient ElvUI re-initialization state, not a real raid display),
+    -- and unlike the party header its buttons aren't gated by the
+    -- "show player" setting - so merging both blindly let a spurious
+    -- raid-frame match for "player" through even with party frames
+    -- correctly configured to hide them.
     if _G.ElvUI then
         local found = {}
-        for i = 1, 5 do
-            local f = _G["ElvUF_PartyGroup1UnitButton" .. i]
-            if f then
-                local unit = f.unit or f.displayedUnit
-                if unit and f:IsShown() and UnitExists(unit) then
-                    table.insert(found, { unit = unit, frame = f })
+        if IsInRaid and IsInRaid() then
+            for g = 1, 8 do
+                for i = 1, 5 do
+                    local f = _G["ElvUF_RaidGroup" .. g .. "UnitButton" .. i]
+                    if f then
+                        local unit = f.unit or f.displayedUnit
+                        if unit and f:IsShown() and UnitExists(unit) then
+                            table.insert(found, { unit = unit, frame = f })
+                        end
+                    end
                 end
             end
-        end
-        for g = 1, 8 do
+        else
             for i = 1, 5 do
-                local f = _G["ElvUF_RaidGroup" .. g .. "UnitButton" .. i]
+                local f = _G["ElvUF_PartyGroup1UnitButton" .. i]
                 if f then
                     local unit = f.unit or f.displayedUnit
                     if unit and f:IsShown() and UnitExists(unit) then
@@ -586,8 +614,16 @@ function RebuildIcons()
         return
     end
 
-    -- Best-effort: snap anchors to any discoverable unit frames.
-    for _, u in ipairs(activeUnits) do TrySnapAnchor(u) end
+    -- Best-effort: snap anchors to any discoverable unit frames. Result is
+    -- tracked per-unit so Pass 1 below can hide the player's own icons
+    -- entirely when their frame can't be found at all (e.g. ElvUI's "show
+    -- player in party frame" option disabled) - unlike other party
+    -- members, there's no useful fallback position for the player's own
+    -- icons: they'd just float at a default centre-screen spot with
+    -- nothing to visually anchor them to, which reads as a stray/broken
+    -- floating cluster rather than "cooldowns near my frame."
+    local snapped = {}
+    for _, u in ipairs(activeUnits) do snapped[u] = TrySnapAnchor(u) end
 
     -- ── Pass 1: figure out what SHOULD be shown, without touching any frames ──
     local desired = {}   -- [unit] = { spells = { {sid,data}, ... } }
@@ -597,7 +633,9 @@ function RebuildIcons()
     }
 
     for _, unit in ipairs(activeUnits) do
-        if UnitExists(unit) then
+        -- Player-only: skip entirely if no real frame was found to snap
+        -- to - see the comment on `snapped` above.
+        if UnitExists(unit) and not (unit == "player" and not snapped[unit]) then
             local _, unitClass = UnitClass(unit)
             if unitClass then
                 local spells = {}

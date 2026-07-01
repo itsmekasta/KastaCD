@@ -112,17 +112,9 @@ CC_SPELLS = {
     [179057] = { class="DEMONHUNTER", cooldown=45,  specs={577},    isTalent=true },       -- Chaos Nova (Havoc talent)
     [217832] = { class="DEMONHUNTER", cooldown=90                   },                    -- Imprison
 
-    -- RACIALS (not tied to a single class - see the `race`/class="ALL"
-    -- comment above). Arcane Torrent is Blood Elf only; it exists as
-    -- several different spell IDs depending on the caster's resource
-    -- type (mana/energy/rage/etc). Legion 2-minute base cooldown.
-    [28730]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Mana)
-    [25046]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Energy - Rogue)
-    [69179]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Rage - Warrior)
-    [80483]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Focus - Hunter)
-    [50613]  = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Runic Power - Death Knight)
-    [129597] = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Chi - Monk)
-    [197908] = { class="ALL", cooldown=120, race="BloodElf" },  -- Arcane Torrent (Fury - Demon Hunter)
+    -- Arcane Torrent (Blood Elf racial) moved to the Interrupt tracker's
+    -- INT_SPELLS - see KastaCD_Interrupts.lua. `race`/class="ALL" support
+    -- above is kept in place for any future racial CC additions.
 }
 
 -- Per-unit state and bar frames
@@ -213,6 +205,7 @@ end
 -- Header is always visible when bars are shown; turns orange when unlocked.
 -- ─────────────────────────────────────────────────────────────
 local HEADER_H = 18
+local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
 
 local function EnsureCCAnchor()
     if ccAnchorFrame then return end
@@ -472,13 +465,44 @@ function RebuildCCBars()
                 if not bf then
                     local row = CreateFrame("Frame", nil, ccBarsParent)
 
-                    -- Border: a slightly larger solid-black layer behind
-                    -- the icon+bar combo, giving a clean 1px outline -
-                    -- same flat/minimal border technique used elsewhere.
-                    local border = row:CreateTexture(nil, "BACKGROUND", nil, -1)
-                    border:SetPoint("TOPLEFT",     row, "TOPLEFT",     -1,  1)
-                    border:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT",  1, -1)
-                    border:SetColorTexture(0, 0, 0, 1)
+                    -- Border: four strips forming an outline flush against
+                    -- the row's own edges and extending outward by
+                    -- BORDER_THICKNESS - not a single oversized rectangle
+                    -- behind everything, which would sit under the
+                    -- statusbar's semi-transparent background and show
+                    -- through as a dark tint across the whole unfilled
+                    -- portion of the bar instead of a crisp edge. Top/
+                    -- bottom strips overhang left/right by the same
+                    -- thickness so the four corners meet cleanly.
+                    local T = BORDER_THICKNESS
+                    local border = {}
+                    local bTop = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bTop:SetPoint("BOTTOMLEFT",  row, "TOPLEFT",  -T, 0)
+                    bTop:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT",  T, 0)
+                    bTop:SetHeight(T)
+                    bTop:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bTop
+
+                    local bBottom = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bBottom:SetPoint("TOPLEFT",  row, "BOTTOMLEFT",  -T, 0)
+                    bBottom:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT",  T, 0)
+                    bBottom:SetHeight(T)
+                    bBottom:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bBottom
+
+                    local bLeft = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bLeft:SetPoint("TOPRIGHT",    row, "TOPLEFT",    0, 0)
+                    bLeft:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", 0, 0)
+                    bLeft:SetWidth(T)
+                    bLeft:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bLeft
+
+                    local bRight = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bRight:SetPoint("TOPLEFT",    row, "TOPRIGHT",    0, 0)
+                    bRight:SetPoint("BOTTOMLEFT", row, "BOTTOMRIGHT", 0, 0)
+                    bRight:SetWidth(T)
+                    bRight:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bRight
 
                     -- Icon frame
                     local iconF = CreateFrame("Frame", nil, row)
@@ -559,8 +583,9 @@ function RebuildCCBars()
                 bf.sbBg:SetTexture(barTex)
 
                 -- Border visibility (applied every rebuild so toggling it
-                -- in settings takes effect immediately).
-                bf.border:SetShown(not db.hideBorder)
+                -- in settings takes effect immediately). bf.border is a
+                -- list of the 4 edge-strip textures.
+                for _, b in ipairs(bf.border) do b:SetShown(not db.hideBorder) end
 
                 -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)

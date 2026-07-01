@@ -315,3 +315,60 @@ SlashCmdList["KASTACDCC"] = function()
             tostring(p), tostring(relName), tostring(relPoint), x or 0, y or 0))
     end
 end
+
+-- -------------------------------------------------------------
+-- /kcdanchor
+-- Dumps exactly what FindUnitFrames() (KastaCD_Tracking.lua) returns
+-- right now, plus the raw state of every candidate "player" frame source
+-- it checks along the way (ElvUI party buttons, PlayerFrame, whether
+-- ElvUI is even detected). Run this once right after login, and again
+-- after /reload in the same session, to see exactly which source flips
+-- from "not a match" to "match" for the player slot - that's what's
+-- actually deciding whether the player's icons show up or not.
+-- -------------------------------------------------------------
+SLASH_KASTACDANCHOR1 = "/kcdanchor"
+SlashCmdList["KASTACDANCHOR"] = function()
+    print("KastaCD anchor debug:")
+    print("  _G.ElvUI present:", tostring(_G.ElvUI ~= nil))
+
+    local pf = _G["PlayerFrame"]
+    if pf then
+        print(string.format("  PlayerFrame: exists=true shown=%s hasGetRight=%s",
+            tostring(pf.IsShown and pf:IsShown()), tostring(pf.GetRight ~= nil)))
+    else
+        print("  PlayerFrame: does not exist")
+    end
+
+    if _G.ElvUI then
+        for i = 1, 5 do
+            local name = "ElvUF_PartyGroup1UnitButton" .. i
+            local f = _G[name]
+            if f then
+                local unit = f.unit or f.displayedUnit
+                print(string.format("  %s: unit=%s shown=%s unitExists=%s",
+                    name, tostring(unit), tostring(f:IsShown()),
+                    tostring(unit ~= nil and UnitExists(unit))))
+            else
+                print("  " .. name .. ": does not exist")
+            end
+        end
+    end
+
+    if type(FindUnitFrames) ~= "function" then
+        print("  FindUnitFrames() not available")
+        return
+    end
+    local pairsFound = FindUnitFrames()
+    print("  FindUnitFrames() returned " .. #pairsFound .. " pair(s):")
+    local playerMatch = nil
+    for _, p in ipairs(pairsFound) do
+        local frameName = (p.frame and p.frame.GetName and p.frame:GetName()) or tostring(p.frame)
+        print(string.format("    unit=%s  frame=%s", tostring(p.unit), tostring(frameName)))
+        if p.unit == "player" then playerMatch = p end
+    end
+    if playerMatch then
+        print("  => 'player' WAS matched - this is why the icons show up.")
+    else
+        print("  => 'player' was NOT matched - icons should be hidden.")
+    end
+end

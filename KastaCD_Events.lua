@@ -85,6 +85,30 @@ C_Timer.NewTicker(1.0, function()
             RequestUnitInspect(unit)
         end
     end
+
+    -- Same self-correcting philosophy as the spec poll above: rather than
+    -- chasing the exact timing of whichever event *should* have shown the
+    -- trackers, just re-run their rebuild on this same 1s cadence while
+    -- grouped. Cheap (mostly reuses existing bar frames) and guarantees
+    -- both trackers self-heal within ~1s of group/spec state settling,
+    -- instead of staying stuck hidden until the user manually unlocks to
+    -- force a rebuild.
+    if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+
+    -- RebuildIcons() has its own signature-based short-circuit (near-free
+    -- when nothing's actually changed), so it's cheap to include here too.
+    -- This is what fixes the "player icons gone after login, back after a
+    -- /reload" symptom with ElvUI's "show player in party frame" turned
+    -- off: TrySnapAnchor's ElvUI-frame lookup depends on ElvUI having
+    -- already applied that hide setting by the time we check, which is a
+    -- timing race we don't control - a login has a loading screen giving
+    -- ElvUI more time to settle before our one-shot delayed rebuild fires,
+    -- while a same-session /reload can catch it mid-settle. Re-checking
+    -- every second means whichever way that race goes, it self-corrects
+    -- within ~1s instead of being stuck wrong until something else
+    -- happens to trigger another rebuild.
+    RebuildIcons()
 end)
 
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
@@ -190,6 +214,17 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- glow animations unnecessarily on every 3-second inspect cycle
     -- (INSPECT_READY fires for every NotifyInspect, even if the spec
     -- value is identical to what was already cached).
+    --
+    -- Deliberately does NOT call ClearIntBarState/ClearCCBarState here.
+    -- GetInspectSpecialization() is the exact unreliable-on-private-
+    -- servers read this file's own architecture notes warn about (see
+    -- KastaCD_DB.lua) - trusting a single "spec changed" detection from
+    -- it to wipe out real witnessed-cast bar state meant a transient bad
+    -- read would intermittently clear valid data, and the bar wouldn't
+    -- reliably come back until the next witnessed cast or lucky guess.
+    -- The player's own spec (PLAYER_SPECIALIZATION_CHANGED below) is
+    -- safe to clear on since GetSpecialization() is synchronous/reliable
+    -- - only that path gets the clear.
     if event == "INSPECT_READY" then
         local guid = select(1, ...)
         if guid then
@@ -200,12 +235,6 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                     PollUnitSpec(unit)
                     if GetUnitSpec(unit) ~= oldSpec then
                         RebuildIcons()
-                        -- Clear this unit's stored bar state - see the
-                        -- comment on the talent/spec-change handler above
-                        -- for why a spec change can make a previously
-                        -- witnessed cast stale/wrong.
-                        if type(ClearIntBarState) == "function" then ClearIntBarState(unit) end
-                        if type(ClearCCBarState) == "function" then ClearCCBarState(unit) end
                         if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                         if type(RebuildCCBars) == "function" then RebuildCCBars() end
                     end

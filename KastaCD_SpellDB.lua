@@ -109,7 +109,6 @@ SPELL_DB[853]    = { name="Hammer of Justice",      class="PALADIN", icon=135963
 SPELL_DB[6940]   = { name="Blessing of Sacrifice",  class="PALADIN", icon=135966, duration=12, cooldown=120, category="DEFENSIVE",              minLevel=22 }
 SPELL_DB[31821]  = { name="Aura Mastery",           class="PALADIN", icon=135872, duration=8,  cooldown=180, category="DEFENSIVE", specs={65},  minLevel=10 }
 SPELL_DB[31884]  = { name="Avenging Wrath",         class="PALADIN", icon=135875, duration=20, cooldown=120, category="OFFENSIVE", specs={65,70}, minLevel=10 }
-SPELL_DB[31935]  = { name="Avenger's Shield",       class="PALADIN", icon=135874, duration=0,  cooldown=15,  category="INTERRUPT", specs={66},  minLevel=10 }
 SPELL_DB[31850]  = { name="Ardent Defender",        class="PALADIN", icon=236264, duration=8,  cooldown=90,  category="DEFENSIVE", specs={66},  minLevel=10 }
 SPELL_DB[184662] = { name="Shield of Vengeance",    class="PALADIN", icon=614521, duration=15, cooldown=120, category="DEFENSIVE", specs={70},  minLevel=10 }
 
@@ -126,7 +125,6 @@ SPELL_DB[193526] = { name="Trueshot",               class="HUNTER", icon=613345,
 SPELL_DB[202800] = { name="Flanking Strike",        class="HUNTER", icon=1380856, duration=0,  cooldown=30,  category="OFFENSIVE", specs={255},     minLevel=10 }
 
 -- ── ROGUE ─────────────────────────────────────────────────────
-SPELL_DB[1966]   = { name="Feint",                  class="ROGUE", icon=132294, duration=5,  cooldown=15,  category="DEFENSIVE",              minLevel=20 }
 SPELL_DB[5277]   = { name="Evasion",                class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE",              minLevel=22 }
 SPELL_DB[31224]  = { name="Cloak of Shadows",       class="ROGUE", icon=136177, duration=5,  cooldown=60,  category="IMMUNITY",               minLevel=66 }
 SPELL_DB[1766]   = { name="Kick",                   class="ROGUE", icon=132219, duration=0,  cooldown=15,  category="INTERRUPT",              minLevel=18 }

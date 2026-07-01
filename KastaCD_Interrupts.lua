@@ -39,6 +39,27 @@ INT_SPELLS = {
     [106839] = { class="DRUID",       cooldown=15 },
     [183752] = { class="DEMONHUNTER", cooldown=15 },
     [119910] = { class="WARLOCK",     cooldown=24 },  -- Spell Lock (Felhunter)
+
+    -- Arcane Torrent (Blood Elf racial). Not tied to a class - "ALL" is
+    -- just documentation here, since HandleInterruptCast below always
+    -- uses the real caster's resolved class for display/coloring
+    -- regardless of this field. isRacial=true routes both the default
+    -- (RACIAL_DEFAULT below) and any witnessed cast to a separate
+    -- "#racial" bar per unit (see RebuildInterruptBars/HandleInterruptCast)
+    -- instead of overwriting that unit's class-interrupt bar - a Blood Elf
+    -- Warrior gets both a Pummel bar AND an Arcane Torrent bar. Confirmed
+    -- via /kcdcast on this server: Legion consolidated the old
+    -- per-resource-type IDs (mana/energy/rage/etc) into this single
+    -- unified spell ID.
+    [155145] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent
+}
+
+-- Always-visible racial default per UnitRace() token - shown immediately
+-- for every matching unit, same as INT_DEFAULT is per class, but as an
+-- *additional* bar rather than a replacement (see the "#racial" synthetic
+-- unit key throughout this file).
+local RACIAL_DEFAULT = {
+    BloodElf = { spellId=155145, cooldown=120 },
 }
 
 -- Per-unit state and bar frames
@@ -90,6 +111,7 @@ end
 -- Header is always visible when bars are shown; turns orange when unlocked.
 -- ─────────────────────────────────────────────────────────────
 local HEADER_H = 18
+local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
 
 local function EnsureIntAnchor()
     if intAnchorFrame then return end
@@ -277,6 +299,20 @@ function RebuildInterruptBars()
                 units[#units + 1] = "party" .. i
             end
         end
+
+        -- Append a synthetic "<unit>#racial" entry for anyone whose race
+        -- has an always-on racial default (e.g. Blood Elf/Arcane Torrent)
+        -- - this becomes a *second, additional* bar for that unit rather
+        -- than replacing their class interrupt. Real units only; fake
+        -- Test Mode units don't have a race to check.
+        local racialUnits = {}
+        for _, u in ipairs(units) do
+            local _, raceToken = UnitRace(u)
+            if raceToken and RACIAL_DEFAULT[raceToken] then
+                racialUnits[#racialUnits + 1] = u .. "#racial"
+            end
+        end
+        for _, ru in ipairs(racialUnits) do units[#units + 1] = ru end
     end
 
     local BH  = db.barHeight
@@ -294,16 +330,28 @@ function RebuildInterruptBars()
 
     for i, unit in ipairs(units) do
         local fakeInfo = TEST_FAKE_LOOKUP[unit]
+        -- "<realUnit>#racial" rows resolve class/name/etc from the real
+        -- base unit token - "player#racial" isn't a valid UnitClass/
+        -- UnitName argument on its own.
+        local baseUnit    = unit:match("^(.*)#racial$")
+        local isRacialRow = baseUnit ~= nil
+        if not isRacialRow then baseUnit = unit end
         local class
         if fakeInfo then
             class = fakeInfo.class
         else
-            local _, c = UnitClass(unit)
+            local _, c = UnitClass(baseUnit)
             class = c
         end
         if class then
             local st     = intBarState[unit]
-            local defInt = INT_DEFAULT[class]
+            local defInt
+            if isRacialRow then
+                local _, raceToken = UnitRace(baseUnit)
+                defInt = raceToken and RACIAL_DEFAULT[raceToken]
+            else
+                defInt = INT_DEFAULT[class]
+            end
 
             -- Seed a fully "live" animated demo bar the first time a fake
             -- unit is seen: staggered cooldown position (spread across
@@ -346,13 +394,44 @@ function RebuildInterruptBars()
                 if not bf then
                     local row = CreateFrame("Frame", nil, intBarsParent)
 
-                    -- Border: a slightly larger solid-black layer behind
-                    -- the icon+bar combo, giving a clean 1px outline -
-                    -- same flat/minimal border technique used elsewhere.
-                    local border = row:CreateTexture(nil, "BACKGROUND", nil, -1)
-                    border:SetPoint("TOPLEFT",     row, "TOPLEFT",     -1,  1)
-                    border:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT",  1, -1)
-                    border:SetColorTexture(0, 0, 0, 1)
+                    -- Border: four strips forming an outline flush against
+                    -- the row's own edges and extending outward by
+                    -- BORDER_THICKNESS - not a single oversized rectangle
+                    -- behind everything, which would sit under the
+                    -- statusbar's semi-transparent background and show
+                    -- through as a dark tint across the whole unfilled
+                    -- portion of the bar instead of a crisp edge. Top/
+                    -- bottom strips overhang left/right by the same
+                    -- thickness so the four corners meet cleanly.
+                    local T = BORDER_THICKNESS
+                    local border = {}
+                    local bTop = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bTop:SetPoint("BOTTOMLEFT",  row, "TOPLEFT",  -T, 0)
+                    bTop:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT",  T, 0)
+                    bTop:SetHeight(T)
+                    bTop:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bTop
+
+                    local bBottom = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bBottom:SetPoint("TOPLEFT",  row, "BOTTOMLEFT",  -T, 0)
+                    bBottom:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT",  T, 0)
+                    bBottom:SetHeight(T)
+                    bBottom:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bBottom
+
+                    local bLeft = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bLeft:SetPoint("TOPRIGHT",    row, "TOPLEFT",    0, 0)
+                    bLeft:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", 0, 0)
+                    bLeft:SetWidth(T)
+                    bLeft:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bLeft
+
+                    local bRight = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+                    bRight:SetPoint("TOPLEFT",    row, "TOPRIGHT",    0, 0)
+                    bRight:SetPoint("BOTTOMLEFT", row, "BOTTOMRIGHT", 0, 0)
+                    bRight:SetWidth(T)
+                    bRight:SetColorTexture(0, 0, 0, 1)
+                    border[#border + 1] = bRight
 
                     -- Icon frame
                     local iconF = CreateFrame("Frame", nil, row)
@@ -375,7 +454,7 @@ function RebuildInterruptBars()
                         local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
                         if not ok then
                             local fake = TEST_FAKE_LOOKUP[unit]
-                            GameTooltip:SetText((fake and fake.name) or UnitName(unit) or unit, 1, 1, 1)
+                            GameTooltip:SetText((fake and fake.name) or UnitName(baseUnit) or unit, 1, 1, 1)
                         end
                         GameTooltip:AddLine(" ")
                         GameTooltip:AddDoubleLine("Cooldown:",
@@ -433,8 +512,9 @@ function RebuildInterruptBars()
                 bf.sbBg:SetTexture(barTex)
 
                 -- Border visibility (applied every rebuild so toggling it
-                -- in settings takes effect immediately).
-                bf.border:SetShown(not db.hideBorder)
+                -- in settings takes effect immediately). bf.border is a
+                -- list of the 4 edge-strip textures.
+                for _, b in ipairs(bf.border) do b:SetShown(not db.hideBorder) end
 
                 -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)
@@ -465,8 +545,10 @@ function RebuildInterruptBars()
                 bf.cdText:SetFont(fp, fs, "OUTLINE")
                 bf.cdText:SetHeight(BH)
 
-                -- Name
-                bf.nameText:SetText((fakeInfo and fakeInfo.name) or UnitName(unit) or unit)
+                -- Name (racial rows get a suffix so a Blood Elf's class-
+                -- interrupt bar and Arcane Torrent bar are distinguishable)
+                local baseName = (fakeInfo and fakeInfo.name) or UnitName(baseUnit) or baseUnit
+                bf.nameText:SetText(isRacialRow and (baseName .. " (Racial)") or baseName)
 
                 -- Initialise state if not yet tracked
                 if not intBarState[unit] then
@@ -505,22 +587,27 @@ function HandleInterruptCast(sourceGUID, spellId)
     if not intInfo then return end
 
     -- Resolve GUID → unit token
-    local unit = nil
+    local baseUnit = nil
     if UnitGUID("player") == sourceGUID then
-        unit = "player"
+        baseUnit = "player"
     else
         for i = 1, 4 do
             local u = "party" .. i
             if UnitGUID(u) == sourceGUID then
-                unit = u
+                baseUnit = u
                 break
             end
         end
     end
-    if not unit then return end
+    if not baseUnit then return end
+
+    -- Racial abilities (e.g. Arcane Torrent) get their own separate bar
+    -- per unit instead of overwriting that unit's class-interrupt bar -
+    -- see the "#racial" synthetic key in RebuildInterruptBars.
+    local unit = intInfo.isRacial and (baseUnit .. "#racial") or baseUnit
 
     local now = GetTime()
-    local _, class = UnitClass(unit)
+    local _, class = UnitClass(baseUnit)
 
     if not intBarState[unit] then
         intBarState[unit] = { spellId=spellId, cooldown=intInfo.cooldown, endTime=0, class=class or intInfo.class }
