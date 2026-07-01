@@ -59,12 +59,11 @@ end
 -- ---------------------------------------------------------------
 -- SpecPollTicker  –  the actual fix for spec-detection reliability.
 --
--- Adopted directly from PartyAbilityBars' architecture: rather than
--- validating a single read and hoping it's correct, just re-read
--- every tracked unit's spec once a second, forever, for as long as
--- the addon is loaded. A transient bad/stale read is never trusted
--- for more than ~1 second before being silently overwritten by the
--- next poll - which in practice behaves exactly like "always
+-- Rather than validating a single read and hoping it's correct,
+-- re-read every tracked unit's spec once a second, forever, for as
+-- long as the addon is loaded. A transient bad/stale read is never
+-- trusted for more than ~1 second before being silently overwritten
+-- by the next poll - which in practice behaves exactly like "always
 -- correct" without any of the validation complexity that kept
 -- producing edge-case false negatives in earlier versions.
 -- ---------------------------------------------------------------

@@ -13,7 +13,7 @@ memberGUIDs    = {}   -- [unit] = GUID
 iconContainers = {}   -- [unit] = { container, icons={} }
 
 -- -------------------------------------------------------------
--- PAB-style draggable anchor frames (one per party slot)
+-- Draggable anchor frames (one per party slot)
 --
 -- Icons always attach to these anchors — no unit-frame detection
 -- required. TrySnapAnchor() tries to position each anchor near its
@@ -103,8 +103,8 @@ function HideKastaCDAnchors()
 end
 
 -- Apply / remove icon borders on all live icon frames without a full rebuild.
--- Mirrors PAB's ApplyIconTextureBorder: borders = full texcoord (0,1,0,1);
--- no borders = cropped coords that hide the in-game border (0.08,0.92,0.08,0.92).
+-- Borders = full texcoord (0,1,0,1); no borders = cropped coords that hide
+-- the in-game border art (0.08,0.92,0.08,0.92).
 function ApplyIconBorders()
     local on = KastaCDDB and KastaCDDB.showIconBorders
     for _, iconList in pairs(iconContainers) do
@@ -127,9 +127,9 @@ end
 -- vanilla > broad scan) rather than checking PartyMemberFrame1..4 first.
 -- Those vanilla globals still exist even when ElvUI is active (just hidden),
 -- so the old early-out was silently snapping to the wrong, off-screen frames.
--- Anchors directly to the found frame (matching PAB's LoadPositions approach)
--- instead of computing absolute pixel coords — direct SetPoint means the
--- anchor follows the frame automatically if it ever moves.
+-- Anchors directly to the found frame instead of computing absolute pixel
+-- coords — direct SetPoint means the anchor follows the frame automatically
+-- if it ever moves.
 local function TrySnapAnchor(unit)
     local a = kcdAnchors[unit]
     if not a then return end

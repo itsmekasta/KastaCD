@@ -35,8 +35,7 @@
 -- they are never shown just because the unit's spec/level matches -
 -- they only appear once a combat-log sighting (KNOWN_UNIT_SPELLS)
 -- has actually confirmed that exact unit casting that exact spell.
--- This is the architecture adopted from PartyAbilityBars (PAB),
--- which sidesteps spec-detection-reliability problems entirely for
+-- This sidesteps spec-detection-reliability problems entirely for
 -- talent rows by requiring ground truth (a witnessed cast) instead
 -- of guessing from spec data alone.
 -- =============================================================

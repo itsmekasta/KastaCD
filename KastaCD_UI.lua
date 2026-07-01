@@ -362,7 +362,7 @@ function CreateKastaCDMenu()
         ctY = ctY - 26
     end
 
-    -- ── Anchor frames (PAB-style draggable positioning) ───────
+    -- ── Anchor frames (draggable positioning) ────────────────
     local anchorHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     anchorHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 10)
     anchorHdr:SetText("|cffff7f00Anchor Frames:|r")

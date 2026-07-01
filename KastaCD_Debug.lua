@@ -200,9 +200,9 @@ end
 -- Dumps the live UNIT_SPEC_CACHE state for the player and all
 -- present party members, as currently maintained by the 1s
 -- SpecPollTicker in KastaCD_Events.lua. Useful for confirming the
--- PAB-style polling architecture is actually keeping spec data
--- fresh (run it a few times a couple seconds apart to watch it
--- self-correct after a spec change or a transient bad read).
+-- polling architecture is actually keeping spec data fresh (run it
+-- a few times a couple seconds apart to watch it self-correct after
+-- a spec change or a transient bad read).
 -- -------------------------------------------------------------
 SLASH_KASTACDPOLL1 = "/kcdpoll"
 SlashCmdList["KASTACDPOLL"] = function()

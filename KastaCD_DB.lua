@@ -172,21 +172,19 @@ KNOWN_UNIT_SPELLS = {}
 -- some other event happened to retrigger a rebuild, which produced
 -- the "random missing abilities" symptom.
 --
--- Adopted instead: the architecture used by PartyAbilityBars (PAB),
--- a long-running, widely-used addon that solves this same problem
--- by simply NOT validating at all, and instead refreshing the spec
--- read on every party member every ~1 second via SpecPollTicker in
--- KastaCD_Events.lua. Under this model a single bad/stale read is
--- never trusted for long - it's silently overwritten by the next
--- poll a second later, which in practice is indistinguishable from
--- "always correct" without ever needing complex validation logic.
+-- Adopted instead: simply not validating at all, and instead
+-- refreshing the spec read on every party member every ~1 second
+-- via SpecPollTicker in KastaCD_Events.lua. Under this model a
+-- single bad/stale read is never trusted for long - it's silently
+-- overwritten by the next poll a second later, which in practice is
+-- indistinguishable from "always correct" without ever needing
+-- complex validation logic.
 -- -------------------------------------------------------------
 UNIT_SPEC_CACHE = {}
 
 -- Called every ~1s per tracked unit by SpecPollTicker (Events.lua).
 -- Always re-reads and overwrites the cache - no caching-until-stale
--- logic, no validation. This is the PAB model: cheap, frequent,
--- self-correcting.
+-- logic, no validation. Cheap, frequent, self-correcting.
 function PollUnitSpec(unit)
     if unit == "player" then
         if GetSpecialization then
