@@ -324,22 +324,12 @@ function RebuildInterruptBars()
     intBarsParent:SetSize(math.max(1, ROW), math.max(1, yOff))
     intAnchorFrame:SetWidth(ROW)
 
-    -- When unlocked: header visible above bars, anchor tall enough to contain both.
-    -- When locked: header hidden, anchor sized to bars only (no dead space).
+    -- Header space is always reserved (whether locked or not) so the bars never
+    -- shift position when the header strip is shown/hidden by locking/unlocking.
     intBarsParent:ClearAllPoints()
-    if not db.locked then
-        intAnchorFrame:SetHeight(HEADER_H + math.max(1, yOff))
-        intBarsParent:SetPoint("TOPLEFT", intAnchorFrame, "TOPLEFT", 0, -HEADER_H)
-        intAnchorFrame.hdrBg:SetColorTexture(1, 0.55, 0, 0.9)
-        intAnchorFrame.hdrBg:Show()
-        intAnchorFrame.hdrLbl:SetTextColor(1, 1, 1)
-        intAnchorFrame.hdrLbl:Show()
-    else
-        intAnchorFrame:SetHeight(math.max(1, yOff))
-        intBarsParent:SetPoint("TOPLEFT", intAnchorFrame, "TOPLEFT", 0, 0)
-        intAnchorFrame.hdrBg:Hide()
-        intAnchorFrame.hdrLbl:Hide()
-    end
+    intAnchorFrame:SetHeight(HEADER_H + math.max(1, yOff))
+    intBarsParent:SetPoint("TOPLEFT", intAnchorFrame, "TOPLEFT", 0, -HEADER_H)
+    ApplyIntAnchorLockState()
     intAnchorFrame:SetShown(anyBar or not db.locked)
 end
 
