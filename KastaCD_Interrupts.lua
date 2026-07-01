@@ -49,23 +49,23 @@ INT_SPELLS = {
     -- instead of overwriting that unit's class-interrupt bar - a Blood Elf
     -- Warrior gets both a Pummel bar AND an Arcane Torrent bar.
     --
-    -- 155145 was confirmed via /kcdcast on this server, but that test
-    -- wasn't necessarily on every class - retail WoW historically used a
-    -- *different* spell ID per resource type (mana/energy/rage/runic
-    -- power/chi/focus/fury) before eventually unifying them, and this
-    -- server may not have that unification for every class. All the
-    -- known historical variants are listed below too, just in case - a
-    -- wrong guess here is harmless (worst case it just never gets cast),
-    -- so better to cover classes we haven't explicitly confirmed yet
-    -- (e.g. Monk/Chi, Death Knight/Runic Power) than to miss them.
+    -- Retail WoW historically used a *different* spell ID per resource
+    -- type (mana/energy/rage/runic power/chi/focus/fury/insanity) before
+    -- eventually unifying them, and this server doesn't have that
+    -- unification for every class - each ID below is confirmed via
+    -- /kcdcast against this specific server, per-class, not guessed.
     [155145] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (confirmed on this server)
-    [28730]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Mana)
-    [25046]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Energy - Rogue)
-    [69179]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Rage - Warrior)
-    [80483]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Focus - Hunter)
-    [50613]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight)
-    [129597] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Chi - Monk)
-    [197908] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Fury - Demon Hunter)
+    [25046]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Energy - Rogue, confirmed)
+    [50613]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight, confirmed)
+    [129597] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Chi - Monk, confirmed)
+    [232633] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Priest, confirmed)
+    [202719] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Demon Hunter, confirmed)
+    -- Not yet confirmed on this server - kept as a reasonable guess since
+    -- an unconfirmed/wrong ID is harmless (worst case it just never gets
+    -- cast); replace with the real ID via /kcdcast if these turn out wrong.
+    [28730]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Mana - unconfirmed)
+    [69179]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Rage - Warrior, unconfirmed)
+    [80483]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Focus - Hunter, unconfirmed)
 }
 
 -- Always-visible racial default per UnitRace() token - shown immediately

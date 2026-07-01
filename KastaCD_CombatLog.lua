@@ -119,10 +119,21 @@ function HandleCombatLog(...)
     end
 
     if data.duration and data.duration > 0 then
-        -- Spell has an active uptime window
+        -- Spell has an active uptime window. Don't call ShowProcGlow
+        -- directly here - the 0.1s ticker in KastaCD_Tracking.lua is the
+        -- sole owner of triggering it, via its own f.glowing guard
+        -- (ActionButton_ShowOverlayGlow restarts its flipbook animation
+        -- on every call, so any second trigger while already glowing
+        -- reads as a visible flash/reset). Calling it here too raced
+        -- against that guard - it fired once directly, then again ~0.1s
+        -- later since this call never set f.glowing, and for multi-charge
+        -- spells like Survival Instincts, recasting the second charge
+        -- while the first's uptime was still active fired it yet again.
+        -- Just reset glowing=false and let the ticker pick it up cleanly,
+        -- same as the rebuild-restore path already does.
         state.phase   = "uptime"
         state.endTime = now + data.duration
-        ShowProcGlow(f)
+        f.glowing = false
         f.bar:Show()
         f.bar:SetWidth(f:GetWidth())
         f.desat:Hide()
@@ -135,6 +146,7 @@ function HandleCombatLog(...)
         state.phase   = "cooldown"
         state.endTime = now + data.cooldown
         HideProcGlow(f)
+        f.glowing = false
         f.bar:Hide()
         f.desat:Show()
         f.cdText:SetText(data.cooldown >= 60
