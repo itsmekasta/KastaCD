@@ -406,6 +406,31 @@ function RebuildCCBars()
         end
     end
 
+    -- Sort by class instead of raid/party slot order, so bars group
+    -- same-class units together (e.g. two Monks always end up adjacent)
+    -- rather than scattering them whenever a different class happens to
+    -- land in a party slot between them. CLASS_INFO's order matches the
+    -- rest of the addon (per-class settings panels, etc.); unrecognized
+    -- classes sort last and ties keep their original party-slot order.
+    do
+        local classOrder = {}
+        for i, ci in ipairs(CLASS_INFO or {}) do classOrder[ci.key] = i end
+        local function UnitClassToken(u)
+            local fakeInfo = TEST_FAKE_LOOKUP[u]
+            if fakeInfo then return fakeInfo.class end
+            local _, c = UnitClass(u)
+            return c
+        end
+        local origIndex = {}
+        for i, u in ipairs(units) do origIndex[u] = i end
+        table.sort(units, function(a, b)
+            local oa = classOrder[UnitClassToken(a)] or math.huge
+            local ob = classOrder[UnitClassToken(b)] or math.huge
+            if oa ~= ob then return oa < ob end
+            return origIndex[a] < origIndex[b]
+        end)
+    end
+
     local BH  = db.barHeight
     local BW  = db.barWidth
     local ICO = BH  -- icon is square, matches bar height
