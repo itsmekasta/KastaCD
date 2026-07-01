@@ -34,6 +34,15 @@ function HandleCombatLog(...)
             spellId, spellName, spellSchool = ...
     end
 
+    -- ── Interrupt tracker hook ─────────────────────────────────
+    -- Check interrupt spells regardless of SPELL_DB membership so
+    -- Priest/Warlock interrupts not in the main DB are still tracked.
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId and INT_SPELLS and INT_SPELLS[spellId] then
+        if sourceGUID and type(HandleInterruptCast) == "function" then
+            HandleInterruptCast(sourceGUID, spellId)
+        end
+    end
+
     -- We only care about successful casts
     if subEvent ~= "SPELL_CAST_SUCCESS" then return end
     if not spellId or not SPELL_DB[spellId] then return end
@@ -89,6 +98,15 @@ function HandleCombatLog(...)
     local data = SPELL_DB[spellId]
     local f    = state.frame
     local now  = GetTime()
+
+    -- Charge tracking: consume one charge and record when it will recharge.
+    -- The uptime/cooldown logic below proceeds normally; the ticker decides
+    -- whether to enter cooldown phase based on state.charges after uptime.
+    if state.maxCharges and state.maxCharges > 1 then
+        state.charges = math.max(0, state.charges - 1)
+        table.insert(state.rechargeEndTimes, now + (data.cooldown or 0))
+        f.chargesText:SetText(tostring(state.charges))
+    end
 
     if data.duration and data.duration > 0 then
         -- Spell has an active uptime window

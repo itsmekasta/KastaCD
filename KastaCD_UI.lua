@@ -59,9 +59,10 @@ local function EnsureMenuDBDefaults()
     end
 
     -- Anchor frame positions (global, not profile-specific)
-    if type(KastaCDDB.anchorPos)  ~= "table" then KastaCDDB.anchorPos  = {} end
-    if KastaCDDB.anchorsLocked     == nil     then KastaCDDB.anchorsLocked = true end
-    if KastaCDDB.growLeft          == nil     then KastaCDDB.growLeft      = false end
+    if type(KastaCDDB.anchorPos)  ~= "table" then KastaCDDB.anchorPos     = {} end
+    if KastaCDDB.anchorsLocked     == nil     then KastaCDDB.anchorsLocked  = true end
+    if KastaCDDB.growLeft          == nil     then KastaCDDB.growLeft       = false end
+    if KastaCDDB.showIconBorders   == nil     then KastaCDDB.showIconBorders = false end
 end
 
 -- =============================================================
@@ -81,16 +82,63 @@ local function MakeSlider(parent, minV, maxV, curVal, w, onChange)
     _G[sName .. "Low"]:SetText(minV)
     _G[sName .. "High"]:SetText(maxV)
     _G[sName .. "Text"]:SetText("")
-    local val = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    val:SetPoint("LEFT", s, "RIGHT", 8, 0)
-    val:SetText(tonumber(curVal) or minV)
-    val:SetTextColor(1, 1, 1)
+
+    -- Clickable value box: shows the current number; click to type a precise value.
+    local valBox = CreateFrame("EditBox", nil, parent)
+    valBox:SetSize(42, 18)
+    valBox:SetPoint("LEFT", s, "RIGHT", 6, 0)
+    valBox:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+    valBox:SetTextColor(1, 0.82, 0)
+    valBox:SetJustifyH("CENTER")
+    valBox:SetAutoFocus(false)
+    valBox:SetMaxLetters(6)
+    valBox:SetText(tostring(math.floor(tonumber(curVal) or minV)))
+    valBox:SetBackdrop({
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile=true, tileSize=8, edgeSize=8,
+        insets={left=2,right=2,top=2,bottom=2},
+    })
+    valBox:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+    valBox:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.7)
+
+    local function ApplyVal()
+        local num = tonumber(valBox:GetText())
+        if not num then
+            num = math.floor(s:GetValue())
+        else
+            num = math.max(minV, math.min(maxV, math.floor(num)))
+        end
+        valBox:SetText(tostring(num))
+        s:SetValue(num)
+        onChange(num)
+    end
+
+    valBox:SetScript("OnEnterPressed", function(self) ApplyVal(); self:ClearFocus() end)
+    valBox:SetScript("OnEscapePressed", function(self)
+        self:SetText(tostring(math.floor(s:GetValue())))
+        self:ClearFocus()
+    end)
+    valBox:SetScript("OnEditFocusLost", ApplyVal)
+    valBox:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+    end)
+    valBox:SetScript("OnLeave", function(self)
+        if not self:HasFocus() then
+            self:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.7)
+        end
+    end)
+
     s:SetScript("OnValueChanged", function(_, v)
         local fv = math.floor(v)
-        val:SetText(fv)
+        -- Don't overwrite text while the user is typing
+        if not valBox:HasFocus() then
+            valBox:SetText(tostring(fv))
+        end
         onChange(fv)
     end)
-    return s, val
+
+    return s, valBox
 end
 
 local function MakeLabel(parent, txt, point, relFrame, relPoint, x, y)
@@ -175,7 +223,7 @@ function CreateKastaCDMenu()
 
     local verLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     verLbl:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 8)
-    verLbl:SetText("Kasta|cffff7f00CD|r v1.4")
+    verLbl:SetText("Kasta|cffff7f00CD|r v1.5")
     verLbl:SetTextColor(0.5, 0.5, 0.5)
 
     -- ── Sidebar ───────────────────────────────────────────────
@@ -223,46 +271,90 @@ function CreateKastaCDMenu()
     panelPos:SetAllPoints()
     panels["Settings"] = panelPos
 
-    -- Offset / size / per-row sliders
+    -- Centre the two-column block: left col at CX, right col at RX.
+    -- Block width: 200 (slider) + 46 (gap) + ~170 (right col) = ~416px.
+    -- Centred in CONTENT_W=695: (695-416)/2 ≈ 138.
     local offsetLabelY = -14
+    local CX = 138
+    local RX = CX + 246   -- keeps the same 246px inter-column gap as before
 
-    MakeLabel(panelPos, "Offset X:", "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY)
+    MakeLabel(panelPos, "Offset X:", "TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY)
     local oxS = MakeSlider(panelPos, -200, 200, KastaCDDB.offsetX, 200,
         function(v) KastaCDDB.offsetX = v; if type(RebuildIcons) == "function" then RebuildIcons() end end)
-    oxS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 18)
+    oxS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 18)
 
-    MakeLabel(panelPos, "Offset Y:", "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 48)
+    MakeLabel(panelPos, "Offset Y:", "TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 48)
     local oyS = MakeSlider(panelPos, -200, 200, KastaCDDB.offsetY, 200,
         function(v) KastaCDDB.offsetY = v; if type(RebuildIcons) == "function" then RebuildIcons() end end)
-    oyS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 66)
+    oyS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 66)
 
-    MakeLabel(panelPos, "Icon Size:", "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 96)
+    MakeLabel(panelPos, "Icon Size:", "TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 96)
     local isS = MakeSlider(panelPos, 12, 48, KastaCDDB.iconSize, 200,
         function(v) KastaCDDB.iconSize = v; if type(RebuildIcons) == "function" then RebuildIcons() end end)
-    isS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 114)
+    isS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 114)
 
-    MakeLabel(panelPos, "Icons per Row:", "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 144)
+    MakeLabel(panelPos, "Icons per Row:", "TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 144)
     local iprS = MakeSlider(panelPos, 1, 10, KastaCDDB.iconsPerRow, 200,
         function(v) KastaCDDB.iconsPerRow = v; if type(RebuildIcons) == "function" then RebuildIcons() end end)
-    iprS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 162)
+    iprS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 162)
 
     MakeToggle(panelPos, "Grow Left", KastaCDDB.growLeft == true,
-        "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 190,
+        "TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 190,
         function(v)
             KastaCDDB.growLeft = v
             if type(RebuildIcons) == "function" then RebuildIcons() end
         end)
 
+    local pvpHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    pvpHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", RX, offsetLabelY)
+    pvpHdr:SetText("|cffff7f00Misc:|r")
+
+    local pvpCB = CreateFrame("CheckButton", nil, panelPos, "UICheckButtonTemplate")
+    pvpCB:SetSize(22, 22)
+    pvpCB:SetPoint("TOPLEFT", panelPos, "TOPLEFT", RX, offsetLabelY - 22)
+    pvpCB:SetChecked(KastaCDDB.enabled[208683] == true)
+    local pvpLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    pvpLbl:SetPoint("LEFT", pvpCB, "RIGHT", 2, 0)
+    pvpLbl:SetText("PvP Medallion")
+    pvpCB:SetScript("OnClick", function(self)
+        KastaCDDB.enabled[208683] = self:GetChecked() and true or nil
+        if type(RebuildIcons) == "function" then RebuildIcons() end
+    end)
+
+    local medPvPCB = CreateFrame("CheckButton", nil, panelPos, "UICheckButtonTemplate")
+    medPvPCB:SetSize(22, 22)
+    medPvPCB:SetPoint("TOPLEFT", panelPos, "TOPLEFT", RX, offsetLabelY - 52)
+    medPvPCB:SetChecked(KastaCDDB.medallionOutsidePvP == true)
+    local medPvPLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    medPvPLbl:SetPoint("LEFT", medPvPCB, "RIGHT", 2, 0)
+    medPvPLbl:SetText("Medallion outside PvP")
+
+    local borderCB = CreateFrame("CheckButton", nil, panelPos, "UICheckButtonTemplate")
+    borderCB:SetSize(22, 22)
+    borderCB:SetPoint("TOPLEFT", panelPos, "TOPLEFT", RX, offsetLabelY - 82)
+    borderCB:SetChecked(KastaCDDB.showIconBorders == true)
+    local borderLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    borderLbl:SetPoint("LEFT", borderCB, "RIGHT", 2, 0)
+    borderLbl:SetText("Icon Borders")
+    medPvPCB:SetScript("OnClick", function(self)
+        KastaCDDB.medallionOutsidePvP = self:GetChecked() and true or false
+        if type(RebuildIcons) == "function" then RebuildIcons() end
+    end)
+    borderCB:SetScript("OnClick", function(self)
+        KastaCDDB.showIconBorders = self:GetChecked() and true or false
+        if type(ApplyIconBorders) == "function" then ApplyIconBorders() end
+    end)
+
     -- Content-type toggles
     local ctHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ctHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 218)
+    ctHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, offsetLabelY - 218)
     ctHdr:SetText("|cffff7f00Active in:|r")
 
     local ctY = offsetLabelY - 238
     for _, ct in ipairs(CONTENT_TYPES or {}) do
         local ctName = ct
         MakeToggle(panelPos, ctName, KastaCDDB.contentTypes[ctName] == true,
-            "TOPLEFT", panelPos, "TOPLEFT", 14, ctY,
+            "TOPLEFT", panelPos, "TOPLEFT", CX, ctY,
             function(v)
                 KastaCDDB.contentTypes[ctName] = v
                 if type(RebuildIcons) == "function" then RebuildIcons() end
@@ -272,20 +364,20 @@ function CreateKastaCDMenu()
 
     -- ── Anchor frames (PAB-style draggable positioning) ───────
     local anchorHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 10)
+    anchorHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 10)
     anchorHdr:SetText("|cffff7f00Anchor Frames:|r")
 
     local anchorDesc = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    anchorDesc:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 28)
+    anchorDesc:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 28)
     anchorDesc:SetText("Unlock to drag the orange anchor squares onto your party frames.")
     anchorDesc:SetTextColor(0.7, 0.7, 0.7)
 
     local anchorStatLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorStatLbl:SetPoint("LEFT",  panelPos, "TOPLEFT", 130, ctY - 52)
+    anchorStatLbl:SetPoint("LEFT",  panelPos, "TOPLEFT", CX + 116, ctY - 52)
 
     local anchorUnlockBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
     anchorUnlockBtn:SetSize(110, 22)
-    anchorUnlockBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 44)
+    anchorUnlockBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 44)
 
     local function RefreshAnchorBtn()
         if KastaCDDB.anchorsLocked then
@@ -309,7 +401,7 @@ function CreateKastaCDMenu()
 
     local resetAnchorsBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
     resetAnchorsBtn:SetSize(110, 22)
-    resetAnchorsBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 70)
+    resetAnchorsBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 70)
     resetAnchorsBtn:SetText("Reset Positions")
     resetAnchorsBtn:SetScript("OnClick", function()
         KastaCDDB.anchorPos = {}
@@ -570,8 +662,17 @@ function CreateKastaCDMenu()
     RefreshProfilesPanel()
 
     -- =========================================================
-    -- Per-class spell panels
+    -- Per-class spell panels  (category sub-tabs)
     -- =========================================================
+    local CATEGORY_ORDER = { "OFFENSIVE", "INTERRUPT", "DEFENSIVE", "IMMUNITY", "UTILITY" }
+    local CATEGORY_NAMES = {
+        OFFENSIVE="Offensive", INTERRUPT="Interrupt",
+        DEFENSIVE="Defensive", IMMUNITY="Immunity", UTILITY="Utility",
+    }
+    local CAT_TAB_H   = 22
+    -- contentArea width: FRAME_W(860) - SIDEBAR_W(160) - divider(1) - right margin(4) = 695
+    local CONTENT_W   = FRAME_W - SIDEBAR_W - 1 - 4
+
     for _, ci in ipairs(CLASS_INFO or {}) do
         local classFrame = CreateFrame("Frame", nil, contentArea)
         classFrame:SetAllPoints()
@@ -583,111 +684,291 @@ function CreateKastaCDMenu()
         hdr:SetText(string.format("|cff%02x%02x%02x%s|r",
             ci.r * 255, ci.g * 255, ci.b * 255, ci.label))
 
-        -- Collect + sort spells for this class
-        local classSpells = {}
+        -- Collect spells for this class, grouped by category
+        local byCategory = {}
         for sid, data in pairs(SPELL_DB or {}) do
             if data.class == ci.key then
-                table.insert(classSpells, { sid=sid, data=data })
+                local cat = data.category or "UTILITY"
+                byCategory[cat] = byCategory[cat] or {}
+                table.insert(byCategory[cat], { sid=sid, data=data })
             end
         end
-        table.sort(classSpells, function(a, b) return a.data.name < b.data.name end)
-
-        -- Single scroll frame listing every spell for this class
-        local sf = CreateFrame("ScrollFrame", nil, classFrame, "UIPanelScrollFrameTemplate")
-        sf:SetPoint("TOPLEFT",     hdr,        "BOTTOMLEFT",  -4, -12)
-        sf:SetPoint("BOTTOMRIGHT", classFrame, "BOTTOMRIGHT", -20,  0)
-
-        local child = CreateFrame("Frame", nil, sf)
-        child:SetWidth(640)
-        sf:SetScrollChild(child)
-
-        local cy = -6
-
-        -- Short readable labels for the category badge
-        local CATEGORY_LABEL = {
-            OFFENSIVE="OFF", DEFENSIVE="DEF",
-            INTERRUPT="INT", IMMUNITY="IMM", UTILITY="UTL",
-        }
-
-        for _, entry in ipairs(classSpells) do
-            local sid, data = entry.sid, entry.data
-            local row = CreateFrame("Frame", nil, child)
-            row:SetSize(640, 28)
-            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
-
-            -- Spell icon thumbnail
-            local ico = row:CreateTexture(nil, "ARTWORK")
-            ico:SetSize(22, 22)
-            ico:SetPoint("LEFT", row, "LEFT", 0, 0)
-            ico:SetTexture(GetSpellTexture and GetSpellTexture(sid) or data.icon)
-            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-            -- Enable checkbox
-            local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-            cb:SetSize(22, 22)
-            cb:SetPoint("LEFT", ico, "RIGHT", 6, 0)
-            cb:SetChecked(KastaCDDB.enabled[sid] == true)
-            cb.spellId = sid
-            cb:SetScript("OnClick", function(self)
-                KastaCDDB.enabled[sid] = self:GetChecked() and true or nil
-                if type(RebuildIcons) == "function" then RebuildIcons() end
-            end)
-            row.checkbox = cb
-
-            -- Spell name
-            local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            lbl:SetPoint("LEFT",  cb,  "RIGHT",  4, 0)
-            lbl:SetPoint("RIGHT", row, "RIGHT", -160, 0)
-            lbl:SetJustifyH("LEFT")
-            lbl:SetText(data.name)
-
-            -- Category badge (OFF / DEF / INT / IMM / UTL)
-            local catLbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            catLbl:SetPoint("RIGHT", row, "RIGHT", -118, 0)
-            catLbl:SetTextColor(0.55, 0.55, 0.55)
-            catLbl:SetText(CATEGORY_LABEL[data.category] or "   ")
-
-            row.spellId = sid
-
-            row:EnableMouse(true)
-            row:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
-                if not ok then GameTooltip:SetText(data.name, 1, 1, 1) end
-                local cdStr  = data.cooldown > 0 and (data.cooldown .. "s") or "None"
-                local durStr = data.duration > 0 and (data.duration .. "s") or "None"
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddDoubleLine("Cooldown:", cdStr,  0.7,0.7,0.7, 1,1,1)
-                GameTooltip:AddDoubleLine("Duration:", durStr, 0.7,0.7,0.7, 1,1,1)
-                if data.minLevel and data.minLevel > 1 then
-                    GameTooltip:AddDoubleLine("Required level:", tostring(data.minLevel), 0.7,0.7,0.7, 1,1,1)
-                end
-                if data.specs then
-                    GameTooltip:AddLine("|cffaaaaaa(Spec-specific ability)|r")
-                end
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-            -- Cooldown / duration / level info
-            local info = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            info:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-            info:SetTextColor(0.5, 0.5, 0.5)
-            local cdStr  = data.cooldown > 0 and (data.cooldown .. "s CD") or "no CD"
-            local durStr = data.duration > 0 and (" | " .. data.duration .. "s") or ""
-            info:SetText(cdStr .. durStr .. " | lvl " .. (data.minLevel or "?"))
-
-            cy = cy - 30
+        for _, spells in pairs(byCategory) do
+            table.sort(spells, function(a, b) return a.data.name < b.data.name end)
         end
 
-        if #classSpells == 0 then
-            local empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-            empty:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
+        -- Count non-empty categories to compute tab width
+        local numActiveCats = 0
+        for _, catKey in ipairs(CATEGORY_ORDER) do
+            if byCategory[catKey] and #byCategory[catKey] > 0 then
+                numActiveCats = numActiveCats + 1
+            end
+        end
+        local CAT_TAB_W = numActiveCats > 0 and math.floor(CONTENT_W / numActiveCats) or 90
+
+        -- Per-category tab buttons + scroll frames
+        local catTabs    = {}   -- catKey → tab Button
+        local catScrolls = {}   -- catKey → ScrollFrame
+
+        local function SetActiveCatTab(activeKey)
+            for k, sf  in pairs(catScrolls) do sf:SetShown(k == activeKey)   end
+            for k, tab in pairs(catTabs)    do
+                if k == activeKey then
+                    tab.bg:SetColorTexture(1, 1, 1, 1)
+                    tab.lbl:SetTextColor(0, 0, 0)
+                else
+                    tab.bg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
+                    tab.lbl:SetTextColor(0.7, 0.7, 0.7)
+                end
+            end
+        end
+
+        local tabX         = 0
+        local TAB_TOP_Y    = -36   -- y offset below class header
+        local SCROLL_TOP_Y = TAB_TOP_Y - CAT_TAB_H - 4
+        local firstCatKey  = nil
+
+        for _, catKey in ipairs(CATEGORY_ORDER) do
+            local spells = byCategory[catKey]
+            if spells and #spells > 0 then
+                if not firstCatKey then firstCatKey = catKey end
+
+                -- Tab button
+                local tab = CreateFrame("Button", nil, classFrame)
+                tab:SetSize(CAT_TAB_W, CAT_TAB_H)
+                tab:SetPoint("TOPLEFT", classFrame, "TOPLEFT", tabX, TAB_TOP_Y)
+
+                local tabBg = tab:CreateTexture(nil, "BACKGROUND")
+                tabBg:SetAllPoints()
+                tabBg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
+                tab.bg = tabBg
+
+                local tabLbl = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                tabLbl:SetPoint("CENTER", tab, "CENTER", 0, 0)
+                tabLbl:SetText(CATEGORY_NAMES[catKey] or catKey)
+                tabLbl:SetTextColor(0.7, 0.7, 0.7)
+                tab.lbl = tabLbl
+
+                catTabs[catKey] = tab
+                tabX = tabX + CAT_TAB_W
+
+                -- Scroll frame for this category's spells
+                local sf = CreateFrame("ScrollFrame", nil, classFrame, "UIPanelScrollFrameTemplate")
+                sf:SetPoint("TOPLEFT",     classFrame, "TOPLEFT",     0, SCROLL_TOP_Y)
+                sf:SetPoint("BOTTOMRIGHT", classFrame, "BOTTOMRIGHT", -20, 0)
+                sf:Hide()
+                catScrolls[catKey] = sf
+
+                local childF = CreateFrame("Frame", nil, sf)
+                childF:SetWidth(580)
+                sf:SetScrollChild(childF)
+
+                local cy = -4
+                for _, entry in ipairs(spells) do
+                    local sid, data = entry.sid, entry.data
+                    local row = CreateFrame("Frame", nil, childF)
+                    row:SetSize(580, 26)
+                    row:SetPoint("TOPLEFT", childF, "TOPLEFT", 0, cy)
+
+                    local ico = row:CreateTexture(nil, "ARTWORK")
+                    ico:SetSize(20, 20)
+                    ico:SetPoint("LEFT", row, "LEFT", 4, 0)
+                    ico:SetTexture(GetSpellTexture and GetSpellTexture(sid) or data.icon)
+                    ico:SetTexCoord(0, 1, 0, 1)
+
+                    local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+                    cb:SetSize(22, 22)
+                    cb:SetPoint("LEFT", ico, "RIGHT", 4, 0)
+                    cb:SetChecked(KastaCDDB.enabled[sid] == true)
+                    cb.spellId = sid
+                    cb:SetScript("OnClick", function(self)
+                        KastaCDDB.enabled[sid] = self:GetChecked() and true or nil
+                        if type(RebuildIcons) == "function" then RebuildIcons() end
+                    end)
+                    row.checkbox = cb
+
+                    local spellLbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                    spellLbl:SetPoint("LEFT",  cb,  "RIGHT", 4, 0)
+                    spellLbl:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+                    spellLbl:SetJustifyH("LEFT")
+                    spellLbl:SetText(data.name)
+
+                    row:EnableMouse(true)
+                    row:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+                        local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
+                        if not ok then GameTooltip:SetText(data.name, 1, 1, 1) end
+                        GameTooltip:Show()
+                    end)
+                    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                    cy = cy - 26
+                end
+                childF:SetHeight(math.abs(cy) + 10)
+
+                tab:SetScript("OnClick", function() SetActiveCatTab(catKey) end)
+            end
+        end
+
+        if firstCatKey then
+            SetActiveCatTab(firstCatKey)
+        else
+            local empty = classFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            empty:SetPoint("TOPLEFT", classFrame, "TOPLEFT", 14, TAB_TOP_Y)
             empty:SetText("(no spells in database for this class)")
-            cy = cy - 24
         end
-        child:SetHeight(math.abs(cy) + 20)
     end
+
+    -- =========================================================
+    -- Interrupts panel
+    -- =========================================================
+    local panelInt = CreateFrame("Frame", nil, contentArea)
+    panelInt:SetAllPoints()
+    panels["Interrupts"] = panelInt
+
+    -- ICX: left edge of the 200px-wide controls, centred in CONTENT_W=695.
+    -- intY chosen so the ~326px content block is vertically centred in the ~458px content area.
+    local ICX = 247
+    local intY = -66
+    MakeLabel(panelInt, "Interrupt Tracker", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY)
+
+    -- Enable toggle
+    local intEnCB = CreateFrame("CheckButton", nil, panelInt, "UICheckButtonTemplate")
+    intEnCB:SetSize(22, 22)
+    intEnCB:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 22)
+    intEnCB:SetChecked(KastaCDDB.intAnchor and KastaCDDB.intAnchor.enabled ~= false)
+    local intEnLbl = panelInt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    intEnLbl:SetPoint("LEFT", intEnCB, "RIGHT", 2, 0)
+    intEnLbl:SetText("Enable")
+    intEnCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        KastaCDDB.intAnchor.enabled = self:GetChecked() and true or false
+        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+    end)
+
+    -- Bar Width slider
+    MakeLabel(panelInt, "Bar Width:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 58)
+    local intBWS = MakeSlider(panelInt, 100, 400,
+        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.barWidth) or 200, 200,
+        function(v)
+            if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+            KastaCDDB.intAnchor.barWidth = v
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        end)
+    intBWS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 76)
+
+    -- Bar Height slider
+    MakeLabel(panelInt, "Bar Height:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 106)
+    local intBHS = MakeSlider(panelInt, 14, 40,
+        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.barHeight) or 20, 200,
+        function(v)
+            if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+            KastaCDDB.intAnchor.barHeight = v
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        end)
+    intBHS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 124)
+
+    -- ── Font selector ─────────────────────────────────────────
+    local FONT_LIST = {
+        { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF"  },
+        { name = "Arial Narrow",  path = "Fonts\\ARIALN.TTF"    },
+        { name = "Morpheus",      path = "Fonts\\MORPHEUS.TTF"  },
+        { name = "Skurri",        path = "Fonts\\SKURRI.TTF"    },
+    }
+
+    local function CurrentFontName()
+        local cur = KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontPath or "Fonts\\FRIZQT__.TTF"
+        for _, f in ipairs(FONT_LIST) do
+            if f.path == cur then return f.name end
+        end
+        return "Friz Quadrata"
+    end
+
+    MakeLabel(panelInt, "Font:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 154)
+
+    local intFontBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
+    intFontBtn:SetSize(160, 22)
+    intFontBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 172)
+    intFontBtn:SetText(CurrentFontName())
+
+    -- Popup frame listing font options (hidden by default)
+    local intFontPopup = CreateFrame("Frame", nil, panelInt)
+    intFontPopup:SetFrameStrata("FULLSCREEN_DIALOG")
+    intFontPopup:SetSize(160, #FONT_LIST * 22)
+    intFontPopup:SetPoint("TOPLEFT", intFontBtn, "BOTTOMLEFT", 0, -2)
+    intFontPopup:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left=3, right=3, top=3, bottom=3 },
+    })
+    intFontPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+    intFontPopup:Hide()
+
+    for i, f in ipairs(FONT_LIST) do
+        local fBtn = CreateFrame("Button", nil, intFontPopup)
+        fBtn:SetSize(154, 20)
+        fBtn:SetPoint("TOPLEFT", intFontPopup, "TOPLEFT", 3, -3 - (i - 1) * 20)
+        local fTxt = fBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fTxt:SetAllPoints()
+        fTxt:SetJustifyH("LEFT")
+        fTxt:SetText(f.name)
+        fBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        local fPath = f.path
+        local fName = f.name
+        fBtn:SetScript("OnClick", function()
+            if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+            KastaCDDB.intAnchor.fontPath = fPath
+            intFontBtn:SetText(fName)
+            intFontPopup:Hide()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        end)
+    end
+
+    intFontBtn:SetScript("OnClick", function()
+        if intFontPopup:IsShown() then
+            intFontPopup:Hide()
+        else
+            intFontPopup:Show()
+        end
+    end)
+
+    -- ── Font size slider ──────────────────────────────────────
+    MakeLabel(panelInt, "Font Size:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 202)
+    local intFSS = MakeSlider(panelInt, 8, 18,
+        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontSize) or 10, 200,
+        function(v)
+            if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+            KastaCDDB.intAnchor.fontSize = v
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        end)
+    intFSS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 220)
+
+    -- Anchor lock button
+    local intLockBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
+    intLockBtn:SetSize(130, 22)
+    intLockBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 256)
+    local function RefreshIntLockBtn()
+        local locked = not KastaCDDB.intAnchor or KastaCDDB.intAnchor.locked ~= false
+        intLockBtn:SetText(locked and "Unlock Anchor" or "Lock Anchor")
+    end
+    RefreshIntLockBtn()
+    intLockBtn:SetScript("OnClick", function()
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        local locked = KastaCDDB.intAnchor.locked ~= false
+        if locked then
+            if type(UnlockIntAnchor) == "function" then UnlockIntAnchor() end
+        else
+            if type(LockIntAnchor) == "function" then LockIntAnchor() end
+        end
+        KastaCDDB.intAnchor.locked = not locked
+        RefreshIntLockBtn()
+    end)
+
+    local intDesc = panelInt:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    intDesc:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 284)
+    intDesc:SetTextColor(0.7, 0.7, 0.7)
+    intDesc:SetText("Shows class-colored bars for each party\nmember with an interrupt. Cooldown depletes\nafter each use. Drag anchor to reposition.")
 
     -- =========================================================
     -- refreshClassPanelsFns  –  sync checkbox + group-button state
@@ -721,8 +1002,7 @@ function CreateKastaCDMenu()
     local function SetTabVisual(t, isActive)
         local alpha = isActive and 1.0 or 0.15
         t.bg:SetColorTexture(t.r, t.g, t.b, alpha)
-        local brightness = t.r * 0.299 + t.g * 0.587 + t.b * 0.114
-        if isActive and brightness > 0.5 then
+        if isActive and t.r >= 0.99 and t.g >= 0.99 and t.b >= 0.99 then
             t.label:SetTextColor(0.05, 0.05, 0.05)
         else
             t.label:SetTextColor(1, 1, 1)
@@ -736,7 +1016,10 @@ function CreateKastaCDMenu()
     end
 
     local TAB_H = 32
-    local tabDefs = { { name="Settings", label="Settings", r=0.55, g=0.55, b=0.55 } }
+    local tabDefs = {
+        { name="Settings",   label="Settings",    r=0.55, g=0.55, b=0.55 },
+        { name="Interrupts", label="Interrupt Tracker", r=0.55, g=0.55, b=0.55 },
+    }
     for _, ci in ipairs(CLASS_INFO or {}) do
         table.insert(tabDefs, { name=ci.key, label=ci.label, r=ci.r, g=ci.g, b=ci.b })
     end

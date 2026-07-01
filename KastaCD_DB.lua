@@ -85,8 +85,20 @@ function KastaCDInitDB()
     end
 
     -- Global (non-profile) anchor settings — shared across all profiles
-    if type(KastaCDDB.anchorPos)   ~= "table" then KastaCDDB.anchorPos   = {} end
+    if type(KastaCDDB.anchorPos)   ~= "table" then KastaCDDB.anchorPos    = {} end
     if KastaCDDB.anchorsLocked      == nil     then KastaCDDB.anchorsLocked = true end
+    if KastaCDDB.showIconBorders       == nil then KastaCDDB.showIconBorders       = false end
+    if KastaCDDB.medallionOutsidePvP   == nil then KastaCDDB.medallionOutsidePvP   = false end
+
+    -- Interrupt anchor settings
+    if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+    local ia = KastaCDDB.intAnchor
+    if ia.barWidth  == nil then ia.barWidth  = 200                    end
+    if ia.barHeight == nil then ia.barHeight = 20                     end
+    if ia.enabled   == nil then ia.enabled   = true                   end
+    if ia.locked    == nil then ia.locked    = true                   end
+    if ia.fontPath  == nil then ia.fontPath  = "Fonts\\FRIZQT__.TTF" end
+    if ia.fontSize  == nil then ia.fontSize  = 10                     end
 
     PersistActiveProfile()
     ApplyActiveProfile()
@@ -271,6 +283,10 @@ end
 function IsSpellKnownForUnit(unit, spellId)
     local data = SPELL_DB[spellId]
     if not data then return false end
+
+    -- Class-agnostic spells (e.g. PvP Medallion, class="ALL") are considered
+    -- known for every unit — the enabled toggle in Settings is the only gate.
+    if data.class == "ALL" then return true end
 
     if unit == "player" then
         local checkId = spellId

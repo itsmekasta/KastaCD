@@ -46,6 +46,11 @@
 -- about load order beyond "this file loads first."
 SPELL_DB = SPELL_DB or {}
 
+-- class="ALL": applies to every unit regardless of class.
+-- IsSpellKnownForUnit returns true immediately for these; the only gate is
+-- whether the spell is enabled in Settings (KastaCDDB.enabled[sid]).
+SPELL_DB[208683] = { name="PvP Medallion", class="ALL", icon=626004, duration=0, cooldown=120, category="UTILITY" }
+
 -- Subtabs shown in the per-class UI panels
 SUBTAB_DEFS = {
     { key="OFFENSIVE", label="Offensives" },
@@ -99,7 +104,7 @@ SPELL_DB[498]    = { name="Divine Protection",      class="PALADIN", icon=524353
 SPELL_DB[633]    = { name="Lay on Hands",           class="PALADIN", icon=135928, duration=0,  cooldown=600, category="DEFENSIVE",              minLevel=14 }
 SPELL_DB[642]    = { name="Divine Shield",          class="PALADIN", icon=524354, duration=8,  cooldown=300, category="IMMUNITY",               minLevel=18 }
 SPELL_DB[1022]   = { name="Blessing of Protection", class="PALADIN", icon=135964, duration=10, cooldown=300, category="IMMUNITY",               minLevel=4  }
-SPELL_DB[96231]  = { name="Rebuke",                 class="PALADIN", icon=523893, duration=0,  cooldown=15,  category="INTERRUPT",              minLevel=10 }
+SPELL_DB[96231]  = { name="Rebuke",                 class="PALADIN", icon=523893, duration=0,  cooldown=15,  category="INTERRUPT", specs={70},  minLevel=10 }
 SPELL_DB[853]    = { name="Hammer of Justice",      class="PALADIN", icon=135963, duration=6,  cooldown=60,  category="UTILITY",                minLevel=4  }
 SPELL_DB[6940]   = { name="Blessing of Sacrifice",  class="PALADIN", icon=135966, duration=12, cooldown=120, category="DEFENSIVE",              minLevel=22 }
 SPELL_DB[31821]  = { name="Aura Mastery",           class="PALADIN", icon=135872, duration=8,  cooldown=180, category="DEFENSIVE", specs={65},  minLevel=10 }
@@ -142,11 +147,11 @@ SPELL_DB[47536]  = { name="Rapture",                class="PRIEST", icon=135936,
 SPELL_DB[64843]  = { name="Divine Hymn",            class="PRIEST", icon=135983, duration=8,  cooldown=180, category="DEFENSIVE", specs={257}, minLevel=10 }
 SPELL_DB[62618]  = { name="Power Word: Barrier",    class="PRIEST", icon=253400, duration=10, cooldown=180, category="DEFENSIVE", specs={256}, minLevel=10 }
 SPELL_DB[47788]  = { name="Guardian Spirit",        class="PRIEST", icon=135940, duration=10, cooldown=180, category="DEFENSIVE", specs={257}, minLevel=10 }
-SPELL_DB[15487]  = { name="Silence",                class="PRIEST", icon=136207, duration=5,  cooldown=45,  category="INTERRUPT", specs={258}, minLevel=10 }
-SPELL_DB[65544]  = { name="Dispersion",             class="PRIEST", icon=237563, duration=6,  cooldown=120, category="IMMUNITY",  specs={258}, minLevel=83 }
+SPELL_DB[15487]  = { name="Silence",                class="PRIEST", icon=136207, duration=0,  cooldown=45,  category="INTERRUPT", specs={258}, minLevel=10 }
+SPELL_DB[47585]  = { name="Dispersion",             class="PRIEST", icon=237563, duration=6,  cooldown=120, category="IMMUNITY",  specs={258}, minLevel=83 }
 
 -- ── DEATH KNIGHT ──────────────────────────────────────────────
-SPELL_DB[47476]  = { name="Strangulate",            class="DEATHKNIGHT", icon=136214, duration=5,  cooldown=60,  category="INTERRUPT",              minLevel=55 }
+SPELL_DB[47476]  = { name="Strangulate",            class="DEATHKNIGHT", icon=136214, duration=0,  cooldown=60,  category="INTERRUPT",              minLevel=55 }
 SPELL_DB[47528]  = { name="Mind Freeze",            class="DEATHKNIGHT", icon=237524, duration=0,  cooldown=15,  category="INTERRUPT",              minLevel=55 }
 SPELL_DB[48792]  = { name="Icebound Fortitude",     class="DEATHKNIGHT", icon=237525, duration=8,  cooldown=180, category="DEFENSIVE",              minLevel=55 }
 SPELL_DB[49039]  = { name="Lichborne",              class="DEATHKNIGHT", icon=136187, duration=10, cooldown=120, category="DEFENSIVE",              minLevel=55 }
@@ -200,7 +205,7 @@ SPELL_DB[123904] = { name="Invoke Xuen, the White Tiger",  class="MONK", icon=62
 SPELL_DB[106839] = { name="Skull Bash",             class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", specs={103,104},  minLevel=10 }
 SPELL_DB[22812]  = { name="Barkskin",               class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE",                   minLevel=10 }
 SPELL_DB[99]     = { name="Incapacitating Roar",    class="DRUID", icon=236937,  duration=3,  cooldown=30,  category="UTILITY",   specs={104},      minLevel=10 }
-SPELL_DB[61336]  = { name="Survival Instincts",     class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103,104},  minLevel=10 }
+SPELL_DB[61336]  = { name="Survival Instincts",     class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103,104},  minLevel=10, maxCharges=2 }
 SPELL_DB[740]    = { name="Tranquility",            class="DRUID", icon=136107,  duration=8,  cooldown=180, category="DEFENSIVE", specs={105},      minLevel=10 }
 SPELL_DB[102342] = { name="Ironbark",               class="DRUID", icon=572025,  duration=12, cooldown=90,  category="DEFENSIVE", specs={105},      minLevel=10 }
 SPELL_DB[29166]  = { name="Innervate",              class="DRUID", icon=136048,  duration=10, cooldown=180, category="UTILITY",   specs={102,105},  minLevel=10 }

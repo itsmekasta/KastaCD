@@ -49,15 +49,19 @@ local function GetOrMakeAnchor(unit)
         end
     end)
 
-    -- Orange square visible when anchors are unlocked for dragging
+    -- Orange square and label shown only when anchors are unlocked.
+    -- Hidden by default so newly created anchors don't appear unlocked
+    -- when KastaCDDB.anchorsLocked is true (e.g. on every fresh login).
     local dot = a:CreateTexture(nil, "BACKGROUND")
     dot:SetAllPoints()
     dot:SetColorTexture(1, 0.5, 0, 0.9)
+    dot:Hide()
     a.dot = dot
 
     local lbl = a:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lbl:SetPoint("LEFT", a, "RIGHT", 3, 0)
     lbl:SetText(unit)
+    lbl:Hide()
     a.lbl = lbl
 
     -- Load saved position, else spread down the centre of the screen
@@ -95,6 +99,24 @@ function HideKastaCDAnchors()
     for _, a in pairs(kcdAnchors) do
         a.dot:Hide(); a.lbl:Hide()
         -- Keep the frame itself alive (it's a positioning reference for icons)
+    end
+end
+
+-- Apply / remove icon borders on all live icon frames without a full rebuild.
+-- Mirrors PAB's ApplyIconTextureBorder: borders = full texcoord (0,1,0,1);
+-- no borders = cropped coords that hide the in-game border (0.08,0.92,0.08,0.92).
+function ApplyIconBorders()
+    local on = KastaCDDB and KastaCDDB.showIconBorders
+    for _, iconList in pairs(iconContainers) do
+        for _, ico in ipairs(iconList.icons or {}) do
+            if ico.tex then
+                if on then
+                    ico.tex:SetTexCoord(0, 1, 0, 1)
+                else
+                    ico.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+            end
+        end
     end
 end
 
@@ -417,7 +439,11 @@ local function MakeIconFrame(spellId, spellData, parent)
     local tex = f:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints()
     tex:SetTexture(GetIconForSpell(spellId, spellData.icon))
-    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    if KastaCDDB and KastaCDDB.showIconBorders then
+        tex:SetTexCoord(0, 1, 0, 1)
+    else
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
     f.tex = tex
 
     -- Grey overlay shown while the spell is on cooldown
@@ -443,6 +469,14 @@ local function MakeIconFrame(spellId, spellData, parent)
     bar:Hide()
     f.bar = bar
 
+    -- Bottom-right badge: remaining charge count for spells with maxCharges > 1.
+    -- Stays empty for single-charge spells (no text set on them).
+    local chargesText = f:CreateFontString(nil, "OVERLAY")
+    chargesText:SetFont("Fonts\\FRIZQT__.TTF", math.max(8, size * 0.45), "OUTLINE")
+    chargesText:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+    chargesText:SetText("")
+    f.chargesText = chargesText
+
     f.spellId   = spellId
     f.spellData = spellData
     f.phase     = nil
@@ -451,7 +485,7 @@ local function MakeIconFrame(spellId, spellData, parent)
 
     -- Tooltip
     f:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
         local ok = pcall(function() GameTooltip:SetSpellByID(spellId) end)
         if not ok then GameTooltip:SetText(spellData.name, 1, 1, 1) end
         local d = spellData
@@ -495,19 +529,14 @@ end
 function LayoutIconRow(container, icons)
     local size = KastaCDDB.iconSize
     local ipr  = KastaCDDB.iconsPerRow
-    local pad  = 2
     local cols = math.min(#icons, ipr)
     local rows = math.ceil(#icons / ipr)
-    container:SetSize(
-        cols * (size + pad) - pad,
-        rows * (size + pad) - pad)
+    container:SetSize(cols * size, rows * size)
     for i, ico in ipairs(icons) do
         local col = (i - 1) % ipr
         local row = math.floor((i - 1) / ipr)
         ico:ClearAllPoints()
-        ico:SetPoint("TOPLEFT", container, "TOPLEFT",
-             col * (size + pad),
-            -row * (size + pad))
+        ico:SetPoint("TOPLEFT", container, "TOPLEFT", col * size, -row * size)
         ico:SetSize(size, size)
     end
 end
@@ -573,12 +602,30 @@ function RebuildIcons()
             if unitClass then
                 local spells = {}
                 for sid, data in pairs(enabled) do
-                    if data.class == unitClass and IsSpellKnownForUnit(unit, sid) then
-                        table.insert(spells, { sid=sid, data=data })
+                    if (data.class == unitClass or data.class == "ALL") and IsSpellKnownForUnit(unit, sid) then
+                        -- Medallion: skip outside Arena/BG unless the "outside PvP" toggle is on
+                        if sid == 208683 and not KastaCDDB.medallionOutsidePvP then
+                            local ct = GetCurrentContentType()
+                            if ct ~= "Arena" and ct ~= "Battleground" then
+                                -- skip
+                            else
+                                table.insert(spells, { sid=sid, data=data })
+                            end
+                        else
+                            table.insert(spells, { sid=sid, data=data })
+                        end
                     end
                 end
                 if #spells > 0 then
                     table.sort(spells, function(a, b) return a.data.name < b.data.name end)
+                    -- PvP Medallion always last regardless of alphabetical order
+                    for i, e in ipairs(spells) do
+                        if e.sid == 208683 and i < #spells then
+                            table.remove(spells, i)
+                            table.insert(spells, e)
+                            break
+                        end
+                    end
                     desired[unit] = { spells = spells }
                     sigParts[#sigParts+1] = unit
                     for _, e in ipairs(spells) do
@@ -607,7 +654,16 @@ function RebuildIcons()
     for unit, spells in pairs(trackerState) do
         oldState[unit] = {}
         for sid, state in pairs(spells) do
-            oldState[unit][sid] = { phase = state.phase, endTime = state.endTime }
+            local rechargeCopy
+            if state.rechargeEndTimes then
+                rechargeCopy = {}
+                for i, v in ipairs(state.rechargeEndTimes) do rechargeCopy[i] = v end
+            end
+            oldState[unit][sid] = {
+                phase = state.phase, endTime = state.endTime,
+                charges = state.charges, maxCharges = state.maxCharges,
+                rechargeEndTimes = rechargeCopy,
+            }
         end
     end
 
@@ -636,26 +692,48 @@ function RebuildIcons()
                     local ico = MakeIconFrame(entry.sid, entry.data, container)
                     local state = { frame=ico, phase=nil, endTime=0 }
 
+                    -- Initialise charge tracking for multi-charge spells
+                    if entry.data.maxCharges and entry.data.maxCharges > 1 then
+                        state.maxCharges       = entry.data.maxCharges
+                        state.charges          = entry.data.maxCharges
+                        state.rechargeEndTimes = {}
+                    end
+
                     -- Restore live cooldown / uptime from the previous build
                     local prev = oldState[unit] and oldState[unit][entry.sid]
-                    if prev and prev.phase and prev.endTime and prev.endTime > now then
-                        state.phase   = prev.phase
-                        state.endTime = prev.endTime
-                        if state.phase == "uptime" then
-                            -- Don't call ShowProcGlow directly here - calling it on
-                            -- every rebuild while glow is active restarts the flipbook
-                            -- animation, causing visible flicker. Leave glowing=false
-                            -- so the 0.1s update ticker calls ShowProcGlow once on its
-                            -- next pass through the same guard it uses during normal play.
-                            ico.glowing = false
-                            ico.bar:Show()
-                        elseif state.phase == "cooldown" then
-                            ico.desat:Show()
-                            local rem = prev.endTime - now
-                            ico.cdText:SetText(rem >= 60
-                                and string.format("%dm", math.ceil(rem / 60))
-                                or  string.format("%d",  math.ceil(rem)))
+                    if prev then
+                        -- Restore charge state first (needed by phase restoration below)
+                        if prev.maxCharges then
+                            state.maxCharges       = prev.maxCharges
+                            state.charges          = prev.charges or prev.maxCharges
+                            state.rechargeEndTimes = prev.rechargeEndTimes or {}
                         end
+                        if state.maxCharges then
+                            ico.chargesText:SetText(tostring(state.charges))
+                        end
+
+                        if prev.phase and prev.endTime and prev.endTime > now then
+                            state.phase   = prev.phase
+                            state.endTime = prev.endTime
+                            if state.phase == "uptime" then
+                                -- Don't call ShowProcGlow directly here - calling it on
+                                -- every rebuild while glow is active restarts the flipbook
+                                -- animation, causing visible flicker. Leave glowing=false
+                                -- so the 0.1s update ticker calls ShowProcGlow once on its
+                                -- next pass through the same guard it uses during normal play.
+                                ico.glowing = false
+                                ico.bar:Show()
+                            elseif state.phase == "cooldown" then
+                                ico.desat:Show()
+                                local rem = prev.endTime - now
+                                ico.cdText:SetText(rem >= 60
+                                    and string.format("%dm", math.ceil(rem / 60))
+                                    or  string.format("%d",  math.ceil(rem)))
+                            end
+                        end
+                    elseif state.maxCharges then
+                        -- Fresh frame with no prior state: display full charge count
+                        ico.chargesText:SetText(tostring(state.charges))
                     end
 
                     trackerState[unit][entry.sid] = state
@@ -670,9 +748,14 @@ function RebuildIcons()
         end
     end
 
-    -- Show anchor markers when unlocked so user can see/drag them
+    -- Enforce correct anchor visual state after every rebuild.
+    -- ShowKastaCDAnchors/HideKastaCDAnchors only toggle dot+label,
+    -- so calling either on every rebuild is cheap and ensures newly
+    -- created anchor frames always match the saved lock state.
     if KastaCDDB and not KastaCDDB.anchorsLocked then
         ShowKastaCDAnchors()
+    else
+        HideKastaCDAnchors()
     end
 end
 
@@ -720,18 +803,27 @@ C_Timer.NewTicker(0.1, function()
             elseif state.phase == "uptime" then
                 local rem = state.endTime - now
                 if rem <= 0 then
-                    -- Uptime expired → enter cooldown
-                    local cd = SPELL_DB[sid].cooldown
-                    if cd and cd > 0 then
-                        state.phase = "cooldown"
-                        state.endTime = now + cd
-                    else
-                        state.phase = nil
-                    end
                     HideProcGlow(f)
                     f.glowing = false
                     f.bar:Hide()
                     f.cdText:SetText("")
+                    if state.maxCharges then
+                        -- Multi-charge spell: only enter cooldown when all charges are gone
+                        if state.charges == 0 and state.rechargeEndTimes[1] then
+                            state.phase   = "cooldown"
+                            state.endTime = state.rechargeEndTimes[1]
+                        else
+                            state.phase = nil   -- still has charges, icon stays ready
+                        end
+                    else
+                        local cd = SPELL_DB[sid].cooldown
+                        if cd and cd > 0 then
+                            state.phase = "cooldown"
+                            state.endTime = now + cd
+                        else
+                            state.phase = nil
+                        end
+                    end
                 else
                     -- Only (re)trigger the glow animation once when uptime
                     -- starts, not on every tick — ActionButton_ShowOverlayGlow
@@ -754,9 +846,22 @@ C_Timer.NewTicker(0.1, function()
             elseif state.phase == "cooldown" then
                 local rem = state.endTime - now
                 if rem <= 0 then
-                    state.phase = nil
                     f.desat:Hide()
                     f.cdText:SetText("")
+                    if state.maxCharges then
+                        -- A charge recharged: pop the completed entry and increment
+                        table.remove(state.rechargeEndTimes, 1)
+                        state.charges = math.min(state.maxCharges, state.charges + 1)
+                        f.chargesText:SetText(tostring(state.charges))
+                        if state.charges < state.maxCharges and state.rechargeEndTimes[1] then
+                            -- Still recharging remaining charges
+                            state.endTime = state.rechargeEndTimes[1]
+                        else
+                            state.phase = nil
+                        end
+                    else
+                        state.phase = nil
+                    end
                 else
                     f.desat:Show()
                     f.cdText:SetText(rem >= 60

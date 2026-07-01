@@ -109,6 +109,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(1.5, function()
             RefreshMemberGUIDs()
             RebuildIcons()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
         end)
         return
     end
@@ -117,12 +118,14 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     if event == "GROUP_ROSTER_UPDATE" then
         if not HasGroup() or (IsInRaid and IsInRaid()) then
             ClearIcons()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
             return
         end
         C_Timer.After(0.8, function()
             if not HasGroup() or (IsInRaid and IsInRaid()) then ClearIcons(); return end
             RefreshMemberGUIDs()
             RebuildIcons()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
         end)
         return
     end
