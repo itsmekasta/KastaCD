@@ -346,7 +346,7 @@ function CreateKastaCDMenu()
 
     local verLbl = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     verLbl:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 8)
-    verLbl:SetText("Kasta|cffff7f00CD|r v1.5")
+    verLbl:SetText("Kasta|cffff7f00CD|r v" .. tostring(KASTACD_VERSION or "?"))
     verLbl:SetTextColor(0.5, 0.5, 0.5)
 
     -- ── Sidebar ───────────────────────────────────────────────
