@@ -44,6 +44,25 @@ function HandleCombatLog(...)
     if sourceGUID then
         KNOWN_UNIT_SPELLS[sourceGUID] = KNOWN_UNIT_SPELLS[sourceGUID] or {}
         KNOWN_UNIT_SPELLS[sourceGUID][spellId] = true
+
+        -- Spec inference: GetInspectSpecialization/NotifyInspect is unreliable
+        -- on many private servers and can leave UNIT_SPEC_CACHE permanently nil,
+        -- which made SpellMatchesSpec's "spec unknown" fallback show every spec's
+        -- abilities at once. A spell restricted to exactly one spec is ground
+        -- truth the moment it's cast - use it to set/correct the spec cache
+        -- directly, independent of whether inspect ever resolves.
+        local castData = SPELL_DB[spellId]
+        if castData.specs and #castData.specs == 1 then
+            UNIT_SPEC_CACHE[sourceGUID] = castData.specs[1]
+            -- GetUnitSpec("player") reads UNIT_SPEC_CACHE["player"] specifically
+            -- (see KastaCD_DB.lua), not the player's real GUID key. Without this,
+            -- the player's own cast of a spec-exclusive spell never resolved
+            -- their own spec - only PollUnitSpec's GetSpecialization() call did,
+            -- which is the one path with no combat-log fallback if it's broken.
+            if sourceGUID == UnitGUID("player") then
+                UNIT_SPEC_CACHE["player"] = castData.specs[1]
+            end
+        end
     end
 
     -- ── 2. Bail early if spell is not tracked ──────────────────

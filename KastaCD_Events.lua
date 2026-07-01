@@ -17,6 +17,7 @@ kcdEvent:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 kcdEvent:RegisterEvent("SPELLS_CHANGED")
 kcdEvent:RegisterEvent("CHARACTER_POINTS_CHANGED")
 kcdEvent:RegisterEvent("PLAYER_TALENT_UPDATE")
+kcdEvent:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 kcdEvent:RegisterEvent("INSPECT_READY")
 
 -- Shared helper: populate memberGUIDs from CompactRaidFrames + direct unit tokens.
@@ -43,29 +44,49 @@ local function RefreshMemberGUIDs()
     end
 end
 
--- Fire inspect requests for every current group member so GetUnitSpec()
--- can populate UNIT_SPEC_CACHE and filter spec-locked spells correctly.
--- Called before RebuildIcons so requests are in-flight as early as possible.
-local function RequestGroupInspects()
-    local units = {}
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if not f then break end
-        local unit = f.unit or f.displayedUnit
-        if unit and UnitExists(unit) and unit ~= "player" then
-            units[unit] = true
-        end
-    end
+-- All unit tokens currently worth polling for spec data: the player
+-- plus every party member we know about. Rebuilt fresh each call so
+-- it always reflects the current roster.
+local function GetTrackedUnits()
+    local units = { "player" }
     for i = 1, 4 do
-        local unit = "party" .. i
-        if UnitExists(unit) then units[unit] = true end
+        local u = "party" .. i
+        if UnitExists(u) then units[#units + 1] = u end
     end
-    for unit in pairs(units) do
-        if NotifyInspect and CanInspect and CanInspect(unit) then
-            NotifyInspect(unit)
+    return units
+end
+
+-- ---------------------------------------------------------------
+-- SpecPollTicker  –  the actual fix for spec-detection reliability.
+--
+-- Adopted directly from PartyAbilityBars' architecture: rather than
+-- validating a single read and hoping it's correct, just re-read
+-- every tracked unit's spec once a second, forever, for as long as
+-- the addon is loaded. A transient bad/stale read is never trusted
+-- for more than ~1 second before being silently overwritten by the
+-- next poll - which in practice behaves exactly like "always
+-- correct" without any of the validation complexity that kept
+-- producing edge-case false negatives in earlier versions.
+-- ---------------------------------------------------------------
+local lastInspectRequest = 0
+C_Timer.NewTicker(1.0, function()
+    if not HasGroup() then return end
+
+    for _, unit in ipairs(GetTrackedUnits()) do
+        PollUnitSpec(unit)
+    end
+
+    -- Fire inspect requests at a slower cadence (every 3rd tick) so
+    -- we don't spam NotifyInspect; GetInspectSpecialization only
+    -- returns real data after an inspect request has been answered.
+    local now = GetTime()
+    if now - lastInspectRequest > 3 then
+        lastInspectRequest = now
+        for _, unit in ipairs(GetTrackedUnits()) do
+            RequestUnitInspect(unit)
         end
     end
-end
+end)
 
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── ADDON_LOADED ───────────────────────────────────────────
@@ -87,20 +108,13 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         KastaCDInitDB()
         C_Timer.After(1.5, function()
             RefreshMemberGUIDs()
-            RequestGroupInspects()
             RebuildIcons()
-            -- Second pass after inspect data has had time to arrive,
-            -- correcting any icons shown optimistically due to unknown spec.
-            C_Timer.After(3.0, RebuildIcons)
         end)
         return
     end
 
     -- ── GROUP_ROSTER_UPDATE ────────────────────────────────────
     if event == "GROUP_ROSTER_UPDATE" then
-        -- Fire an immediate clear so icons never linger when leaving a group.
-        -- The delayed path below will rebuild if we're still in a valid party
-        -- after the roster settles.
         if not HasGroup() or (IsInRaid and IsInRaid()) then
             ClearIcons()
             return
@@ -108,9 +122,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(0.8, function()
             if not HasGroup() or (IsInRaid and IsInRaid()) then ClearIcons(); return end
             RefreshMemberGUIDs()
-            RequestGroupInspects()
             RebuildIcons()
-            C_Timer.After(3.0, RebuildIcons)
         end)
         return
     end
@@ -121,11 +133,23 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- ── Talent / spell changes ─────────────────────────────────
+    -- ── Talent / spell / spec changes ──────────────────────────
     if event == "SPELLS_CHANGED"
     or event == "CHARACTER_POINTS_CHANGED"
     or event == "PLAYER_TALENT_UPDATE" then
         C_Timer.After(0.5, RebuildIcons)
+        return
+    end
+
+    -- ── PLAYER_SPECIALIZATION_CHANGED ─────────────────────────
+    -- The next SpecPollTicker tick (within 1s) will pick up the new
+    -- spec on its own; this just rebuilds icons a beat after that so
+    -- the UI reflects it without waiting for an unrelated event.
+    if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        local unit = ...
+        if unit == "player" then
+            C_Timer.After(1.2, RebuildIcons)
+        end
         return
     end
 
@@ -136,11 +160,25 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     end
 
     -- ── INSPECT_READY ─────────────────────────────────────────
+    -- Inspect data just arrived. Only rebuild when the spec actually
+    -- changed - unconditional RebuildIcons() here would restart active
+    -- glow animations unnecessarily on every 3-second inspect cycle
+    -- (INSPECT_READY fires for every NotifyInspect, even if the spec
+    -- value is identical to what was already cached).
     if event == "INSPECT_READY" then
         local guid = select(1, ...)
-        if guid and UNIT_SPEC_CACHE and UNIT_SPEC_CACHE[guid] == false then
-            UNIT_SPEC_CACHE[guid] = nil
-            C_Timer.After(0.1, RebuildIcons)
+        if guid then
+            for i = 1, 4 do
+                local unit = "party" .. i
+                if UnitGUID(unit) == guid then
+                    local oldSpec = GetUnitSpec(unit)
+                    PollUnitSpec(unit)
+                    if GetUnitSpec(unit) ~= oldSpec then
+                        RebuildIcons()
+                    end
+                    break
+                end
+            end
         end
         return
     end

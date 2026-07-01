@@ -14,13 +14,13 @@ refreshClassPanelsFns  = {}
 -- Defensive DB normalization
 -- ---------------------------------------------------------------
 -- This file used to assume KastaCD_DB.lua had already fully populated
--- KastaCDDB (offsetX, iconSize, groupPositionIdx, contentTypes, etc.)
+-- KastaCDDB (offsetX, iconSize, contentTypes, etc.)
 -- by the time CreateKastaCDMenu() ran. That's true for an existing
 -- install whose SavedVariables already have every field, but it's
 -- NOT guaranteed for:
 --   - a brand new install (no KastaCDDB on disk yet)
 --   - someone upgrading from an older save shape missing newer fields
---     like groupPositionIdx/spellGroups
+--     like new fields added in later versions
 --   - any case where the other files' ADDON_LOADED-triggered init
 --     didn't run before /kcd was typed
 -- When any of those fields were nil, widgets like
@@ -44,18 +44,6 @@ local function EnsureMenuDBDefaults()
     end
 
     if type(KastaCDDB.enabled) ~= "table" then KastaCDDB.enabled = {} end
-    if type(KastaCDDB.spellGroups) ~= "table" then KastaCDDB.spellGroups = {} end
-
-    if type(KastaCDDB.groupPositionIdx) ~= "table" then
-        KastaCDDB.groupPositionIdx = {}
-    end
-    local groupCount = (type(SPELL_GROUP_COUNT) == "number" and SPELL_GROUP_COUNT) or 3
-    for g = 1, groupCount do
-        if type(KastaCDDB.groupPositionIdx[g]) ~= "number" then
-            KastaCDDB.groupPositionIdx[g] = 8
-        end
-    end
-
     if type(KastaCDDB.offsetX) ~= "number" then KastaCDDB.offsetX = 0 end
     if type(KastaCDDB.offsetY) ~= "number" then KastaCDDB.offsetY = 0 end
     if type(KastaCDDB.iconSize) ~= "number" then KastaCDDB.iconSize = 22 end
@@ -69,6 +57,11 @@ local function EnsureMenuDBDefaults()
             end
         end
     end
+
+    -- Anchor frame positions (global, not profile-specific)
+    if type(KastaCDDB.anchorPos)  ~= "table" then KastaCDDB.anchorPos  = {} end
+    if KastaCDDB.anchorsLocked     == nil     then KastaCDDB.anchorsLocked = true end
+    if KastaCDDB.growLeft          == nil     then KastaCDDB.growLeft      = false end
 end
 
 -- =============================================================
@@ -230,55 +223,8 @@ function CreateKastaCDMenu()
     panelPos:SetAllPoints()
     panels["Settings"] = panelPos
 
-    -- Group anchor pickers
-    MakeLabel(panelPos, "Group Anchors:", "TOPLEFT", panelPos, "TOPLEFT", 14, -14)
-    local groupAnchorY = -34
-    local groupCount = (type(SPELL_GROUP_COUNT) == "number" and SPELL_GROUP_COUNT) or 3
-    for g = 1, groupCount do
-        local gLabel = panelPos:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        gLabel:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, groupAnchorY)
-        gLabel:SetText("Group " .. g .. ":")
-
-        local posValLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        posValLbl:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 72, groupAnchorY)
-        posValLbl:SetTextColor(0.5, 0.8, 1)
-
-        local gNum = g
-        local function RefreshGroupPos()
-            local idx = KastaCDDB.groupPositionIdx[gNum] or 8
-            posValLbl:SetText((POSITION_OPTS and POSITION_OPTS[idx]) or "?")
-        end
-
-        local gPrevBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
-        gPrevBtn:SetSize(24, 20)
-        gPrevBtn:SetText("<")
-        gPrevBtn:SetPoint("LEFT", posValLbl, "RIGHT", 6, 0)
-        gPrevBtn:SetScript("OnClick", function()
-            local idx = KastaCDDB.groupPositionIdx[gNum] or 8
-            local total = (POSITION_OPTS and #POSITION_OPTS) or 9
-            KastaCDDB.groupPositionIdx[gNum] = ((idx - 2) % total) + 1
-            RefreshGroupPos()
-            if type(RebuildIcons) == "function" then RebuildIcons() end
-        end)
-
-        local gNextBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
-        gNextBtn:SetSize(24, 20)
-        gNextBtn:SetText(">")
-        gNextBtn:SetPoint("LEFT", gPrevBtn, "RIGHT", 2, 0)
-        gNextBtn:SetScript("OnClick", function()
-            local idx = KastaCDDB.groupPositionIdx[gNum] or 8
-            local total = (POSITION_OPTS and #POSITION_OPTS) or 9
-            KastaCDDB.groupPositionIdx[gNum] = (idx % total) + 1
-            RefreshGroupPos()
-            if type(RebuildIcons) == "function" then RebuildIcons() end
-        end)
-
-        RefreshGroupPos()
-        groupAnchorY = groupAnchorY - 24
-    end
-
     -- Offset / size / per-row sliders
-    local offsetLabelY = groupAnchorY - 16
+    local offsetLabelY = -14
 
     MakeLabel(panelPos, "Offset X:", "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY)
     local oxS = MakeSlider(panelPos, -200, 200, KastaCDDB.offsetX, 200,
@@ -300,12 +246,19 @@ function CreateKastaCDMenu()
         function(v) KastaCDDB.iconsPerRow = v; if type(RebuildIcons) == "function" then RebuildIcons() end end)
     iprS:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 162)
 
+    MakeToggle(panelPos, "Grow Left", KastaCDDB.growLeft == true,
+        "TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 190,
+        function(v)
+            KastaCDDB.growLeft = v
+            if type(RebuildIcons) == "function" then RebuildIcons() end
+        end)
+
     -- Content-type toggles
     local ctHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ctHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 192)
+    ctHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, offsetLabelY - 218)
     ctHdr:SetText("|cffff7f00Active in:|r")
 
-    local ctY = offsetLabelY - 212
+    local ctY = offsetLabelY - 238
     for _, ct in ipairs(CONTENT_TYPES or {}) do
         local ctName = ct
         MakeToggle(panelPos, ctName, KastaCDDB.contentTypes[ctName] == true,
@@ -316,6 +269,53 @@ function CreateKastaCDMenu()
             end)
         ctY = ctY - 26
     end
+
+    -- ── Anchor frames (PAB-style draggable positioning) ───────
+    local anchorHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    anchorHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 10)
+    anchorHdr:SetText("|cffff7f00Anchor Frames:|r")
+
+    local anchorDesc = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    anchorDesc:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 28)
+    anchorDesc:SetText("Unlock to drag the orange anchor squares onto your party frames.")
+    anchorDesc:SetTextColor(0.7, 0.7, 0.7)
+
+    local anchorStatLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    anchorStatLbl:SetPoint("LEFT",  panelPos, "TOPLEFT", 130, ctY - 52)
+
+    local anchorUnlockBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
+    anchorUnlockBtn:SetSize(110, 22)
+    anchorUnlockBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 44)
+
+    local function RefreshAnchorBtn()
+        if KastaCDDB.anchorsLocked then
+            anchorUnlockBtn:SetText("Unlock")
+            anchorStatLbl:SetText("|cffffd700Anchors: locked|r")
+        else
+            anchorUnlockBtn:SetText("Lock")
+            anchorStatLbl:SetText("|cff44ff44Anchors: unlocked – drag to move|r")
+        end
+    end
+    anchorUnlockBtn:SetScript("OnClick", function()
+        KastaCDDB.anchorsLocked = not KastaCDDB.anchorsLocked
+        if KastaCDDB.anchorsLocked then
+            if type(HideKastaCDAnchors) == "function" then HideKastaCDAnchors() end
+        else
+            if type(ShowKastaCDAnchors) == "function" then ShowKastaCDAnchors() end
+        end
+        RefreshAnchorBtn()
+    end)
+    RefreshAnchorBtn()
+
+    local resetAnchorsBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
+    resetAnchorsBtn:SetSize(110, 22)
+    resetAnchorsBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", 14, ctY - 70)
+    resetAnchorsBtn:SetText("Reset Positions")
+    resetAnchorsBtn:SetScript("OnClick", function()
+        KastaCDDB.anchorPos = {}
+        if type(RebuildIcons) == "function" then RebuildIcons() end
+        print("KastaCD: Anchor positions reset to defaults.")
+    end)
 
     -- =========================================================
     -- Profiles panel
@@ -453,19 +453,12 @@ function CreateKastaCDMenu()
         if type(PersistActiveProfile) == "function" then PersistActiveProfile() end
         local cur  = KastaCDDB.profiles[KastaCDDB.activeProfile]
         local copy = type(NewProfileData) == "function" and NewProfileData() or {}
-        copy.enabled = copy.enabled or {}
-        copy.spellGroups = copy.spellGroups or {}
+        copy.enabled      = copy.enabled      or {}
         copy.contentTypes = copy.contentTypes or {}
-        for sid, v in pairs(cur.enabled or {})           do copy.enabled[sid]     = v end
-        for sid, v in pairs(cur.spellGroups or {})        do copy.spellGroups[sid] = v end
-        copy.groupPositionIdx = {
-            (cur.groupPositionIdx and cur.groupPositionIdx[1]) or 8,
-            (cur.groupPositionIdx and cur.groupPositionIdx[2]) or 8,
-            (cur.groupPositionIdx and cur.groupPositionIdx[3]) or 8,
-        }
-        copy.offsetX     = cur.offsetX or 0
-        copy.offsetY     = cur.offsetY or 0
-        copy.iconSize    = cur.iconSize or 22
+        for sid, v in pairs(cur.enabled or {})       do copy.enabled[sid]     = v end
+        copy.offsetX     = cur.offsetX     or 0
+        copy.offsetY     = cur.offsetY     or 0
+        copy.iconSize    = cur.iconSize    or 22
         copy.iconsPerRow = cur.iconsPerRow or 5
         for ct, v in pairs(cur.contentTypes or {}) do copy.contentTypes[ct] = v end
         KastaCDDB.profiles[nm] = copy
@@ -494,61 +487,45 @@ function CreateKastaCDMenu()
         for sid, v in pairs(p.enabled or {}) do
             if v then table.insert(parts, "e" .. sid) end
         end
-        for sid, group in pairs(p.spellGroups or {}) do
-            group = tonumber(group) or 1
-            if group > 1 then table.insert(parts, "g" .. sid .. "_" .. group) end
-        end
         for ct, v in pairs(p.contentTypes or {}) do
             if v then table.insert(parts, "c" .. ct:gsub(" ", "_")) end
         end
         table.sort(parts)
-        return string.format("KCD2:%d:%d:%d:%d:%d:%d:%d:%s",
-            (p.groupPositionIdx and p.groupPositionIdx[1]) or 8,
-            (p.groupPositionIdx and p.groupPositionIdx[2]) or 8,
-            (p.groupPositionIdx and p.groupPositionIdx[3]) or 8,
+        return string.format("KCD3:%d:%d:%d:%d:%s",
             p.offsetX or 0, p.offsetY or 0, p.iconSize or 22, p.iconsPerRow or 5,
             table.concat(parts, ","))
     end
 
-    -- Deserialise — supports both KCD2 (per-group anchors) and old KCD1 format
+    -- Deserialise — KCD3 is current; KCD1/KCD2 are legacy (group data ignored)
     local function DeserializeProfile(str)
         local p = type(NewProfileData) == "function" and NewProfileData() or {}
         p.enabled = p.enabled or {}
-        local gp1, gp2, gp3, ox, oy, isz, ipr, rest =
-            str:match("^KCD2:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
-        if not gp1 then
-            -- Legacy KCD1 format (single position index)
-            local pos
-            pos, ox, oy, isz, ipr, rest =
-                str:match("^KCD%d+:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
-            if not pos then return nil, "Bad format." end
-            local pidx = tonumber(pos) or 8
-            p.groupPositionIdx = { pidx, pidx, pidx }
-        else
-            p.groupPositionIdx = {
-                tonumber(gp1) or 8,
-                tonumber(gp2) or 8,
-                tonumber(gp3) or 8,
-            }
+        local ox, oy, isz, ipr, rest =
+            str:match("^KCD3:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
+        if not ox then
+            -- Legacy KCD2: 7 leading numbers (3 group positions + 4 params)
+            local _, _, _, a, b, c, d, r =
+                str:match("^KCD2:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
+            if a then ox, oy, isz, ipr, rest = a, b, c, d, r end
         end
-        p.offsetX    = tonumber(ox)  or 0
-        p.offsetY    = tonumber(oy)  or 0
-        p.iconSize   = tonumber(isz) or 22
+        if not ox then
+            -- Legacy KCD1: single position index then 4 params
+            local _, a, b, c, d, r =
+                str:match("^KCD%d+:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
+            if a then ox, oy, isz, ipr, rest = a, b, c, d, r end
+        end
+        if not ox then return nil, "Bad format." end
+        p.offsetX     = tonumber(ox)  or 0
+        p.offsetY     = tonumber(oy)  or 0
+        p.iconSize    = tonumber(isz) or 22
         p.iconsPerRow = tonumber(ipr) or 5
         p.contentTypes = {}
-        local groupCountLocal = (type(SPELL_GROUP_COUNT) == "number" and SPELL_GROUP_COUNT) or 3
         for tok in ((rest or "") .. ","):gmatch("([^,]*),") do
             if tok ~= "" then
                 local k, v = tok:sub(1, 1), tok:sub(2)
                 if k == "e" then
                     local sid = tonumber(v)
                     if sid then p.enabled[sid] = true end
-                elseif k == "g" then
-                    local sid, grp = v:match("^(%d+)_(%d+)$")
-                    sid, grp = tonumber(sid), tonumber(grp)
-                    if sid and grp and grp >= 1 and grp <= groupCountLocal then
-                        p.spellGroups[sid] = grp
-                    end
                 elseif k == "c" then
                     p.contentTypes[v:gsub("_", " ")] = true
                 end
@@ -606,29 +583,6 @@ function CreateKastaCDMenu()
         hdr:SetText(string.format("|cff%02x%02x%02x%s|r",
             ci.r * 255, ci.g * 255, ci.b * 255, ci.label))
 
-        -- Subtab bar (Offensives / Defensives / Interrupts / Immunity)
-        local subTabBar = CreateFrame("Frame", nil, classFrame)
-        subTabBar:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", -4, -10)
-        subTabBar:SetSize(660, 24)
-
-        local subPanels  = {}
-        local subButtons = {}
-        local activeSub  = nil
-
-        local function ShowSub(key)
-            activeSub = key
-            for k, p in pairs(subPanels)  do p:SetShown(k == key) end
-            for k, b in pairs(subButtons) do
-                if k == key then
-                    b.bg:SetColorTexture(1, 0.5, 0, 1)
-                    b.lbl:SetTextColor(0, 0, 0)
-                else
-                    b.bg:SetColorTexture(0.15, 0.15, 0.15, 1)
-                    b.lbl:SetTextColor(1, 1, 1)
-                end
-            end
-        end
-
         -- Collect + sort spells for this class
         local classSpells = {}
         for sid, data in pairs(SPELL_DB or {}) do
@@ -638,151 +592,101 @@ function CreateKastaCDMenu()
         end
         table.sort(classSpells, function(a, b) return a.data.name < b.data.name end)
 
-        -- Group-button highlight helper
-        local function RefreshGroupButtons(row)
-            local ag = type(GetSpellGroup) == "function" and GetSpellGroup(row.spellId) or 1
-            for grp, btn in pairs(row.groupButtons or {}) do
-                local fs = btn:GetFontString()
-                if grp == ag then
-                    btn:SetNormalFontObject("GameFontNormalSmall")
-                    if fs then fs:SetTextColor(1, 0.82, 0) end
-                else
-                    btn:SetNormalFontObject("GameFontDisableSmall")
-                    if fs then fs:SetTextColor(0.55, 0.55, 0.55) end
+        -- Single scroll frame listing every spell for this class
+        local sf = CreateFrame("ScrollFrame", nil, classFrame, "UIPanelScrollFrameTemplate")
+        sf:SetPoint("TOPLEFT",     hdr,        "BOTTOMLEFT",  -4, -12)
+        sf:SetPoint("BOTTOMRIGHT", classFrame, "BOTTOMRIGHT", -20,  0)
+
+        local child = CreateFrame("Frame", nil, sf)
+        child:SetWidth(640)
+        sf:SetScrollChild(child)
+
+        local cy = -6
+
+        -- Short readable labels for the category badge
+        local CATEGORY_LABEL = {
+            OFFENSIVE="OFF", DEFENSIVE="DEF",
+            INTERRUPT="INT", IMMUNITY="IMM", UTILITY="UTL",
+        }
+
+        for _, entry in ipairs(classSpells) do
+            local sid, data = entry.sid, entry.data
+            local row = CreateFrame("Frame", nil, child)
+            row:SetSize(640, 28)
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
+
+            -- Spell icon thumbnail
+            local ico = row:CreateTexture(nil, "ARTWORK")
+            ico:SetSize(22, 22)
+            ico:SetPoint("LEFT", row, "LEFT", 0, 0)
+            ico:SetTexture(GetSpellTexture and GetSpellTexture(sid) or data.icon)
+            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+            -- Enable checkbox
+            local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+            cb:SetSize(22, 22)
+            cb:SetPoint("LEFT", ico, "RIGHT", 6, 0)
+            cb:SetChecked(KastaCDDB.enabled[sid] == true)
+            cb.spellId = sid
+            cb:SetScript("OnClick", function(self)
+                KastaCDDB.enabled[sid] = self:GetChecked() and true or nil
+                if type(RebuildIcons) == "function" then RebuildIcons() end
+            end)
+            row.checkbox = cb
+
+            -- Spell name
+            local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            lbl:SetPoint("LEFT",  cb,  "RIGHT",  4, 0)
+            lbl:SetPoint("RIGHT", row, "RIGHT", -160, 0)
+            lbl:SetJustifyH("LEFT")
+            lbl:SetText(data.name)
+
+            -- Category badge (OFF / DEF / INT / IMM / UTL)
+            local catLbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            catLbl:SetPoint("RIGHT", row, "RIGHT", -118, 0)
+            catLbl:SetTextColor(0.55, 0.55, 0.55)
+            catLbl:SetText(CATEGORY_LABEL[data.category] or "   ")
+
+            row.spellId = sid
+
+            row:EnableMouse(true)
+            row:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
+                if not ok then GameTooltip:SetText(data.name, 1, 1, 1) end
+                local cdStr  = data.cooldown > 0 and (data.cooldown .. "s") or "None"
+                local durStr = data.duration > 0 and (data.duration .. "s") or "None"
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddDoubleLine("Cooldown:", cdStr,  0.7,0.7,0.7, 1,1,1)
+                GameTooltip:AddDoubleLine("Duration:", durStr, 0.7,0.7,0.7, 1,1,1)
+                if data.minLevel and data.minLevel > 1 then
+                    GameTooltip:AddDoubleLine("Required level:", tostring(data.minLevel), 0.7,0.7,0.7, 1,1,1)
                 end
-            end
+                if data.specs then
+                    GameTooltip:AddLine("|cffaaaaaa(Spec-specific ability)|r")
+                end
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+            -- Cooldown / duration / level info
+            local info = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            info:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            info:SetTextColor(0.5, 0.5, 0.5)
+            local cdStr  = data.cooldown > 0 and (data.cooldown .. "s CD") or "no CD"
+            local durStr = data.duration > 0 and (" | " .. data.duration .. "s") or ""
+            info:SetText(cdStr .. durStr .. " | lvl " .. (data.minLevel or "?"))
+
+            cy = cy - 30
         end
 
-        -- Build one scroll panel per subtab
-        local tabX = 0
-        for _, sd in ipairs(SUBTAB_DEFS or {}) do
-            local sf = CreateFrame("ScrollFrame", nil, classFrame, "UIPanelScrollFrameTemplate")
-            sf:SetPoint("TOPLEFT",     subTabBar, "BOTTOMLEFT",  4, -8)
-            sf:SetPoint("BOTTOMRIGHT", classFrame, "BOTTOMRIGHT", -20, 0)
-            subPanels[sd.key] = sf
-            sf:Hide()
-
-            local child = CreateFrame("Frame", nil, sf)
-            child:SetWidth(640)
-            sf:SetScrollChild(child)
-
-            local cy    = -6
-            local anyRow = false
-
-            for _, entry in ipairs(classSpells) do
-                local sid, data = entry.sid, entry.data
-                if (CATEGORY_TO_SUBTAB and CATEGORY_TO_SUBTAB[data.category]) == sd.key then
-                    anyRow = true
-                    local row = CreateFrame("Frame", nil, child)
-                    row:SetSize(640, 28)
-                    row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
-
-                    -- Spell icon thumbnail
-                    local ico = row:CreateTexture(nil, "ARTWORK")
-                    ico:SetSize(22, 22)
-                    ico:SetPoint("LEFT", row, "LEFT", 0, 0)
-                    ico:SetTexture(GetSpellTexture and GetSpellTexture(sid) or data.icon)
-                    ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-                    -- Enable checkbox
-                    local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-                    cb:SetSize(22, 22)
-                    cb:SetPoint("LEFT", ico, "RIGHT", 6, 0)
-                    cb:SetChecked(KastaCDDB.enabled[sid] == true)
-                    cb.spellId = sid
-                    cb:SetScript("OnClick", function(self)
-                        KastaCDDB.enabled[sid] = self:GetChecked() and true or nil
-                        if type(RebuildIcons) == "function" then RebuildIcons() end
-                    end)
-                    row.checkbox = cb
-
-                    -- Spell name
-                    local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                    lbl:SetPoint("LEFT",  cb,  "RIGHT",  4, 0)
-                    lbl:SetPoint("RIGHT", row, "RIGHT", -245, 0)
-                    lbl:SetJustifyH("LEFT")
-                    lbl:SetText(data.name)
-
-                    row.spellId     = sid
-                    row.groupButtons = {}
-
-                    -- Tooltip: show on the row itself so hovering anywhere
-                    -- over the spell entry (icon, name, buttons) shows info.
-                    row:EnableMouse(true)
-                    row:SetScript("OnEnter", function(self)
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
-                        if not ok then GameTooltip:SetText(data.name, 1, 1, 1) end
-                        local cdStr  = data.cooldown > 0 and (data.cooldown .. "s") or "None"
-                        local durStr = data.duration > 0 and (data.duration .. "s") or "None"
-                        GameTooltip:AddLine(" ")
-                        GameTooltip:AddDoubleLine("Cooldown:", cdStr,  0.7,0.7,0.7, 1,1,1)
-                        GameTooltip:AddDoubleLine("Duration:", durStr, 0.7,0.7,0.7, 1,1,1)
-                        if data.minLevel and data.minLevel > 1 then
-                            GameTooltip:AddDoubleLine("Required level:", tostring(data.minLevel), 0.7,0.7,0.7, 1,1,1)
-                        end
-                        if data.specs then
-                            GameTooltip:AddLine("|cffaaaaaa(Spec-specific ability)|r")
-                        end
-                        GameTooltip:Show()
-                    end)
-                    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-                    -- Group assignment buttons (1 / 2 / 3)
-                    local groupCountLocal = (type(SPELL_GROUP_COUNT) == "number" and SPELL_GROUP_COUNT) or 3
-                    for grp = 1, groupCountLocal do
-                        local groupBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-                        groupBtn:SetSize(24, 20)
-                        groupBtn:SetPoint("RIGHT", row, "RIGHT", -210 + ((grp - 1) * 28), 0)
-                        groupBtn:SetText(grp)
-                        groupBtn:SetScript("OnClick", function()
-                            if type(SetSpellGroup) == "function" then SetSpellGroup(sid, grp) end
-                            RefreshGroupButtons(row)
-                            if type(RebuildIcons) == "function" then RebuildIcons() end
-                        end)
-                        row.groupButtons[grp] = groupBtn
-                    end
-                    RefreshGroupButtons(row)
-
-                    -- Cooldown / duration / level info
-                    local info = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                    info:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-                    info:SetTextColor(0.5, 0.5, 0.5)
-                    local cdStr  = data.cooldown > 0 and (data.cooldown .. "s CD") or "no CD"
-                    local durStr = data.duration > 0 and (" | " .. data.duration .. "s") or ""
-                    info:SetText(cdStr .. durStr .. " | lvl " .. (data.minLevel or "?"))
-
-                    cy = cy - 30
-                end
-            end
-
-            if not anyRow then
-                local empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-                empty:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
-                empty:SetText("(none)")
-                cy = cy - 24
-            end
-            child:SetHeight(math.abs(cy) + 20)
-
-            -- Subtab button
-            local b = CreateFrame("Button", nil, subTabBar)
-            b:SetSize(158, 24)
-            b:SetPoint("TOPLEFT", subTabBar, "TOPLEFT", tabX, 0)
-            local bg = b:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.15, 0.15, 0.15, 1)
-            b.bg = bg
-            local bl = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            bl:SetPoint("CENTER", b, "CENTER", 0, 0)
-            bl:SetText(sd.label)
-            b.lbl = bl
-            local key = sd.key
-            b:SetScript("OnClick", function() ShowSub(key) end)
-            subButtons[key] = b
-            tabX = tabX + 162
+        if #classSpells == 0 then
+            local empty = child:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            empty:SetPoint("TOPLEFT", child, "TOPLEFT", 0, cy)
+            empty:SetText("(no spells in database for this class)")
+            cy = cy - 24
         end
-
-        ShowSub((SUBTAB_DEFS and SUBTAB_DEFS[1] and SUBTAB_DEFS[1].key) or nil)
+        child:SetHeight(math.abs(cy) + 20)
     end
 
     -- =========================================================
@@ -799,21 +703,6 @@ function CreateKastaCDMenu()
                         if child.checkbox and child.checkbox.spellId then
                             child.checkbox:SetChecked(
                                 KastaCDDB.enabled[child.checkbox.spellId] == true)
-                        end
-                        if child.groupButtons and child.spellId then
-                            local ag = type(GetSpellGroup) == "function" and GetSpellGroup(child.spellId) or 1
-                            for grp, btn in pairs(child.groupButtons) do
-                                local active = (grp == ag)
-                                btn:SetNormalFontObject(active
-                                    and "GameFontNormalSmall" or "GameFontDisableSmall")
-                                local fs = btn:GetFontString()
-                                if fs then
-                                    fs:SetTextColor(
-                                        active and 1    or 0.55,
-                                        active and 0.82 or 0.55,
-                                        active and 0    or 0.55)
-                                end
-                            end
                         end
                         walk(child)
                     end

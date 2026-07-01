@@ -13,23 +13,19 @@
 -- -------------------------------------------------------------
 SLASH_KASTACDDEBUG1 = "/kcddebug"
 SlashCmdList["KASTACDDEBUG"] = function()
-    local cc, tc, ec = 0, 0, 0
-    for _ in pairs(iconContainers)                        do cc = cc + 1 end
-    for _ in pairs(trackerState)                          do tc = tc + 1 end
-    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec = ec + 1 end
+    local cc, tc, ec, dbc = 0, 0, 0, 0
+    for _ in pairs(iconContainers)                        do cc  = cc  + 1 end
+    for _ in pairs(trackerState)                          do tc  = tc  + 1 end
+    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec  = ec  + 1 end
+    for _ in pairs(SPELL_DB or {})                        do dbc = dbc + 1 end
 
     print("KastaCD debug:")
     print("  profile :", KastaCDDB and KastaCDDB.activeProfile)
-    print("  enabled :", ec,
+    print("  SPELL_DB entries:", dbc, "  enabled:", ec,
           "  content:", GetCurrentContentType(),
           "  active:", tostring(IsContentEnabled()))
     print("  containers:", cc, "  tracker units:", tc)
-
-    local gpi = KastaCDDB and KastaCDDB.groupPositionIdx
-    print("  groupPos:",
-        tostring(gpi and gpi[1]),
-        tostring(gpi and gpi[2]),
-        tostring(gpi and gpi[3]))
+    print("  anchorsLocked:", tostring(KastaCDDB and KastaCDDB.anchorsLocked))
 
     for u, g in pairs(memberGUIDs) do
         print("  ", u, "=", g)
@@ -42,14 +38,11 @@ SlashCmdList["KASTACDDEBUG"] = function()
         local _, cls = unit and UnitExists(unit) and UnitClass(unit) or nil, nil
         print(string.format("  RF[%d] unit=%s cls=%s shown=%s",
             i, tostring(unit), tostring(cls), tostring(f:IsShown())))
-        for g = 1, SPELL_GROUP_COUNT do
-            local ck = unit and (unit .. "_g" .. g)
-            local il = ck and iconContainers[ck]
-            if il and il.icons and #il.icons > 0 then
-                local p, _, _, x, y = il.container and il.container:GetPoint(1)
-                print(string.format("    g%d: %d icons  container at %s %.0f %.0f",
-                    g, #il.icons, tostring(p), x or 0, y or 0))
-            end
+        local il = unit and iconContainers[unit]
+        if il and il.icons and #il.icons > 0 then
+            local p, _, _, x, y = il.container and il.container:GetPoint(1)
+            print(string.format("    %d icons  container at %s %.0f %.0f",
+                #il.icons, tostring(p), x or 0, y or 0))
         end
     end
 end
@@ -140,6 +133,89 @@ SlashCmdList["KASTACDLEVEL"] = function(msg)
                         known and "|cff44ff44SHOWN|r" or "|cffff4444hidden|r"))
                 end
             end
+        end
+    end
+end
+-- -------------------------------------------------------------
+-- /kcdspec [spellID]
+-- Diagnoses exactly why a spec-locked spell isn't showing for the
+-- player, by printing each piece IsSpellKnownForUnit actually checks:
+-- resolved specId, IsPlayerSpell/IsSpellKnown results, and whether
+-- the spell's data.specs list contains that specId.
+-- -------------------------------------------------------------
+SLASH_KASTACDSPEC1 = "/kcdspec"
+SlashCmdList["KASTACDSPEC"] = function(msg)
+    local sid = tonumber(msg)
+    if not sid or not SPELL_DB[sid] then
+        print("KastaCD: usage /kcdspec <spellID> - must be a tracked spell.")
+        return
+    end
+
+    local data = SPELL_DB[sid]
+    print(string.format("KastaCD spec check for [%d] %s (class=%s)", sid, data.name, tostring(data.class)))
+
+    local specIndex = GetSpecialization and GetSpecialization()
+    print("  GetSpecialization() index:", tostring(specIndex))
+
+    local resolvedSpecId
+    if specIndex then
+        resolvedSpecId = GetSpecializationInfo(specIndex)
+    end
+    print("  GetSpecializationInfo() specId:", tostring(resolvedSpecId))
+
+    local cachedSpecId = type(GetUnitSpec) == "function" and GetUnitSpec("player")
+    print("  GetUnitSpec(\"player\") result:", tostring(cachedSpecId))
+
+    local checkId = sid
+    if FindSpellOverrideByID then
+        local ov = FindSpellOverrideByID(sid)
+        if ov and ov ~= 0 then checkId = ov end
+    end
+    print("  FindSpellOverrideByID:", tostring(checkId ~= sid and checkId or "none"))
+
+    local ips1 = IsPlayerSpell and IsPlayerSpell(checkId)
+    local ips2 = IsPlayerSpell and IsPlayerSpell(sid)
+    print(string.format("  IsPlayerSpell(checkId=%d): %s   IsPlayerSpell(spellId=%d): %s",
+        checkId, tostring(ips1), sid, tostring(ips2)))
+
+    local isk1 = IsSpellKnown and IsSpellKnown(checkId)
+    local isk2 = IsSpellKnown and IsSpellKnown(sid)
+    print(string.format("  IsSpellKnown(checkId=%d): %s   IsSpellKnown(spellId=%d): %s",
+        checkId, tostring(isk1), sid, tostring(isk2)))
+
+    print("  data.specs:", data.specs and table.concat(data.specs, ",") or "nil (shared/no restriction)")
+
+    if data.specs and cachedSpecId then
+        local matches = false
+        for _, s in ipairs(data.specs) do
+            if s == cachedSpecId then matches = true break end
+        end
+        print("  specId in data.specs list?:", tostring(matches))
+    end
+
+    print("  Final IsSpellKnownForUnit(\"player\", " .. sid .. "):", tostring(IsSpellKnownForUnit("player", sid)))
+end
+-- -------------------------------------------------------------
+-- /kcdpoll
+-- Dumps the live UNIT_SPEC_CACHE state for the player and all
+-- present party members, as currently maintained by the 1s
+-- SpecPollTicker in KastaCD_Events.lua. Useful for confirming the
+-- PAB-style polling architecture is actually keeping spec data
+-- fresh (run it a few times a couple seconds apart to watch it
+-- self-correct after a spec change or a transient bad read).
+-- -------------------------------------------------------------
+SLASH_KASTACDPOLL1 = "/kcdpoll"
+SlashCmdList["KASTACDPOLL"] = function()
+    print("KastaCD live spec cache:")
+    local playerSpec = UNIT_SPEC_CACHE and UNIT_SPEC_CACHE["player"]
+    print(string.format("  player: spec=%s", tostring(playerSpec)))
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then
+            local guid = UnitGUID(unit)
+            local spec = guid and UNIT_SPEC_CACHE and UNIT_SPEC_CACHE[guid]
+            local name = UnitName(unit) or unit
+            print(string.format("  %s (%s): spec=%s", unit, name, tostring(spec)))
         end
     end
 end
