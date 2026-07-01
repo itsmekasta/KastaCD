@@ -17,14 +17,12 @@ PersistActiveProfile = nil  -- set below
 -- -------------------------------------------------------------
 function NewProfileData()
     return {
-        enabled          = {},
-        spellGroups      = {},
-        groupPositionIdx = { 8, 8, 8 },
-        offsetX          = 0,
-        offsetY          = 0,
-        iconSize         = 22,
-        iconsPerRow      = 5,
-        contentTypes     = {
+        enabled      = {},
+        offsetX      = 0,
+        offsetY      = 0,
+        iconSize     = 22,
+        iconsPerRow  = 5,
+        contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
             ["Arena"]=true,      ["Battleground"]=true
         },
@@ -54,14 +52,6 @@ function KastaCDInitDB()
     if KastaCDDB.enabled and not KastaCDDB._migrated then
         local d = KastaCDDB.profiles[DEFAULT_PROFILE_NAME]
         d.enabled      = KastaCDDB.enabled      or d.enabled
-        d.spellGroups  = KastaCDDB.spellGroups  or d.spellGroups
-        if KastaCDDB.positionIdx then
-            d.groupPositionIdx = {
-                KastaCDDB.positionIdx,
-                KastaCDDB.positionIdx,
-                KastaCDDB.positionIdx,
-            }
-        end
         d.offsetX      = KastaCDDB.offsetX      or d.offsetX
         d.offsetY      = KastaCDDB.offsetY      or d.offsetY
         d.iconSize     = KastaCDDB.iconSize      or d.iconSize
@@ -72,6 +62,7 @@ function KastaCDInitDB()
         KastaCDDB.enabled      = nil
         KastaCDDB.spellGroups  = nil
         KastaCDDB.positionIdx  = nil
+        KastaCDDB.groupPositionIdx = nil
         KastaCDDB.offsetX      = nil
         KastaCDDB.offsetY      = nil
         KastaCDDB.iconSize     = nil
@@ -81,18 +72,7 @@ function KastaCDInitDB()
 
     -- ── Sanitise active profile fields ───────────────────────
     local p = KastaCDDB.profiles[KastaCDDB.activeProfile]
-    if type(p.enabled)          ~= "table"  then p.enabled          = {} end
-    if type(p.spellGroups)      ~= "table"  then p.spellGroups      = {} end
-    if type(p.groupPositionIdx) ~= "table"  then
-        local old = type(p.positionIdx) == "number" and p.positionIdx or 8
-        p.groupPositionIdx = { old, old, old }
-        p.positionIdx = nil
-    end
-    for g = 1, SPELL_GROUP_COUNT do
-        if type(p.groupPositionIdx[g]) ~= "number" then p.groupPositionIdx[g] = 8 end
-        -- Index 1 was removed; remap old saves that used it
-        if p.groupPositionIdx[g] == 1 then p.groupPositionIdx[g] = 8 end
-    end
+    if type(p.enabled)      ~= "table"  then p.enabled      = {} end
     if type(p.offsetX)      ~= "number" then p.offsetX      = 0  end
     if type(p.offsetY)      ~= "number" then p.offsetY      = 0  end
     if type(p.iconSize)     ~= "number" then p.iconSize     = 22 end
@@ -103,6 +83,38 @@ function KastaCDInitDB()
             ["Arena"]=true,      ["Battleground"]=true,
         }
     end
+
+    -- Global (non-profile) anchor settings — shared across all profiles
+    if type(KastaCDDB.anchorPos)   ~= "table" then KastaCDDB.anchorPos    = {} end
+    if KastaCDDB.anchorsLocked      == nil     then KastaCDDB.anchorsLocked = true end
+    if KastaCDDB.showIconBorders       == nil then KastaCDDB.showIconBorders       = false end
+    if KastaCDDB.medallionOutsidePvP   == nil then KastaCDDB.medallionOutsidePvP   = false end
+
+    -- Interrupt anchor settings
+    if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+    local ia = KastaCDDB.intAnchor
+    if ia.barWidth  == nil then ia.barWidth  = 200                    end
+    if ia.barHeight == nil then ia.barHeight = 20                     end
+    if ia.enabled   == nil then ia.enabled   = true                   end
+    if ia.locked    == nil then ia.locked    = true                   end
+    if ia.fontPath  == nil then ia.fontPath  = "Fonts\\FRIZQT__.TTF" end
+    if ia.fontSize  == nil then ia.fontSize  = 10                     end
+    if ia.testMode  == nil then ia.testMode  = false                  end
+    if ia.texturePath == nil then ia.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
+    if ia.hideBorder == nil then ia.hideBorder = false                end
+
+    -- Crowd-control anchor settings
+    if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+    local ca = KastaCDDB.ccAnchor
+    if ca.barWidth  == nil then ca.barWidth  = 200                    end
+    if ca.barHeight == nil then ca.barHeight = 20                     end
+    if ca.enabled   == nil then ca.enabled   = true                   end
+    if ca.locked    == nil then ca.locked    = true                   end
+    if ca.testMode  == nil then ca.testMode  = false                  end
+    if ca.fontPath  == nil then ca.fontPath  = "Fonts\\FRIZQT__.TTF" end
+    if ca.fontSize  == nil then ca.fontSize  = 10                     end
+    if ca.texturePath == nil then ca.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
+    if ca.hideBorder == nil then ca.hideBorder = false                end
 
     PersistActiveProfile()
     ApplyActiveProfile()
@@ -116,14 +128,12 @@ end
 -- convenience aliases so the rest of the code can read them directly.
 ApplyActiveProfile = function()
     local p = KastaCDDB.profiles[KastaCDDB.activeProfile]
-    KastaCDDB.enabled          = p.enabled
-    KastaCDDB.spellGroups      = p.spellGroups
-    KastaCDDB.groupPositionIdx = p.groupPositionIdx
-    KastaCDDB.offsetX          = p.offsetX
-    KastaCDDB.offsetY          = p.offsetY
-    KastaCDDB.iconSize         = p.iconSize
-    KastaCDDB.iconsPerRow      = p.iconsPerRow
-    KastaCDDB.contentTypes     = p.contentTypes
+    KastaCDDB.enabled      = p.enabled
+    KastaCDDB.offsetX      = p.offsetX
+    KastaCDDB.offsetY      = p.offsetY
+    KastaCDDB.iconSize     = p.iconSize
+    KastaCDDB.iconsPerRow  = p.iconsPerRow
+    KastaCDDB.contentTypes = p.contentTypes
 end
 
 -- Write the current top-level aliases back into the stored profile
@@ -134,20 +144,18 @@ PersistActiveProfile = function()
     or type(KastaCDDB.activeProfile) ~= "string" then return end
     local p = KastaCDDB.profiles[KastaCDDB.activeProfile]
     if type(p) ~= "table" then return end
-    p.enabled          = KastaCDDB.enabled          or p.enabled
-    p.spellGroups      = KastaCDDB.spellGroups      or p.spellGroups
-    p.groupPositionIdx = KastaCDDB.groupPositionIdx or p.groupPositionIdx
-    p.offsetX          = KastaCDDB.offsetX          or p.offsetX
-    p.offsetY          = KastaCDDB.offsetY          or p.offsetY
-    p.iconSize         = KastaCDDB.iconSize         or p.iconSize
-    p.iconsPerRow      = KastaCDDB.iconsPerRow      or p.iconsPerRow
-    p.contentTypes     = KastaCDDB.contentTypes     or p.contentTypes
+    p.enabled      = KastaCDDB.enabled      or p.enabled
+    p.offsetX      = KastaCDDB.offsetX      or p.offsetX
+    p.offsetY      = KastaCDDB.offsetY      or p.offsetY
+    p.iconSize     = KastaCDDB.iconSize     or p.iconSize
+    p.iconsPerRow  = KastaCDDB.iconsPerRow  or p.iconsPerRow
+    p.contentTypes = KastaCDDB.contentTypes or p.contentTypes
 end
 
 -- -------------------------------------------------------------
 -- Content-type detection
 -- -------------------------------------------------------------
-local function GetCurrentContentType()
+function GetCurrentContentType()
     local inInstance, instanceType = IsInInstance()
     if not inInstance then return "Open World" end
     if instanceType == "arena" then return "Arena" end
@@ -164,137 +172,167 @@ end
 -- Spell-availability check
 -- -------------------------------------------------------------
 -- KNOWN_UNIT_SPELLS is populated by the combat log (KastaCD_CombatLog.lua)
--- as party members cast. Used as an additive signal only; icons are shown
--- upfront from minLevel gating without needing a prior cast.
+-- as party members cast. For isTalent=true spells (see Classes\*.lua),
+-- this is the ONLY way they're ever shown - see IsSpellKnownForUnit.
 KNOWN_UNIT_SPELLS = {}
 
 -- -------------------------------------------------------------
--- Spec cache  –  [guid] = specId (number) or false (unknown)
--- Populated lazily on first call per unit; cleared by ClearSpecCache()
--- which is called from ClearIcons() in Tracking.lua whenever the
--- group roster changes.
+-- Spec cache  –  [guid] = specId (number) or nil (unknown)
+--
+-- ARCHITECTURE NOTE: this intentionally does NOT validate the
+-- resolved specId against the unit's class the way earlier versions
+-- did. That validation approach (CLASS_SPEC_IDS) was an attempt to
+-- guard against transient bad reads from GetSpecializationInfo() /
+-- GetInspectSpecialization(), but it just moved the failure mode
+-- around: a rejected bad read still left the spell hidden until
+-- some other event happened to retrigger a rebuild, which produced
+-- the "random missing abilities" symptom.
+--
+-- Adopted instead: simply not validating at all, and instead
+-- refreshing the spec read on every party member every ~1 second
+-- via SpecPollTicker in KastaCD_Events.lua. Under this model a
+-- single bad/stale read is never trusted for long - it's silently
+-- overwritten by the next poll a second later, which in practice is
+-- indistinguishable from "always correct" without ever needing
+-- complex validation logic.
 -- -------------------------------------------------------------
 UNIT_SPEC_CACHE = {}
 
--- Request inspect data for a unit so the game populates
--- GetInspectSpecialization(). Safe to call repeatedly; the game
--- throttles the underlying query itself.
-local function RequestInspect(unit)
+-- Called every ~1s per tracked unit by SpecPollTicker (Events.lua).
+-- Always re-reads and overwrites the cache - no caching-until-stale
+-- logic, no validation. Cheap, frequent, self-correcting.
+function PollUnitSpec(unit)
+    if unit == "player" then
+        if GetSpecialization then
+            local idx = GetSpecialization()
+            if idx then
+                local specId = GetSpecializationInfo(idx)
+                if specId and specId ~= 0 then
+                    UNIT_SPEC_CACHE["player"] = specId
+                end
+            end
+        end
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then return end
+
+    if GetInspectSpecialization then
+        local specId = GetInspectSpecialization(unit)
+        if specId and specId ~= 0 then
+            UNIT_SPEC_CACHE[guid] = specId
+        end
+    end
+end
+
+-- Fires an inspect request for a unit (does not read the result -
+-- the result arrives via INSPECT_READY, which Events.lua uses to
+-- trigger an immediate RebuildIcons rather than waiting for the
+-- next poll tick).
+function RequestUnitInspect(unit)
+    if unit == "player" then return end
     if NotifyInspect and CanInspect and CanInspect(unit) then
         NotifyInspect(unit)
     end
 end
 
--- Return the cached spec ID for a unit, or nil if not yet known.
--- Also fires an inspect request so the cache fills in on the next
--- GROUP_ROSTER_UPDATE / RebuildIcons cycle.
+-- Returns the last-known specId for a unit, or nil if never resolved.
 function GetUnitSpec(unit)
     if unit == "player" then
-        -- Local player: use the direct API, no inspect needed.
-        if GetSpecialization then
-            local idx = GetSpecialization()
-            if idx then
-                local specId = GetSpecializationInfo(idx)
-                return specId
-            end
-        end
-        return nil
+        return UNIT_SPEC_CACHE["player"]
     end
-
     local guid = UnitGUID(unit)
-    if not guid then return nil end
-
-    -- Return cached value if we already have it.
-    if UNIT_SPEC_CACHE[guid] ~= nil then
-        return UNIT_SPEC_CACHE[guid] or nil  -- false → nil (unknown)
-    end
-
-    -- Not cached yet — try to read it now.
-    local specId = nil
-    if GetInspectSpecialization then
-        specId = GetInspectSpecialization(unit)
-        if specId and specId == 0 then specId = nil end  -- 0 = not ready
-    end
-
-    if specId then
-        UNIT_SPEC_CACHE[guid] = specId
-    else
-        -- Mark as "requested but not yet available" so we don't spam.
-        UNIT_SPEC_CACHE[guid] = false
-        RequestInspect(unit)
-    end
-
-    return specId
+    return guid and UNIT_SPEC_CACHE[guid] or nil
 end
 
 -- Call this whenever the group roster changes (from ClearIcons).
 function ClearSpecCache()
-    UNIT_SPEC_CACHE = {}
+    -- Wipe in-place to avoid global reassignment taint.
+    for k in pairs(UNIT_SPEC_CACHE) do UNIT_SPEC_CACHE[k] = nil end
 end
 
 -- -------------------------------------------------------------
 -- Spec filter helper
 -- Returns true if the spell has no spec restriction, or if the
 -- given specId matches one of the spell's allowed specs.
+--
+-- specId unknown -> hide spec-gated spells rather than show them all.
+-- GetInspectSpecialization/NotifyInspect frequently never resolves on
+-- private servers, which used to leave specId nil indefinitely and (with
+-- the old "show all" fallback) displayed every spec's abilities at once
+-- for any unresolved unit. Spec is instead confirmed quickly in practice
+-- via combat-log cast inference (see KastaCD_CombatLog.lua) or the normal
+-- inspect poll when it does work; until one of those resolves it, a
+-- spec-restricted spell simply isn't shown - matching the isTalent
+-- ground-truth-only philosophy used elsewhere in IsSpellKnownForUnit.
 -- -------------------------------------------------------------
 local function SpellMatchesSpec(data, specId)
-    -- No specs field = shared by all specs of that class.
     if not data.specs then return true end
-    -- Spec unknown yet — show the spell optimistically so the icon
-    -- appears immediately; it will be hidden on the next RebuildIcons
-    -- once the inspect data arrives and the spec is confirmed wrong.
-    if not specId then return true end
+    if not specId then return false end
     for _, s in ipairs(data.specs) do
         if s == specId then return true end
     end
     return false
 end
 
+-- -------------------------------------------------------------
+-- IsSpellKnownForUnit
+--
+-- isTalent=true spells (see Classes\*.lua header comment) take an
+-- entirely different path: they are NEVER shown based on spec/level
+-- guessing, full stop. They only appear once KNOWN_UNIT_SPELLS has
+-- recorded an actual combat-log sighting of that exact unit casting
+-- that exact spell - ground truth, not inference. This is what
+-- structurally eliminates "shows abilities a spec doesn't actually
+-- have," since a talent row's real owner is never in doubt once
+-- they've been seen using it, and nobody else's icon ever lights up
+-- for it incorrectly in the meantime.
+--
+-- Baseline (non-talent) abilities use simple level + (if specs is
+-- set) current-spec gating, same as before, just backed by the
+-- simpler always-fresh spec polling above instead of validated/
+-- cached reads.
+-- -------------------------------------------------------------
 function IsSpellKnownForUnit(unit, spellId)
     local data = SPELL_DB[spellId]
     if not data then return false end
 
+    -- Class-agnostic spells (e.g. PvP Medallion, class="ALL") are considered
+    -- known for every unit — the enabled toggle in Settings is the only gate.
+    if data.class == "ALL" then return true end
+
     if unit == "player" then
-        -- For the local player we can query the spellbook exactly.
         local checkId = spellId
         if FindSpellOverrideByID then
             local ov = FindSpellOverrideByID(spellId)
             if ov and ov ~= 0 then checkId = ov end
         end
-        if IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)) then
-            -- Still filter by spec even for the player.
-            local specId = GetUnitSpec("player")
-            return SpellMatchesSpec(data, specId)
-        end
-        if IsSpellKnown and (IsSpellKnown(checkId) or IsSpellKnown(spellId)) then
-            local specId = GetUnitSpec("player")
-            return SpellMatchesSpec(data, specId)
-        end
-        return false
+        local known = (IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)))
+            or (IsSpellKnown and (IsSpellKnown(checkId) or IsSpellKnown(spellId)))
+        if not known then return false end
+
+        local specId = GetUnitSpec("player")
+        return SpellMatchesSpec(data, specId)
     end
 
     -- ── Non-player units ──────────────────────────────────────
     local lvl = UnitLevel(unit)
     if not lvl or lvl < 0 then return false end
-    if lvl == 0 then lvl = 110 end  -- pserver quirk: 0 means max level
-
-    -- Spec check: hide icons for wrong-spec spells.
-    -- If the spec isn't known yet we show the spell optimistically
-    -- (SpellMatchesSpec returns true when specId is nil) and correct
-    -- on the next rebuild once inspect data comes in.
-    local specId = GetUnitSpec(unit)
-    if not SpellMatchesSpec(data, specId) then return false end
+    if lvl == 0 then lvl = 1 end
 
     -- Combat-log sighting confirms the spell exists for this unit
-    -- regardless of level — catches talent spells with no minLevel.
+    -- regardless of level/spec; checked as a fast positive path.
     local guid = UnitGUID(unit)
     if guid and KNOWN_UNIT_SPELLS[guid] and KNOWN_UNIT_SPELLS[guid][spellId] then
         return true
     end
 
-    -- No minLevel defined — assume available at the unit's current level.
-    if not data.minLevel then return true end
-    return lvl >= data.minLevel
+    local levelOk = (not data.minLevel) or (lvl >= data.minLevel)
+    if not levelOk then return false end
+
+    local specId = GetUnitSpec(unit)
+    return SpellMatchesSpec(data, specId)
 end
 
 -- -------------------------------------------------------------

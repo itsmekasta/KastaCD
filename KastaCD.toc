@@ -2,29 +2,42 @@
 ## Title: Kasta|cffff7f00CD|r – Cooldown Tracker
 ## Notes: Tracks party/raid cooldowns on raid frames.
 ## Author: Kasta
-## Version: 1.2
+## Version: 1.5.4
 ## SavedVariables: KastaCDDB
+## OptionalDeps: SharedMedia, LibSharedMedia-3.0
 
 # 1. Entry point: addon identity, version global, load message
 KastaCD.lua
 
-# 2. Spell database + static constants (no dependencies)
+# 2. Shared constants + class metadata (declares the global SPELL_DB
+#    table that every Classes\*.lua file appends into - no dependencies)
 KastaCD_SpellDB.lua
 
-# 3. SavedVariables / profile management (depends on SpellDB for defaults)
+# 3. Class spell definitions are now appended directly to KastaCD_SpellDB.lua above.
+
+# 4. SavedVariables / profile management + spec-detection/gating
+#    (depends on SpellDB + Classes for SPELL_DB contents)
 KastaCD_DB.lua
 
-# 4. Core tracking, icon building, layout (depends on DB + SpellDB)
+# 5. Core tracking, icon building, layout (depends on DB + SpellDB)
 KastaCD_Tracking.lua
 
-# 5. Combat log handler (depends on Tracking)
+# 6. Combat log handler (depends on Tracking)
 KastaCD_CombatLog.lua
 
-# 6. Settings UI (depends on DB + Tracking)
+# 6b. Interrupt tracker (independent anchor, class-colored bars)
+KastaCD_Interrupts.lua
+
+# 6c. Crowd-control tracker (independent anchor, class-colored bars)
+KastaCD_CC.lua
+
+# 7. Settings UI (depends on DB + Tracking)
 KastaCD_UI.lua
 
-# 7. Event frame + slash command (depends on everything above)
+# 8. Event frame + slash command + SpecPollTicker (depends on
+#    everything above)
 KastaCD_Events.lua
 
-# 8. Debug commands: /kcddebug  /kcdlevel  (depends on everything above)
+# 9. Debug commands: /kcddebug  /kcdlevel  /kcdspec  (depends on
+#    everything above)
 KastaCD_Debug.lua

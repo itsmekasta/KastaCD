@@ -13,23 +13,19 @@
 -- -------------------------------------------------------------
 SLASH_KASTACDDEBUG1 = "/kcddebug"
 SlashCmdList["KASTACDDEBUG"] = function()
-    local cc, tc, ec = 0, 0, 0
-    for _ in pairs(iconContainers)                        do cc = cc + 1 end
-    for _ in pairs(trackerState)                          do tc = tc + 1 end
-    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec = ec + 1 end
+    local cc, tc, ec, dbc = 0, 0, 0, 0
+    for _ in pairs(iconContainers)                        do cc  = cc  + 1 end
+    for _ in pairs(trackerState)                          do tc  = tc  + 1 end
+    for _ in pairs(KastaCDDB and KastaCDDB.enabled or {}) do ec  = ec  + 1 end
+    for _ in pairs(SPELL_DB or {})                        do dbc = dbc + 1 end
 
     print("KastaCD debug:")
     print("  profile :", KastaCDDB and KastaCDDB.activeProfile)
-    print("  enabled :", ec,
+    print("  SPELL_DB entries:", dbc, "  enabled:", ec,
           "  content:", GetCurrentContentType(),
           "  active:", tostring(IsContentEnabled()))
     print("  containers:", cc, "  tracker units:", tc)
-
-    local gpi = KastaCDDB and KastaCDDB.groupPositionIdx
-    print("  groupPos:",
-        tostring(gpi and gpi[1]),
-        tostring(gpi and gpi[2]),
-        tostring(gpi and gpi[3]))
+    print("  anchorsLocked:", tostring(KastaCDDB and KastaCDDB.anchorsLocked))
 
     for u, g in pairs(memberGUIDs) do
         print("  ", u, "=", g)
@@ -42,14 +38,11 @@ SlashCmdList["KASTACDDEBUG"] = function()
         local _, cls = unit and UnitExists(unit) and UnitClass(unit) or nil, nil
         print(string.format("  RF[%d] unit=%s cls=%s shown=%s",
             i, tostring(unit), tostring(cls), tostring(f:IsShown())))
-        for g = 1, SPELL_GROUP_COUNT do
-            local ck = unit and (unit .. "_g" .. g)
-            local il = ck and iconContainers[ck]
-            if il and il.icons and #il.icons > 0 then
-                local p, _, _, x, y = il.container and il.container:GetPoint(1)
-                print(string.format("    g%d: %d icons  container at %s %.0f %.0f",
-                    g, #il.icons, tostring(p), x or 0, y or 0))
-            end
+        local il = unit and iconContainers[unit]
+        if il and il.icons and #il.icons > 0 then
+            local p, _, _, x, y = il.container and il.container:GetPoint(1)
+            print(string.format("    %d icons  container at %s %.0f %.0f",
+                #il.icons, tostring(p), x or 0, y or 0))
         end
     end
 end
@@ -141,5 +134,264 @@ SlashCmdList["KASTACDLEVEL"] = function(msg)
                 end
             end
         end
+    end
+end
+-- -------------------------------------------------------------
+-- /kcdspec [spellID]
+-- Diagnoses exactly why a spec-locked spell isn't showing for the
+-- player, by printing each piece IsSpellKnownForUnit actually checks:
+-- resolved specId, IsPlayerSpell/IsSpellKnown results, and whether
+-- the spell's data.specs list contains that specId.
+-- -------------------------------------------------------------
+SLASH_KASTACDSPEC1 = "/kcdspec"
+SlashCmdList["KASTACDSPEC"] = function(msg)
+    local sid = tonumber(msg)
+    if not sid or not SPELL_DB[sid] then
+        print("KastaCD: usage /kcdspec <spellID> - must be a tracked spell.")
+        return
+    end
+
+    local data = SPELL_DB[sid]
+    print(string.format("KastaCD spec check for [%d] %s (class=%s)", sid, data.name, tostring(data.class)))
+
+    local specIndex = GetSpecialization and GetSpecialization()
+    print("  GetSpecialization() index:", tostring(specIndex))
+
+    local resolvedSpecId
+    if specIndex then
+        resolvedSpecId = GetSpecializationInfo(specIndex)
+    end
+    print("  GetSpecializationInfo() specId:", tostring(resolvedSpecId))
+
+    local cachedSpecId = type(GetUnitSpec) == "function" and GetUnitSpec("player")
+    print("  GetUnitSpec(\"player\") result:", tostring(cachedSpecId))
+
+    local checkId = sid
+    if FindSpellOverrideByID then
+        local ov = FindSpellOverrideByID(sid)
+        if ov and ov ~= 0 then checkId = ov end
+    end
+    print("  FindSpellOverrideByID:", tostring(checkId ~= sid and checkId or "none"))
+
+    local ips1 = IsPlayerSpell and IsPlayerSpell(checkId)
+    local ips2 = IsPlayerSpell and IsPlayerSpell(sid)
+    print(string.format("  IsPlayerSpell(checkId=%d): %s   IsPlayerSpell(spellId=%d): %s",
+        checkId, tostring(ips1), sid, tostring(ips2)))
+
+    local isk1 = IsSpellKnown and IsSpellKnown(checkId)
+    local isk2 = IsSpellKnown and IsSpellKnown(sid)
+    print(string.format("  IsSpellKnown(checkId=%d): %s   IsSpellKnown(spellId=%d): %s",
+        checkId, tostring(isk1), sid, tostring(isk2)))
+
+    print("  data.specs:", data.specs and table.concat(data.specs, ",") or "nil (shared/no restriction)")
+
+    if data.specs and cachedSpecId then
+        local matches = false
+        for _, s in ipairs(data.specs) do
+            if s == cachedSpecId then matches = true break end
+        end
+        print("  specId in data.specs list?:", tostring(matches))
+    end
+
+    print("  Final IsSpellKnownForUnit(\"player\", " .. sid .. "):", tostring(IsSpellKnownForUnit("player", sid)))
+end
+-- -------------------------------------------------------------
+-- /kcdpoll
+-- Dumps the live UNIT_SPEC_CACHE state for the player and all
+-- present party members, as currently maintained by the 1s
+-- SpecPollTicker in KastaCD_Events.lua. Useful for confirming the
+-- polling architecture is actually keeping spec data fresh (run it
+-- a few times a couple seconds apart to watch it self-correct after
+-- a spec change or a transient bad read).
+-- -------------------------------------------------------------
+SLASH_KASTACDPOLL1 = "/kcdpoll"
+SlashCmdList["KASTACDPOLL"] = function()
+    print("KastaCD live spec cache:")
+    local playerSpec = UNIT_SPEC_CACHE and UNIT_SPEC_CACHE["player"]
+    print(string.format("  player: spec=%s", tostring(playerSpec)))
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then
+            local guid = UnitGUID(unit)
+            local spec = guid and UNIT_SPEC_CACHE and UNIT_SPEC_CACHE[guid]
+            local name = UnitName(unit) or unit
+            print(string.format("  %s (%s): spec=%s", unit, name, tostring(spec)))
+        end
+    end
+end
+
+-- -------------------------------------------------------------
+-- /kcdcast
+-- Toggles a raw combat-log listener that prints every SPELL_CAST_SUCCESS
+-- the player triggers (spellId + name), regardless of SPELL_DB membership.
+-- Private servers frequently remap spell IDs, so this is the fastest way
+-- to confirm the real ID logged for an ability that "won't track" -
+-- cast it once with this on and read the printed ID off chat.
+-- -------------------------------------------------------------
+local castLogFrame
+SLASH_KASTACDCAST1 = "/kcdcast"
+SlashCmdList["KASTACDCAST"] = function()
+    if not castLogFrame then
+        castLogFrame = CreateFrame("Frame")
+        castLogFrame:SetScript("OnEvent", function(self, event, ...)
+            local subEvent, sourceGUID, spellId, spellName
+
+            if CombatLogGetCurrentEventInfo then
+                local _, se, _, sGUID, _, _, _, _, _, _, _, sId, sName =
+                    CombatLogGetCurrentEventInfo()
+                subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
+            end
+
+            -- Fallback: pserver passed args directly via the event, same as
+            -- the main HandleCombatLog handler in KastaCD_CombatLog.lua.
+            if not subEvent then
+                local _, se, _, sGUID, _, _, _, _, _, _, _, sId, sName = ...
+                subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
+            end
+
+            if subEvent == "SPELL_CAST_SUCCESS" and sourceGUID == UnitGUID("player") and spellId then
+                print(string.format("KastaCD cast log: [%d] %s", spellId, tostring(spellName)))
+            end
+        end)
+    end
+
+    if castLogFrame:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED") then
+        castLogFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        print("KastaCD: cast log OFF")
+    else
+        castLogFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        print("KastaCD: cast log ON - cast the ability you want to identify.")
+    end
+end
+
+-- -------------------------------------------------------------
+-- /kcdcc
+-- Dumps the crowd-control tracker's saved settings, group/instance
+-- state, and the live anchor frame's geometry after forcing a rebuild.
+-- Use this when the CC bar/anchor isn't appearing and it's not obvious
+-- why - it isolates whether the DB state, the group gate, or the frame
+-- itself is the problem.
+-- -------------------------------------------------------------
+SLASH_KASTACDCC1 = "/kcdcc"
+SlashCmdList["KASTACDCC"] = function()
+    print("KastaCD CC tracker debug:")
+
+    local db = KastaCDDB and KastaCDDB.ccAnchor
+    if not db then
+        print("  KastaCDDB.ccAnchor is nil - DB not initialised yet (try /reload).")
+        return
+    end
+    print(string.format("  enabled=%s  locked=%s  testMode=%s  barW=%s  barH=%s",
+        tostring(db.enabled), tostring(db.locked), tostring(db.testMode),
+        tostring(db.barWidth), tostring(db.barHeight)))
+    print(string.format("  savedX=%s  savedY=%s", tostring(db.savedX), tostring(db.savedY)))
+
+    print("  IsInGroup():", tostring(IsInGroup and IsInGroup()))
+    local _, instanceType = IsInInstance()
+    print("  instanceType:", tostring(instanceType))
+
+    local _, class = UnitClass("player")
+    print("  player class:", tostring(class))
+    local found = nil
+    for sid, info in pairs(CC_SPELLS or {}) do
+        if info.class == class then found = sid; break end
+    end
+    print("  first CC_SPELLS match for class:", tostring(found))
+
+    print("  RebuildCCBars is function:", tostring(type(RebuildCCBars) == "function"))
+    if type(RebuildCCBars) == "function" then
+        RebuildCCBars()
+    end
+
+    local a = _G["KastaCDCCAnchor"]
+    if not a then
+        print("  KastaCDCCAnchor frame: NOT CREATED YET")
+    else
+        print(string.format("  KastaCDCCAnchor: shown=%s width=%.0f height=%.0f",
+            tostring(a:IsShown()), a:GetWidth(), a:GetHeight()))
+        local p, rel, relPoint, x, y = a:GetPoint(1)
+        local relName = rel and rel.GetName and rel:GetName() or tostring(rel)
+        print(string.format("  point: %s  rel=%s  relPoint=%s  x=%.0f  y=%.0f",
+            tostring(p), tostring(relName), tostring(relPoint), x or 0, y or 0))
+    end
+end
+
+-- -------------------------------------------------------------
+-- /kcdanchor
+-- Dumps exactly what FindUnitFrames() (KastaCD_Tracking.lua) returns
+-- right now, plus the raw state of every candidate "player" frame source
+-- it checks along the way (ElvUI party buttons, PlayerFrame, whether
+-- ElvUI is even detected). Run this once right after login, and again
+-- after /reload in the same session, to see exactly which source flips
+-- from "not a match" to "match" for the player slot - that's what's
+-- actually deciding whether the player's icons show up or not.
+-- -------------------------------------------------------------
+SLASH_KASTACDANCHOR1 = "/kcdanchor"
+SlashCmdList["KASTACDANCHOR"] = function()
+    print("KastaCD anchor debug:")
+    print("  _G.ElvUI present:", tostring(_G.ElvUI ~= nil))
+
+    local pf = _G["PlayerFrame"]
+    if pf then
+        print(string.format("  PlayerFrame: exists=true shown=%s hasGetRight=%s",
+            tostring(pf.IsShown and pf:IsShown()), tostring(pf.GetRight ~= nil)))
+    else
+        print("  PlayerFrame: does not exist")
+    end
+
+    if _G.ElvUI then
+        for i = 1, 5 do
+            local name = "ElvUF_PartyGroup1UnitButton" .. i
+            local f = _G[name]
+            if f then
+                local unit = f.unit or f.displayedUnit
+                print(string.format("  %s: unit=%s shown=%s unitExists=%s",
+                    name, tostring(unit), tostring(f:IsShown()),
+                    tostring(unit ~= nil and UnitExists(unit))))
+            else
+                print("  " .. name .. ": does not exist")
+            end
+        end
+    end
+
+    if type(FindUnitFrames) ~= "function" then
+        print("  FindUnitFrames() not available")
+        return
+    end
+    local pairsFound = FindUnitFrames()
+    print("  FindUnitFrames() returned " .. #pairsFound .. " pair(s):")
+    local playerMatch = nil
+    for _, p in ipairs(pairsFound) do
+        local frameName = (p.frame and p.frame.GetName and p.frame:GetName()) or tostring(p.frame)
+        print(string.format("    unit=%s  frame=%s", tostring(p.unit), tostring(frameName)))
+        if p.unit == "player" then playerMatch = p end
+    end
+    if playerMatch then
+        print("  => 'player' WAS matched - this is why the icons show up.")
+    else
+        print("  => 'player' was NOT matched - icons should be hidden.")
+    end
+end
+
+-- -------------------------------------------------------------
+-- /kcdrace
+-- Prints UnitRace()'s raw return values for the player and every party
+-- member. Used to verify the exact non-localized race token a private
+-- server reports (e.g. "BloodElf" vs "Blood Elf") against what
+-- RACIAL_DEFAULT in KastaCD_Interrupts.lua expects - a mismatch here
+-- means a race-based default (like Arcane Torrent) never shows up
+-- automatically, even though a real witnessed cast still tracks fine.
+-- -------------------------------------------------------------
+SLASH_KASTACDRACE1 = "/kcdrace"
+SlashCmdList["KASTACDRACE"] = function()
+    print("KastaCD race token debug:")
+    local units = { "player" }
+    for i = 1, 4 do
+        if UnitExists("party" .. i) then table.insert(units, "party" .. i) end
+    end
+    for _, unit in ipairs(units) do
+        local localized, nonLocalized = UnitRace(unit)
+        print(string.format("  %s: localized=%q  nonLocalized=%q",
+            unit, tostring(localized), tostring(nonLocalized)))
     end
 end
