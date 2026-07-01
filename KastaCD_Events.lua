@@ -109,6 +109,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             RefreshMemberGUIDs()
             RebuildIcons()
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
         return
     end
@@ -118,6 +119,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         if not HasGroup() or (IsInRaid and IsInRaid()) then
             ClearIcons()
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
             return
         end
         C_Timer.After(0.8, function()
@@ -125,6 +127,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             RefreshMemberGUIDs()
             RebuildIcons()
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
         return
     end
@@ -139,7 +142,11 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     if event == "SPELLS_CHANGED"
     or event == "CHARACTER_POINTS_CHANGED"
     or event == "PLAYER_TALENT_UPDATE" then
-        C_Timer.After(0.5, RebuildIcons)
+        C_Timer.After(0.5, function()
+            RebuildIcons()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
         return
     end
 
@@ -150,7 +157,11 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         local unit = ...
         if unit == "player" then
-            C_Timer.After(1.2, RebuildIcons)
+            C_Timer.After(1.2, function()
+                RebuildIcons()
+                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                if type(RebuildCCBars) == "function" then RebuildCCBars() end
+            end)
         end
         return
     end
@@ -177,6 +188,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                     PollUnitSpec(unit)
                     if GetUnitSpec(unit) ~= oldSpec then
                         RebuildIcons()
+                        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                        if type(RebuildCCBars) == "function" then RebuildCCBars() end
                     end
                     break
                 end

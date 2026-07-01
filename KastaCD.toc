@@ -27,6 +27,9 @@ KastaCD_CombatLog.lua
 # 6b. Interrupt tracker (independent anchor, class-colored bars)
 KastaCD_Interrupts.lua
 
+# 6c. Crowd-control tracker (independent anchor, class-colored bars)
+KastaCD_CC.lua
+
 # 7. Settings UI (depends on DB + Tracking)
 KastaCD_UI.lua
 

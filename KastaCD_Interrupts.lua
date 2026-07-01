@@ -51,13 +51,14 @@ local intBarsParent  = nil
 -- DB accessor with lazy defaults
 -- ─────────────────────────────────────────────────────────────
 local function GetIntDB()
-    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true} end
+    if type(KastaCDDB) ~= "table" then return {barWidth=200,barHeight=20,enabled=true,locked=true,testMode=false} end
     if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
     local db = KastaCDDB.intAnchor
     if db.barWidth  == nil then db.barWidth  = 200 end
     if db.barHeight == nil then db.barHeight = 20  end
     if db.enabled   == nil then db.enabled   = true end
     if db.locked    == nil then db.locked    = true end
+    if db.testMode  == nil then db.testMode  = false end
     return db
 end
 
@@ -160,6 +161,21 @@ function UnlockIntAnchor()
     RebuildInterruptBars()
 end
 
+-- Sets the anchor's exact saved position (same units as OnDragStop below
+-- writes) and repositions the live frame immediately - used by the
+-- Position X/Y sliders in the settings panel for pixel-perfect placement
+-- without needing to drag. EnsureIntAnchor() is a no-op if the frame
+-- already exists, so this works whether or not it's been created yet.
+function SetIntAnchorPos(x, y)
+    EnsureIntAnchor()
+    local db = GetIntDB()
+    db.savedX = x
+    db.savedY = y
+    local esc = intAnchorFrame:GetEffectiveScale()
+    intAnchorFrame:ClearAllPoints()
+    intAnchorFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x / esc, y / esc)
+end
+
 -- ─────────────────────────────────────────────────────────────
 -- Rebuild all interrupt bars
 -- ─────────────────────────────────────────────────────────────
@@ -171,9 +187,19 @@ function RebuildInterruptBars()
         return
     end
 
-    -- Hide entirely inside raid instances (10-man and above)
+    -- Hide entirely when not in a party or raid group, unless test mode is
+    -- on or the anchor is unlocked - unlocking always has to make the
+    -- anchor visible, otherwise there'd be nothing to drag while solo.
+    if db.locked and not IsInGroup() and not db.testMode then
+        if intAnchorFrame then intAnchorFrame:Hide() end
+        for _, bf in pairs(intBarFrames) do bf.row:Hide() end
+        return
+    end
+
+    -- Hide entirely inside raid instances (10-man and above), same
+    -- unlocked exception as above.
     local _, instanceType = IsInInstance()
-    if instanceType == "raid" then
+    if db.locked and instanceType == "raid" then
         if intAnchorFrame then intAnchorFrame:Hide() end
         for _, bf in pairs(intBarFrames) do bf.row:Hide() end
         return
@@ -234,10 +260,28 @@ function RebuildInterruptBars()
                     local iconF = CreateFrame("Frame", nil, row)
                     iconF:SetSize(ICO, ICO)
                     iconF:SetPoint("LEFT", row, "LEFT", 0, 0)
+                    iconF:EnableMouse(true)
 
                     local ico = iconF:CreateTexture(nil, "ARTWORK")
                     ico:SetAllPoints()
                     ico:SetTexCoord(0, 1, 0, 1)
+
+                    -- Tooltip: always reads the unit's *current* tracked spell
+                    -- (not the one captured at row-creation time), since the
+                    -- interrupt bound to a unit can change after a first-seen cast.
+                    iconF:SetScript("OnEnter", function(self)
+                        local liveSt = intBarState[unit]
+                        local sid    = liveSt and liveSt.spellId
+                        if not sid then return end
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
+                        if not ok then GameTooltip:SetText(UnitName(unit) or unit, 1, 1, 1) end
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddDoubleLine("Cooldown:",
+                            (liveSt.cooldown or 0) .. "s", 0.7, 0.7, 0.7, 1, 1, 1)
+                        GameTooltip:Show()
+                    end)
+                    iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                     -- StatusBar (background + fill)
                     local sb = CreateFrame("StatusBar", nil, row)

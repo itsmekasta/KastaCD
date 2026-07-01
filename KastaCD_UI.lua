@@ -182,7 +182,7 @@ function CreateKastaCDMenu()
     EnsureMenuDBDefaults()
 
     local FRAME_W   = 860
-    local FRAME_H   = 540
+    local FRAME_H   = 620
     local SIDEBAR_W = 160
 
     -- ── Root frame ────────────────────────────────────────────
@@ -274,7 +274,11 @@ function CreateKastaCDMenu()
     -- Centre the two-column block: left col at CX, right col at RX.
     -- Block width: 200 (slider) + 46 (gap) + ~170 (right col) = ~416px.
     -- Centred in CONTENT_W=695: (695-416)/2 ≈ 138.
-    local offsetLabelY = -14
+    -- offsetLabelY: block runs from y=0 down to the bottom of "Reset
+    -- Positions" (offsetLabelY-434), and the content area is ~533px tall,
+    -- so (533-434)/2 ≈ 50 centres it vertically - the old -14 packed
+    -- everything near the top with a large empty gap at the bottom.
+    local offsetLabelY = -50
     local CX = 138
     local RX = CX + 246   -- keeps the same 246px inter-column gap as before
 
@@ -826,10 +830,20 @@ function CreateKastaCDMenu()
     panelInt:SetAllPoints()
     panels["Interrupts"] = panelInt
 
-    -- ICX: left edge of the 200px-wide controls, centred in CONTENT_W=695.
-    -- intY chosen so the ~326px content block is vertically centred in the ~458px content area.
-    local ICX = 247
-    local intY = -66
+    -- ICX: left edge of the controls, centred in CONTENT_W. The widest row
+    -- is a slider (200) + its value box (42) + the gap between them (6) =
+    -- 248px - not the slider's bare width (200), which undercounted the
+    -- value box and left everything visibly off-centre. Computed from the
+    -- real CONTENT_W constant (not a hardcoded copy of it) so this can't
+    -- silently drift out of sync if the frame/sidebar width ever changes.
+    local ICX_ROW_W = 200 + 6 + 42
+    local ICX = math.floor((CONTENT_W - ICX_ROW_W) / 2)
+    -- intY: block runs from y=0 (header) to y=-374 (bottom of the Lock
+    -- Anchor button, after the Position X/Y rows below), and the content
+    -- area is ~533px tall, so (533-374)/2 ≈ 80 centres it vertically -
+    -- the old -66 packed everything near the top with a large empty gap
+    -- at the bottom, especially after the description text was removed.
+    local intY = -80
     MakeLabel(panelInt, "Interrupt Tracker", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY)
 
     -- Enable toggle
@@ -843,6 +857,21 @@ function CreateKastaCDMenu()
     intEnCB:SetScript("OnClick", function(self)
         if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
         KastaCDDB.intAnchor.enabled = self:GetChecked() and true or false
+        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+    end)
+
+    -- Test Mode toggle: previews the bar while solo (not in party/raid),
+    -- where it's normally hidden entirely.
+    local intTestCB = CreateFrame("CheckButton", nil, panelInt, "UICheckButtonTemplate")
+    intTestCB:SetSize(22, 22)
+    intTestCB:SetPoint("LEFT", intEnCB, "LEFT", 110, 0)
+    intTestCB:SetChecked(KastaCDDB.intAnchor and KastaCDDB.intAnchor.testMode == true)
+    local intTestLbl = panelInt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    intTestLbl:SetPoint("LEFT", intTestCB, "RIGHT", 2, 0)
+    intTestLbl:SetText("Test Mode")
+    intTestCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        KastaCDDB.intAnchor.testMode = self:GetChecked() and true or false
         if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
     end)
 
@@ -868,6 +897,29 @@ function CreateKastaCDMenu()
         end)
     intBHS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 124)
 
+    -- ── Position X/Y sliders: pixel-perfect placement without dragging ──
+    MakeLabel(panelInt, "Position X:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 154)
+    local intPXS = MakeSlider(panelInt, -2000, 2000,
+        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.savedX) or 0, 200,
+        function(v)
+            local ia = KastaCDDB.intAnchor or {}
+            if type(SetIntAnchorPos) == "function" then
+                SetIntAnchorPos(v, ia.savedY or 0)
+            end
+        end)
+    intPXS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 172)
+
+    MakeLabel(panelInt, "Position Y:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 202)
+    local intPYS = MakeSlider(panelInt, -2000, 2000,
+        (KastaCDDB.intAnchor and KastaCDDB.intAnchor.savedY) or 0, 200,
+        function(v)
+            local ia = KastaCDDB.intAnchor or {}
+            if type(SetIntAnchorPos) == "function" then
+                SetIntAnchorPos(ia.savedX or 0, v)
+            end
+        end)
+    intPYS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 220)
+
     -- ── Font selector ─────────────────────────────────────────
     local FONT_LIST = {
         { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF"  },
@@ -884,11 +936,11 @@ function CreateKastaCDMenu()
         return "Friz Quadrata"
     end
 
-    MakeLabel(panelInt, "Font:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 154)
+    MakeLabel(panelInt, "Font:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 250)
 
     local intFontBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
     intFontBtn:SetSize(160, 22)
-    intFontBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 172)
+    intFontBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 268)
     intFontBtn:SetText(CurrentFontName())
 
     -- Popup frame listing font options (hidden by default)
@@ -934,7 +986,7 @@ function CreateKastaCDMenu()
     end)
 
     -- ── Font size slider ──────────────────────────────────────
-    MakeLabel(panelInt, "Font Size:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 202)
+    MakeLabel(panelInt, "Font Size:", "TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 298)
     local intFSS = MakeSlider(panelInt, 8, 18,
         (KastaCDDB.intAnchor and KastaCDDB.intAnchor.fontSize) or 10, 200,
         function(v)
@@ -942,12 +994,12 @@ function CreateKastaCDMenu()
             KastaCDDB.intAnchor.fontSize = v
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
         end)
-    intFSS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 220)
+    intFSS:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 316)
 
     -- Anchor lock button
     local intLockBtn = CreateFrame("Button", nil, panelInt, "UIPanelButtonTemplate")
     intLockBtn:SetSize(130, 22)
-    intLockBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 256)
+    intLockBtn:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 352)
     local function RefreshIntLockBtn()
         local locked = not KastaCDDB.intAnchor or KastaCDDB.intAnchor.locked ~= false
         intLockBtn:SetText(locked and "Unlock Anchor" or "Lock Anchor")
@@ -965,10 +1017,179 @@ function CreateKastaCDMenu()
         RefreshIntLockBtn()
     end)
 
-    local intDesc = panelInt:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    intDesc:SetPoint("TOPLEFT", panelInt, "TOPLEFT", ICX, intY - 284)
-    intDesc:SetTextColor(0.7, 0.7, 0.7)
-    intDesc:SetText("Shows class-colored bars for each party\nmember with an interrupt. Cooldown depletes\nafter each use. Drag anchor to reposition.")
+    -- =========================================================
+    -- Crowd Control panel
+    -- =========================================================
+    local panelCC = CreateFrame("Frame", nil, contentArea)
+    panelCC:SetAllPoints()
+    panels["CrowdControl"] = panelCC
+
+    MakeLabel(panelCC, "Crowd Control Tracker", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY)
+
+    -- Enable toggle
+    local ccEnCB = CreateFrame("CheckButton", nil, panelCC, "UICheckButtonTemplate")
+    ccEnCB:SetSize(22, 22)
+    ccEnCB:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 22)
+    ccEnCB:SetChecked(KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.enabled ~= false)
+    local ccEnLbl = panelCC:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ccEnLbl:SetPoint("LEFT", ccEnCB, "RIGHT", 2, 0)
+    ccEnLbl:SetText("Enable")
+    ccEnCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        KastaCDDB.ccAnchor.enabled = self:GetChecked() and true or false
+        if type(RebuildCCBars) == "function" then RebuildCCBars() end
+    end)
+
+    -- Test Mode toggle: previews the bar while solo (not in party/raid),
+    -- where it's normally hidden entirely. Fabricates a sample CC spell
+    -- for the player's class since there's no real cast to key off yet.
+    local ccTestCB = CreateFrame("CheckButton", nil, panelCC, "UICheckButtonTemplate")
+    ccTestCB:SetSize(22, 22)
+    ccTestCB:SetPoint("LEFT", ccEnCB, "LEFT", 110, 0)
+    ccTestCB:SetChecked(KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.testMode == true)
+    local ccTestLbl = panelCC:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ccTestLbl:SetPoint("LEFT", ccTestCB, "RIGHT", 2, 0)
+    ccTestLbl:SetText("Test Mode")
+    ccTestCB:SetScript("OnClick", function(self)
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        KastaCDDB.ccAnchor.testMode = self:GetChecked() and true or false
+        if type(RebuildCCBars) == "function" then RebuildCCBars() end
+    end)
+
+    -- Bar Width slider
+    MakeLabel(panelCC, "Bar Width:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 58)
+    local ccBWS = MakeSlider(panelCC, 100, 400,
+        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.barWidth) or 200, 200,
+        function(v)
+            if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+            KastaCDDB.ccAnchor.barWidth = v
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
+    ccBWS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 76)
+
+    -- Bar Height slider
+    MakeLabel(panelCC, "Bar Height:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 106)
+    local ccBHS = MakeSlider(panelCC, 14, 40,
+        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.barHeight) or 20, 200,
+        function(v)
+            if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+            KastaCDDB.ccAnchor.barHeight = v
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
+    ccBHS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 124)
+
+    -- ── Position X/Y sliders: pixel-perfect placement without dragging ──
+    MakeLabel(panelCC, "Position X:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 154)
+    local ccPXS = MakeSlider(panelCC, -2000, 2000,
+        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.savedX) or 0, 200,
+        function(v)
+            local ca = KastaCDDB.ccAnchor or {}
+            if type(SetCCAnchorPos) == "function" then
+                SetCCAnchorPos(v, ca.savedY or 0)
+            end
+        end)
+    ccPXS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 172)
+
+    MakeLabel(panelCC, "Position Y:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 202)
+    local ccPYS = MakeSlider(panelCC, -2000, 2000,
+        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.savedY) or 0, 200,
+        function(v)
+            local ca = KastaCDDB.ccAnchor or {}
+            if type(SetCCAnchorPos) == "function" then
+                SetCCAnchorPos(ca.savedX or 0, v)
+            end
+        end)
+    ccPYS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 220)
+
+    -- ── Font selector ─────────────────────────────────────────
+    local function CCCurrentFontName()
+        local cur = KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.fontPath or "Fonts\\FRIZQT__.TTF"
+        for _, f in ipairs(FONT_LIST) do
+            if f.path == cur then return f.name end
+        end
+        return "Friz Quadrata"
+    end
+
+    MakeLabel(panelCC, "Font:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 250)
+
+    local ccFontBtn = CreateFrame("Button", nil, panelCC, "UIPanelButtonTemplate")
+    ccFontBtn:SetSize(160, 22)
+    ccFontBtn:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 268)
+    ccFontBtn:SetText(CCCurrentFontName())
+
+    -- Popup frame listing font options (hidden by default)
+    local ccFontPopup = CreateFrame("Frame", nil, panelCC)
+    ccFontPopup:SetFrameStrata("FULLSCREEN_DIALOG")
+    ccFontPopup:SetSize(160, #FONT_LIST * 22)
+    ccFontPopup:SetPoint("TOPLEFT", ccFontBtn, "BOTTOMLEFT", 0, -2)
+    ccFontPopup:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left=3, right=3, top=3, bottom=3 },
+    })
+    ccFontPopup:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+    ccFontPopup:Hide()
+
+    for i, f in ipairs(FONT_LIST) do
+        local fBtn = CreateFrame("Button", nil, ccFontPopup)
+        fBtn:SetSize(154, 20)
+        fBtn:SetPoint("TOPLEFT", ccFontPopup, "TOPLEFT", 3, -3 - (i - 1) * 20)
+        local fTxt = fBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fTxt:SetAllPoints()
+        fTxt:SetJustifyH("LEFT")
+        fTxt:SetText(f.name)
+        fBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        local fPath = f.path
+        local fName = f.name
+        fBtn:SetScript("OnClick", function()
+            if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+            KastaCDDB.ccAnchor.fontPath = fPath
+            ccFontBtn:SetText(fName)
+            ccFontPopup:Hide()
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
+    end
+
+    ccFontBtn:SetScript("OnClick", function()
+        if ccFontPopup:IsShown() then
+            ccFontPopup:Hide()
+        else
+            ccFontPopup:Show()
+        end
+    end)
+
+    -- ── Font size slider ──────────────────────────────────────
+    MakeLabel(panelCC, "Font Size:", "TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 298)
+    local ccFSS = MakeSlider(panelCC, 8, 18,
+        (KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.fontSize) or 10, 200,
+        function(v)
+            if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+            KastaCDDB.ccAnchor.fontSize = v
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
+    ccFSS:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 316)
+
+    -- Anchor lock button
+    local ccLockBtn = CreateFrame("Button", nil, panelCC, "UIPanelButtonTemplate")
+    ccLockBtn:SetSize(130, 22)
+    ccLockBtn:SetPoint("TOPLEFT", panelCC, "TOPLEFT", ICX, intY - 352)
+    local function RefreshCCLockBtn()
+        local locked = not KastaCDDB.ccAnchor or KastaCDDB.ccAnchor.locked ~= false
+        ccLockBtn:SetText(locked and "Unlock Anchor" or "Lock Anchor")
+    end
+    RefreshCCLockBtn()
+    ccLockBtn:SetScript("OnClick", function()
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        local locked = KastaCDDB.ccAnchor.locked ~= false
+        if locked then
+            if type(UnlockCCAnchor) == "function" then UnlockCCAnchor() end
+        else
+            if type(LockCCAnchor) == "function" then LockCCAnchor() end
+        end
+        KastaCDDB.ccAnchor.locked = not locked
+        RefreshCCLockBtn()
+    end)
 
     -- =========================================================
     -- refreshClassPanelsFns  –  sync checkbox + group-button state
@@ -1019,6 +1240,7 @@ function CreateKastaCDMenu()
     local tabDefs = {
         { name="Settings",   label="Settings",    r=0.55, g=0.55, b=0.55 },
         { name="Interrupts", label="Interrupt Tracker", r=0.55, g=0.55, b=0.55 },
+        { name="CrowdControl", label="Crowd Control Tracker", r=0.55, g=0.55, b=0.55 },
     }
     for _, ci in ipairs(CLASS_INFO or {}) do
         table.insert(tabDefs, { name=ci.key, label=ci.label, r=ci.r, g=ci.g, b=ci.b })

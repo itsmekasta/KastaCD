@@ -263,3 +263,55 @@ SlashCmdList["KASTACDCAST"] = function()
         print("KastaCD: cast log ON - cast the ability you want to identify.")
     end
 end
+
+-- -------------------------------------------------------------
+-- /kcdcc
+-- Dumps the crowd-control tracker's saved settings, group/instance
+-- state, and the live anchor frame's geometry after forcing a rebuild.
+-- Use this when the CC bar/anchor isn't appearing and it's not obvious
+-- why - it isolates whether the DB state, the group gate, or the frame
+-- itself is the problem.
+-- -------------------------------------------------------------
+SLASH_KASTACDCC1 = "/kcdcc"
+SlashCmdList["KASTACDCC"] = function()
+    print("KastaCD CC tracker debug:")
+
+    local db = KastaCDDB and KastaCDDB.ccAnchor
+    if not db then
+        print("  KastaCDDB.ccAnchor is nil - DB not initialised yet (try /reload).")
+        return
+    end
+    print(string.format("  enabled=%s  locked=%s  testMode=%s  barW=%s  barH=%s",
+        tostring(db.enabled), tostring(db.locked), tostring(db.testMode),
+        tostring(db.barWidth), tostring(db.barHeight)))
+    print(string.format("  savedX=%s  savedY=%s", tostring(db.savedX), tostring(db.savedY)))
+
+    print("  IsInGroup():", tostring(IsInGroup and IsInGroup()))
+    local _, instanceType = IsInInstance()
+    print("  instanceType:", tostring(instanceType))
+
+    local _, class = UnitClass("player")
+    print("  player class:", tostring(class))
+    local found = nil
+    for sid, info in pairs(CC_SPELLS or {}) do
+        if info.class == class then found = sid; break end
+    end
+    print("  first CC_SPELLS match for class:", tostring(found))
+
+    print("  RebuildCCBars is function:", tostring(type(RebuildCCBars) == "function"))
+    if type(RebuildCCBars) == "function" then
+        RebuildCCBars()
+    end
+
+    local a = _G["KastaCDCCAnchor"]
+    if not a then
+        print("  KastaCDCCAnchor frame: NOT CREATED YET")
+    else
+        print(string.format("  KastaCDCCAnchor: shown=%s width=%.0f height=%.0f",
+            tostring(a:IsShown()), a:GetWidth(), a:GetHeight()))
+        local p, rel, relPoint, x, y = a:GetPoint(1)
+        local relName = rel and rel.GetName and rel:GetName() or tostring(rel)
+        print(string.format("  point: %s  rel=%s  relPoint=%s  x=%.0f  y=%.0f",
+            tostring(p), tostring(relName), tostring(relPoint), x or 0, y or 0))
+    end
+end

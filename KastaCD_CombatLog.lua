@@ -43,6 +43,16 @@ function HandleCombatLog(...)
         end
     end
 
+    -- ── Crowd-control tracker hook ─────────────────────────────
+    -- Same rationale as the interrupt hook above: checked regardless of
+    -- SPELL_DB membership so CC spells not tracked by the main icon
+    -- system still drive the crowd-control bars.
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId and CC_SPELLS and CC_SPELLS[spellId] then
+        if sourceGUID and type(HandleCCCast) == "function" then
+            HandleCCCast(sourceGUID, spellId)
+        end
+    end
+
     -- We only care about successful casts
     if subEvent ~= "SPELL_CAST_SUCCESS" then return end
     if not spellId or not SPELL_DB[spellId] then return end

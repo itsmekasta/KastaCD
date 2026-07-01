@@ -99,6 +99,18 @@ function KastaCDInitDB()
     if ia.locked    == nil then ia.locked    = true                   end
     if ia.fontPath  == nil then ia.fontPath  = "Fonts\\FRIZQT__.TTF" end
     if ia.fontSize  == nil then ia.fontSize  = 10                     end
+    if ia.testMode  == nil then ia.testMode  = false                  end
+
+    -- Crowd-control anchor settings
+    if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+    local ca = KastaCDDB.ccAnchor
+    if ca.barWidth  == nil then ca.barWidth  = 200                    end
+    if ca.barHeight == nil then ca.barHeight = 20                     end
+    if ca.enabled   == nil then ca.enabled   = true                   end
+    if ca.locked    == nil then ca.locked    = true                   end
+    if ca.testMode  == nil then ca.testMode  = false                  end
+    if ca.fontPath  == nil then ca.fontPath  = "Fonts\\FRIZQT__.TTF" end
+    if ca.fontSize  == nil then ca.fontSize  = 10                     end
 
     PersistActiveProfile()
     ApplyActiveProfile()
