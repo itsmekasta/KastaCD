@@ -1,0 +1,14 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<!-- Minimal Ace3 subset needed to render the settings menu with the
+	     stock AceGUI-3.0/AceConfig-3.0 look (GladiusEx's actual style is
+	     just this framework, not custom skinning). Load order matters:
+	     LibStub/CallbackHandler-1.0 first, AceGUI-3.0 before the
+	     SharedMedia widget extensions and before AceConfig-3.0. -->
+	<Script file="libs\LibStub\LibStub.lua"/>
+	<Include file="libs\CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
+	<Include file="libs\LibSharedMedia-3.0\lib.xml"/>
+	<Include file="libs\AceGUI-3.0\AceGUI-3.0.xml"/>
+	<Include file="libs\AceGUI-3.0-SharedMediaWidgets\widget.xml"/>
+	<Include file="libs\AceConfig-3.0\AceConfig-3.0.xml"/>
+</Ui>

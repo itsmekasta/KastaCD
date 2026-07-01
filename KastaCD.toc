@@ -2,9 +2,13 @@
 ## Title: Kasta|cffff7f00CD|r – Cooldown Tracker
 ## Notes: Tracks party/raid cooldowns on raid frames.
 ## Author: Kasta
-## Version: 1.5.6
+## Version: 1.5.8
 ## SavedVariables: KastaCDDB
 ## OptionalDeps: SharedMedia, LibSharedMedia-3.0
+
+# 0. Bundled Ace3 subset (AceGUI-3.0/AceConfig-3.0) that powers the
+#    settings menu - must load before KastaCD_Options.lua/KastaCD_UI.lua
+KastaCD_libs.xml
 
 # 1. Entry point: addon identity, version global, load message
 KastaCD.lua
@@ -31,7 +35,10 @@ KastaCD_Interrupts.lua
 # 6c. Crowd-control tracker (independent anchor, class-colored bars)
 KastaCD_CC.lua
 
-# 7. Settings UI (depends on DB + Tracking)
+# 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
+KastaCD_Options.lua
+
+# 7b. Settings UI bootstrap (depends on KastaCD_Options.lua)
 KastaCD_UI.lua
 
 # 8. Event frame + slash command + SpecPollTicker (depends on
