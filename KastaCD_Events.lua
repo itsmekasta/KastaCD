@@ -158,7 +158,11 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
 
     -- ── ZONE_CHANGED_NEW_AREA ──────────────────────────────────
     if event == "ZONE_CHANGED_NEW_AREA" then
-        C_Timer.After(1, RebuildIcons)
+        C_Timer.After(1, function()
+            RebuildIcons()
+            if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+            if type(RebuildCCBars) == "function" then RebuildCCBars() end
+        end)
         return
     end
 

@@ -377,6 +377,16 @@ function RebuildCCBars()
         return
     end
 
+    -- Hide entirely when the current content type is disabled via the
+    -- Settings panel's "Active in:" toggles, same unlocked/testMode
+    -- exception as above - matches the main icon tracker's own gating
+    -- (IsContentEnabled in KastaCD_DB.lua).
+    if db.locked and not db.testMode and type(IsContentEnabled) == "function" and not IsContentEnabled() then
+        if ccAnchorFrame then ccAnchorFrame:Hide() end
+        for _, bf in pairs(ccBarFrames) do bf.row:Hide() end
+        return
+    end
+
     EnsureCCAnchor()
 
     -- Collect current party units. Test Mode always substitutes 5 fake
