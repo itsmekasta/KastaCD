@@ -43,3 +43,4 @@
 Built for **Legion 7.3.5**. No dependencies. No bloat. Just clean cooldown awareness.
 
 ![1](https://i.imgur.com/RODzcML.png)
+![2](https://i.imgur.com/Yb5AZq8.png)

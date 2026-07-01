@@ -397,11 +397,11 @@ function CreateKastaCDMenu()
     -- Centre the two-column block: left col at CX, right col at RX.
     -- Block width: 200 (slider) + 46 (gap) + ~170 (right col) = ~416px.
     -- Centred in CONTENT_W=695: (695-416)/2 ≈ 138.
-    -- offsetLabelY: block runs from y=0 down to the bottom of "Reset
-    -- Positions" (offsetLabelY-434), and the content area is ~533px tall,
-    -- so (533-434)/2 ≈ 50 centres it vertically - the old -14 packed
-    -- everything near the top with a large empty gap at the bottom.
-    local offsetLabelY = -50
+    -- offsetLabelY: block runs from y=0 down to the bottom of the last
+    -- "Active in:" toggle (offsetLabelY-338, after the Anchor Frames
+    -- section was removed - the block got shorter), and the content area
+    -- is ~533px tall, so (533-338)/2 ≈ 98 centres it vertically.
+    local offsetLabelY = -98
     local CX = 138
     local RX = CX + 246   -- keeps the same 246px inter-column gap as before
 
@@ -488,53 +488,6 @@ function CreateKastaCDMenu()
             end)
         ctY = ctY - 26
     end
-
-    -- ── Anchor frames (draggable positioning) ────────────────
-    local anchorHdr = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorHdr:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 10)
-    anchorHdr:SetText("|cffff7f00Anchor Frames:|r")
-
-    local anchorDesc = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    anchorDesc:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 28)
-    anchorDesc:SetText("Unlock to drag the orange anchor squares onto your party frames.")
-    anchorDesc:SetTextColor(0.7, 0.7, 0.7)
-
-    local anchorStatLbl = panelPos:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorStatLbl:SetPoint("LEFT",  panelPos, "TOPLEFT", CX + 116, ctY - 52)
-
-    local anchorUnlockBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
-    anchorUnlockBtn:SetSize(110, 22)
-    anchorUnlockBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 44)
-
-    local function RefreshAnchorBtn()
-        if KastaCDDB.anchorsLocked then
-            anchorUnlockBtn:SetText("Unlock")
-            anchorStatLbl:SetText("|cffffd700Anchors: locked|r")
-        else
-            anchorUnlockBtn:SetText("Lock")
-            anchorStatLbl:SetText("|cff44ff44Anchors: unlocked – drag to move|r")
-        end
-    end
-    anchorUnlockBtn:SetScript("OnClick", function()
-        KastaCDDB.anchorsLocked = not KastaCDDB.anchorsLocked
-        if KastaCDDB.anchorsLocked then
-            if type(HideKastaCDAnchors) == "function" then HideKastaCDAnchors() end
-        else
-            if type(ShowKastaCDAnchors) == "function" then ShowKastaCDAnchors() end
-        end
-        RefreshAnchorBtn()
-    end)
-    RefreshAnchorBtn()
-
-    local resetAnchorsBtn = CreateFrame("Button", nil, panelPos, "UIPanelButtonTemplate")
-    resetAnchorsBtn:SetSize(110, 22)
-    resetAnchorsBtn:SetPoint("TOPLEFT", panelPos, "TOPLEFT", CX, ctY - 70)
-    resetAnchorsBtn:SetText("Reset Positions")
-    resetAnchorsBtn:SetScript("OnClick", function()
-        KastaCDDB.anchorPos = {}
-        if type(RebuildIcons) == "function" then RebuildIcons() end
-        print("KastaCD: Anchor positions reset to defaults.")
-    end)
 
     -- =========================================================
     -- Profiles panel
