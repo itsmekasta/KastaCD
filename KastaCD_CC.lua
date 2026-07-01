@@ -66,6 +66,13 @@ CC_SPELLS = {
     [6770]   = { class="ROGUE",       cooldown=20                   },                    -- Sap
     [2094]   = { class="ROGUE",       cooldown=120                  },                    -- Blind
     [1776]   = { class="ROGUE",       cooldown=10,  specs={260},    isTalent=true },       -- Gouge (Outlaw, uncertain baseline/talent)
+    -- Kidney Shot is a combo-point finisher with no real fixed cooldown
+    -- (spammable off the GCD whenever combo points allow) - cooldown here
+    -- is a short nominal "just used" flash, not a real timer. isTalent=true
+    -- keeps it out of the default-guess pool (see PickGuessCC below) so it
+    -- never shows as someone's *default* bar - only after an actual
+    -- witnessed cast.
+    [408]    = { class="ROGUE",       cooldown=2,   isTalent=true   },                    -- Kidney Shot
 
     -- DEATHKNIGHT
     [108194] = { class="DEATHKNIGHT", cooldown=45,  specs={252}     },                    -- Asphyxiate (Unholy, baseline)
@@ -80,6 +87,7 @@ CC_SPELLS = {
     [122]    = { class="MAGE",        cooldown=25                   },                    -- Frost Nova
     [113724] = { class="MAGE",        cooldown=45,  isTalent=true   },                    -- Ring of Frost (talent)
     [31661]  = { class="MAGE",        cooldown=20,  specs={63}      },                    -- Dragon's Breath (Fire only, baseline)
+    [44572]  = { class="MAGE",        cooldown=25,  specs={64}      },                    -- Deep Freeze (Frost only, baseline)
 
     -- PRIEST
     [88625]  = { class="PRIEST",      cooldown=30,  specs={257}     },                    -- Holy Word: Chastise (Holy, baseline)
