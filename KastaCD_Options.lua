@@ -23,6 +23,26 @@ LSM:Register(LSM.MediaType.FONT, "Morpheus",      "Fonts\\MORPHEUS.TTF")
 LSM:Register(LSM.MediaType.FONT, "Skurri",        "Fonts\\SKURRI.TTF")
 LSM:Register(LSM.MediaType.STATUSBAR, "Solid", "Interface\\Buttons\\WHITE8x8")
 
+local CLASS_ICON_TEXTURE = "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes"
+
+-- Matches the main party-icon tracker's own border technique (see
+-- ApplyIconBorders in KastaCD_Tracking.lua): the full texture region shows
+-- the art's natural edge, a small inset crops it away. Applied
+-- proportionally to the class icon's own quadrant of the shared class
+-- atlas rather than a flat 0-1 range, since each class only occupies a
+-- small sub-rectangle of that shared texture. A function (not a static
+-- table) so it re-evaluates live if "Icon Borders" is toggled while the
+-- menu is open.
+local function ClassIconCoords(classKey)
+    local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classKey]
+    if not c then return { 0, 1, 0, 1 } end
+    if KastaCDDB and KastaCDDB.showIconBorders then return c end
+    local l, r, t, b = c[1], c[2], c[3], c[4]
+    local w, h = r - l, b - t
+    local pad = 0.08
+    return { l + w * pad, r - w * pad, t + h * pad, b - h * pad }
+end
+
 local CATEGORY_ORDER = { "OFFENSIVE", "INTERRUPT", "DEFENSIVE", "IMMUNITY", "UTILITY" }
 local CATEGORY_NAMES = {
     OFFENSIVE="Offensive", INTERRUPT="Interrupt",
@@ -139,6 +159,7 @@ local function BuildSettingsGroup()
             set = function(_, v)
                 KastaCDDB.showIconBorders = v and true or false
                 if type(ApplyIconBorders) == "function" then ApplyIconBorders() end
+                NotifyRefresh() -- re-crop the class tree icons to match
             end,
         },
         contentHeader = { type = "header", order = 100, name = "Active in" },
@@ -158,7 +179,7 @@ local function BuildSettingsGroup()
         ctOrder = ctOrder + 10
     end
 
-    return { type = "group", name = "Settings", order = 10, args = args }
+    return { type = "group", name = "Party Cooldowns", order = 10, args = args }
 end
 
 -- =============================================================
@@ -423,6 +444,39 @@ local function BuildProfilesGroup()
     return { type = "group", name = "Profiles", order = 500, args = args }
 end
 
+-- Ace's toggle tooltip only supports a plain-text `desc` (see
+-- AceConfigDialog-3.0.lua's OptionOnMouseOver - it can't call
+-- GameTooltip:SetSpellByID like the old hand-rolled row tooltips did), so
+-- this builds an equivalent text blurb instead: the spell's real flavor
+-- text plus cooldown/duration/spec/level, queried live each hover (a
+-- function, not a precomputed string) so it self-heals if the client
+-- hadn't cached the spell's data yet on the first hover.
+local function BuildSpellDesc(sid, data)
+    return function()
+        local parts = {}
+        local flavor = GetSpellDescription and GetSpellDescription(sid)
+        if flavor and flavor ~= "" then table.insert(parts, flavor) end
+        if data.cooldown and data.cooldown > 0 then
+            table.insert(parts, string.format("Cooldown: %ds", data.cooldown))
+        end
+        if data.duration and data.duration > 0 then
+            table.insert(parts, string.format("Duration: %ds", data.duration))
+        end
+        if data.specs then
+            local names = {}
+            for _, specId in ipairs(data.specs) do
+                local specName = GetSpecializationInfoByID and select(2, GetSpecializationInfoByID(specId))
+                table.insert(names, specName or ("Spec " .. specId))
+            end
+            table.insert(parts, "Spec: " .. table.concat(names, ", "))
+        end
+        if data.minLevel then
+            table.insert(parts, "Requires level " .. data.minLevel)
+        end
+        return table.concat(parts, "\n")
+    end
+end
+
 -- =============================================================
 -- Per-class spell groups (category sub-tabs)
 -- =============================================================
@@ -452,7 +506,7 @@ local function BuildClassGroup(ci, order)
                 catArgs["s" .. sid] = {
                     type = "toggle", order = spellOrder,
                     name = string.format("|T%s:16|t %s", tostring(icon), data.name),
-                    desc = data.name,
+                    desc = BuildSpellDesc(sid, data),
                     get = function() return KastaCDDB.enabled[sid] == true end,
                     set = function(_, v)
                         KastaCDDB.enabled[sid] = v and true or nil
@@ -471,6 +525,8 @@ local function BuildClassGroup(ci, order)
 
     return {
         type = "group", name = ci.label, order = order, childGroups = "tab",
+        icon = CLASS_ICON_TEXTURE,
+        iconCoords = function() return ClassIconCoords(ci.key) end,
         args = args,
     }
 end
@@ -479,26 +535,44 @@ end
 -- BuildKastaCDOptions  –  top-level tree
 -- =============================================================
 function BuildKastaCDOptions()
-    local args = {
-        settings = BuildSettingsGroup(),
-        interrupts = BuildAnchorGroup{
-            name = "Interrupt Tracker", order = 20, dbField = "intAnchor",
-            RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
-            LockFn = LockIntAnchor, UnlockFn = UnlockIntAnchor,
-        },
-        crowdcontrol = BuildAnchorGroup{
-            name = "Crowd Control Tracker", order = 30, dbField = "ccAnchor",
-            RebuildFn = RebuildCCBars, GetPos = GetCCAnchorPos, SetPos = SetCCAnchorPos,
-            LockFn = LockCCAnchor, UnlockFn = UnlockCCAnchor,
-        },
-        profiles = BuildProfilesGroup(),
-    }
-
+    -- "Party Cooldowns" doubles as both a real content page (offsets,
+    -- layout, content types - see BuildSettingsGroup) AND the collapsible
+    -- parent for all 12 class groups, nested directly into its own args.
+    -- AceConfig's tree natively supports a group having both its own
+    -- widgets and child sub-groups at once - clicking the row shows its
+    -- page, clicking the separate +/- toggle expands/collapses the
+    -- children, independent of each other.
+    local partyCooldowns = BuildSettingsGroup()
     local classOrder = 100
     for _, ci in ipairs(CLASS_INFO or {}) do
-        args[ci.key] = BuildClassGroup(ci, classOrder)
+        partyCooldowns.args[ci.key] = BuildClassGroup(ci, classOrder)
         classOrder = classOrder + 10
     end
+
+    -- "Tracker Bars" is a pure category header - Interrupts and Crowd
+    -- Control are the actual pages, nested as its children.
+    local trackerBars = {
+        type = "group", name = "Tracker Bars", order = 20,
+        args = {
+            desc = { type = "description", order = 1, name = "Select a tracker below." },
+            interrupts = BuildAnchorGroup{
+                name = "Interrupts", order = 10, dbField = "intAnchor",
+                RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
+                LockFn = LockIntAnchor, UnlockFn = UnlockIntAnchor,
+            },
+            crowdcontrol = BuildAnchorGroup{
+                name = "Crowd Control", order = 20, dbField = "ccAnchor",
+                RebuildFn = RebuildCCBars, GetPos = GetCCAnchorPos, SetPos = SetCCAnchorPos,
+                LockFn = LockCCAnchor, UnlockFn = UnlockCCAnchor,
+            },
+        },
+    }
+
+    local args = {
+        settings = partyCooldowns,
+        trackerbars = trackerBars,
+        profiles = BuildProfilesGroup(),
+    }
 
     return {
         type = "group",

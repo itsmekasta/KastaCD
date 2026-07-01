@@ -1,8 +1,16 @@
 --[[-----------------------------------------------------------------------------
 TreeGroup Container
 Container that uses a tree control to switch between groups.
+
+KastaCD-local patch: the selected tree row gets an orange background and
+white text (see the "bg" texture in CreateButton and the selected-state
+block at the end of UpdateButton) instead of stock AceGUI's default
+highlight-only look, to match KastaCD's menu styling. Version bumped by 1
+so this patched copy always wins LibStub's version race against any
+unmodified AceGUI-3.0 another addon might have loaded - if re-vendoring a
+fresh Ace3 drop over this file, reapply those two changes first.
 -------------------------------------------------------------------------------]]
-local Type, Version = "TreeGroup", 40
+local Type, Version = "TreeGroup", 41
 local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
 if not AceGUI or (AceGUI:GetWidgetVersion(Type) or 0) >= Version then return end
 
@@ -79,14 +87,18 @@ local function UpdateButton(button, treeline, selected, canExpand, isExpanded)
 	local normalTexture = button:GetNormalTexture()
 	local line = button.line
 	button.level = level
+	-- KastaCD-local: bumped from GameFontNormal/Highlight(Small) to the
+	-- "Large" stock font objects, and the icon slot widened from 16 to 24
+	-- to match the bigger CreateButton icon size below - both were hard
+	-- to read at the original size.
 	if ( level == 1 ) then
-		button:SetNormalFontObject("GameFontNormal")
-		button:SetHighlightFontObject("GameFontHighlight")
-		button.text:SetPoint("LEFT", (icon and 16 or 0) + 8, 2)
+		button:SetNormalFontObject("GameFontNormalLarge")
+		button:SetHighlightFontObject("GameFontHighlightLarge")
+		button.text:SetPoint("LEFT", (icon and 24 or 0) + 8, 2)
 	else
-		button:SetNormalFontObject("GameFontHighlightSmall")
-		button:SetHighlightFontObject("GameFontHighlightSmall")
-		button.text:SetPoint("LEFT", (icon and 16 or 0) + 8 * level, 2)
+		button:SetNormalFontObject("GameFontHighlight")
+		button:SetHighlightFontObject("GameFontHighlight")
+		button.text:SetPoint("LEFT", (icon and 24 or 0) + 8 * level, 2)
 	end
 	
 	if disabled then
@@ -103,23 +115,42 @@ local function UpdateButton(button, treeline, selected, canExpand, isExpanded)
 	else
 		button.icon:SetTexture(nil)
 	end
-	
+
 	if iconCoords then
 		button.icon:SetTexCoord(unpack(iconCoords))
 	else
 		button.icon:SetTexCoord(0, 1, 0, 1)
 	end
-	
-	if canExpand then
-		if not isExpanded then
-			toggle:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP")
-			toggle:SetPushedTexture("Interface\\Buttons\\UI-PlusButton-DOWN")
-		else
-			toggle:SetNormalTexture("Interface\\Buttons\\UI-MinusButton-UP")
-			toggle:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-DOWN")
+
+	-- KastaCD-local: selected row gets an orange background + white text
+	-- instead of stock AceGUI's highlight-only look. Placed after the
+	-- SetText calls above so it isn't clobbered by the font-object color.
+	-- The else branch explicitly restores the normal gold UI color
+	-- (matching GameFontNormal's own color) rather than leaving it alone -
+	-- buttons are recycled across different tree lines as the list
+	-- scrolls/rebuilds, so without this a button last drawn as "selected"
+	-- would keep showing white text after being reused for an unrelated,
+	-- unselected row.
+	if selected and not disabled then
+		button.bg:Show()
+		button.text:SetTextColor(1, 1, 1)
+	else
+		button.bg:Hide()
+		if not disabled then
+			button.text:SetTextColor(1, 0.82, 0)
 		end
+	end
+
+	-- KastaCD-local: no button artwork at all, just a plain "+"/"-" glyph -
+	-- the stock UI-PlusButton/UI-MinusButton textures looked too "default".
+	toggle:SetNormalTexture(nil)
+	toggle:SetPushedTexture(nil)
+	toggle:SetHighlightTexture(nil)
+	if canExpand then
+		toggle.expandGlyph:SetText(isExpanded and "-" or "+")
 		toggle:Show()
 	else
+		toggle.expandGlyph:SetText("")
 		toggle:Hide()
 	end
 end
@@ -323,10 +354,23 @@ local methods = {
 		local button = CreateFrame("Button", ("AceGUI30TreeButton%d"):format(num), self.treeframe, "OptionsListButtonTemplate")
 		button.obj = self
 
+		-- KastaCD-local: orange selected-row background, hidden by default,
+		-- shown/colored in UpdateButton. BACKGROUND layer sits below the
+		-- template's own text/icon regions.
+		local bg = button:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(1, 0.55, 0, 0.425) -- 50% of the original 0.85 alpha
+		bg:Hide()
+		button.bg = bg
+
+		-- KastaCD-local: icon (14->20) and row height (stock template
+		-- default, ~18->26) both bumped up together - the original size
+		-- was hard to read in KastaCD's larger settings window.
 		local icon = button:CreateTexture(nil, "OVERLAY")
-		icon:SetWidth(14)
-		icon:SetHeight(14)
+		icon:SetWidth(20)
+		icon:SetHeight(20)
 		button.icon = icon
+		button:SetHeight(26)
 
 		button:SetScript("OnClick",Button_OnClick)
 		button:SetScript("OnDoubleClick", Button_OnDoubleClick)
@@ -336,7 +380,17 @@ local methods = {
 		button.toggle.button = button
 		button.toggle:SetScript("OnClick",Expand_OnClick)
 
-		button.text:SetHeight(14) -- Prevents text wrapping
+		-- KastaCD-local: plain "+"/"-" glyph instead of the stock
+		-- UI-PlusButton/UI-MinusButton textures - the actual textures are
+		-- cleared in UpdateButton below, this is the only thing drawn.
+		local expandGlyph = button.toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+		expandGlyph:SetAllPoints()
+		expandGlyph:SetJustifyH("CENTER")
+		expandGlyph:SetJustifyV("MIDDLE")
+		expandGlyph:SetTextColor(0.9, 0.9, 0.9)
+		button.toggle.expandGlyph = expandGlyph
+
+		button.text:SetHeight(20) -- Prevents text wrapping
 
 		return button
 	end,
@@ -417,7 +471,9 @@ local methods = {
 
 		local numlines = #lines
 
-		local maxlines = (floor(((self.treeframe:GetHeight()or 0) - 20 ) / 18))
+		-- KastaCD-local: divisor bumped 18->26 to match CreateButton's
+		-- taller row height above, so this scroll-fit estimate stays accurate.
+		local maxlines = (floor(((self.treeframe:GetHeight()or 0) - 20 ) / 26))
 		if maxlines <= 0 then return end
 
 		local first, last

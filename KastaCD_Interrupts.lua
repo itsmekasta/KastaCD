@@ -7,19 +7,29 @@
 -- =============================================================
 
 -- Default interrupt per class (shown before any cast is seen).
--- specs: if present, only show when the unit's known spec matches one of these.
--- Units whose spec isn't yet known won't show a default bar until their first cast.
+-- Each class maps to a *list* of candidates rather than a single entry,
+-- since some classes have a different interrupt per spec (Druid: Skull
+-- Bash for Feral/Guardian, Solar Beam for Balance - Restoration has
+-- neither, so intentionally has no candidate at all). specs: if present,
+-- only matches when the unit's known spec is in the list; the first
+-- matching candidate wins, falling back to a spec-less (universal)
+-- candidate if the class has one. Units whose spec isn't yet known, or
+-- whose spec matches nothing, won't show a default bar until their first
+-- witnessed cast.
 local INT_DEFAULT = {
-    WARRIOR     = { spellId=6552,   cooldown=15 },
-    PALADIN     = { spellId=96231,  cooldown=15, specs={70} },           -- Ret only (Prot appears via Avenger's Shield cast)
-    HUNTER      = { spellId=147362, cooldown=24 },                       -- Counter Shot (MM/BM); Survival appears via Muzzle cast
-    ROGUE       = { spellId=1766,   cooldown=15 },
-    DEATHKNIGHT = { spellId=47528,  cooldown=15 },
-    SHAMAN      = { spellId=57994,  cooldown=12 },
-    MAGE        = { spellId=2139,   cooldown=24 },
-    MONK        = { spellId=116705, cooldown=15 },
-    DRUID       = { spellId=106839, cooldown=15, specs={103,104} },      -- Feral, Guardian only
-    DEMONHUNTER = { spellId=183752, cooldown=15 },
+    WARRIOR     = { { spellId=6552,   cooldown=15 } },
+    PALADIN     = { { spellId=96231,  cooldown=15, specs={70} } },        -- Ret only (Prot appears via Avenger's Shield cast)
+    HUNTER      = { { spellId=147362, cooldown=24 } },                    -- Counter Shot (MM/BM); Survival appears via Muzzle cast
+    ROGUE       = { { spellId=1766,   cooldown=15 } },
+    DEATHKNIGHT = { { spellId=47528,  cooldown=15 } },
+    SHAMAN      = { { spellId=57994,  cooldown=12 } },
+    MAGE        = { { spellId=2139,   cooldown=24 } },
+    MONK        = { { spellId=116705, cooldown=15 } },
+    DRUID       = {
+        { spellId=106839, cooldown=15, specs={103,104} },                -- Skull Bash (Feral/Guardian)
+        { spellId=78675,  cooldown=60, specs={102} },                    -- Solar Beam (Balance)
+    },
+    DEMONHUNTER = { { spellId=183752, cooldown=15 } },
 }
 
 -- All interrupt spell IDs detected from the combat log
@@ -37,6 +47,7 @@ INT_SPELLS = {
     [2139]   = { class="MAGE",        cooldown=24 },
     [116705] = { class="MONK",        cooldown=15 },
     [106839] = { class="DRUID",       cooldown=15 },
+    [78675]  = { class="DRUID",       cooldown=60 },  -- Solar Beam (Balance)
     [183752] = { class="DEMONHUNTER", cooldown=15 },
     [119910] = { class="WARLOCK",     cooldown=24 },  -- Spell Lock (Felhunter)
 
@@ -185,6 +196,16 @@ local function EnsureIntAnchor()
     bp:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
     bp:SetSize(1, 1)
 
+    -- Hidden by default - WoW frames are shown unless told otherwise, and
+    -- this function can be triggered just by reading the anchor's position
+    -- (GetIntAnchorPos, e.g. the settings menu's Position X/Y fields opening
+    -- for the first time) without a real RebuildInterruptBars pass ever
+    -- following it. Real visibility is entirely owned by that function's
+    -- own `intAnchorFrame:SetShown(anyBar or not db.locked)` call at the
+    -- end, and by UnlockIntAnchor()'s explicit :Show() - never by mere
+    -- frame creation.
+    a:Hide()
+
     intAnchorFrame = a
     intBarsParent  = bp
 end
@@ -210,6 +231,13 @@ end
 function LockIntAnchor()
     GetIntDB().locked = true
     ApplyIntAnchorLockState()
+    -- Without this, locking while solo left the anchor/bars showing in
+    -- whatever state they were in while unlocked - ApplyIntAnchorLockState
+    -- only toggles the header strip, not the in-group/instance/content-type
+    -- gating that decides whether the anchor should be visible at all.
+    -- RebuildInterruptBars() re-applies all of that immediately, same as
+    -- UnlockIntAnchor() already does on the way in.
+    RebuildInterruptBars()
 end
 
 function UnlockIntAnchor()
@@ -385,7 +413,23 @@ function RebuildInterruptBars()
                 local _, raceToken = UnitRace(baseUnit)
                 defInt = raceToken and RACIAL_DEFAULT[raceToken]
             else
-                defInt = INT_DEFAULT[class]
+                -- Pick the best candidate from INT_DEFAULT[class]: an exact
+                -- spec match always wins; a spec-less (universal) candidate
+                -- is only used if nothing matched. Fake units skip the spec
+                -- lookup entirely - they're already fully seeded below.
+                local candidates = INT_DEFAULT[class]
+                if candidates then
+                    local specId = (not fakeInfo) and type(GetUnitSpec) == "function" and GetUnitSpec(unit)
+                    for _, cand in ipairs(candidates) do
+                        if not cand.specs then
+                            defInt = defInt or cand
+                        elseif specId then
+                            for _, s in ipairs(cand.specs) do
+                                if s == specId then defInt = cand end
+                            end
+                        end
+                    end
+                end
             end
 
             -- Seed a fully "live" animated demo bar the first time a fake
@@ -404,20 +448,6 @@ function RebuildInterruptBars()
                     isFake   = true,
                 }
                 st = intBarState[unit]
-            end
-
-            -- Spec gate: if the default interrupt is spec-restricted, check before using it.
-            -- Falls back to nil (no bar) until a cast is observed via combat log.
-            -- Fake units skip this entirely - they're already fully seeded above.
-            if not fakeInfo and defInt and defInt.specs then
-                local specId = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
-                local specOk = false
-                if specId then
-                    for _, s in ipairs(defInt.specs) do
-                        if s == specId then specOk = true; break end
-                    end
-                end
-                if not specOk then defInt = nil end
             end
 
             local spellId = (st and st.spellId)  or (defInt and defInt.spellId)

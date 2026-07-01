@@ -69,7 +69,6 @@ CC_SPELLS = {
     [19386]  = { class="HUNTER",      cooldown=45,  specs={254},    isTalent=true },       -- Wyvern Sting (MM talent)
 
     -- ROGUE
-    [6770]   = { class="ROGUE",       cooldown=20                   },                    -- Sap
     [2094]   = { class="ROGUE",       cooldown=120                  },                    -- Blind
     [1776]   = { class="ROGUE",       cooldown=10,  specs={260},    isTalent=true },       -- Gouge (Outlaw, uncertain baseline/talent)
     -- Kidney Shot is a combo-point finisher with no real fixed cooldown
@@ -106,7 +105,13 @@ CC_SPELLS = {
     [115078] = { class="MONK",        cooldown=45,  isTalent=true   },                    -- Paralysis (talent)
 
     -- DRUID
+    -- Cooldowns below marked "approx" are the author's best-known Legion
+    -- value, not yet confirmed against this specific server - correct via
+    -- the in-game tooltip if a bar's countdown looks off.
     [5211]   = { class="DRUID",       cooldown=50,  specs={103,104},isTalent=true },       -- Mighty Bash (Feral/Guardian talent)
+    [102359] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Mass Entanglement (Feral/Guardian talent, approx CD)
+    [132469] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Typhoon (Feral/Guardian talent, approx CD)
+    [102793] = { class="DRUID",       cooldown=60,  specs={105},    isTalent=true },       -- Ursol's Vortex (Restoration talent, approx CD)
 
     -- DEMONHUNTER
     [179057] = { class="DEMONHUNTER", cooldown=45,  specs={577},    isTalent=true },       -- Chaos Nova (Havoc talent)
@@ -266,6 +271,16 @@ local function EnsureCCAnchor()
     bp:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
     bp:SetSize(1, 1)
 
+    -- Hidden by default - WoW frames are shown unless told otherwise, and
+    -- this function can be triggered just by reading the anchor's position
+    -- (GetCCAnchorPos, e.g. the settings menu's Position X/Y fields opening
+    -- for the first time) without a real RebuildCCBars pass ever following
+    -- it. Real visibility is entirely owned by that function's own
+    -- `ccAnchorFrame:SetShown(anyBar or not db.locked)` call at the end,
+    -- and by UnlockCCAnchor()'s explicit :Show() - never by mere frame
+    -- creation.
+    a:Hide()
+
     ccAnchorFrame = a
     ccBarsParent  = bp
 end
@@ -291,6 +306,13 @@ end
 function LockCCAnchor()
     GetCCDB().locked = true
     ApplyCCAnchorLockState()
+    -- Without this, locking while solo left the anchor/bars showing in
+    -- whatever state they were in while unlocked - ApplyCCAnchorLockState
+    -- only toggles the header strip, not the in-group/instance/content-type
+    -- gating that decides whether the anchor should be visible at all.
+    -- RebuildCCBars() re-applies all of that immediately, same as
+    -- UnlockCCAnchor() already does on the way in.
+    RebuildCCBars()
 end
 
 function UnlockCCAnchor()

@@ -201,6 +201,7 @@ SPELL_DB[123904] = { name="Invoke Xuen, the White Tiger",  class="MONK", icon=62
 
 -- ── DRUID ─────────────────────────────────────────────────────
 SPELL_DB[106839] = { name="Skull Bash",             class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", specs={103,104},  minLevel=10 }
+SPELL_DB[78675]  = { name="Solar Beam",             class="DRUID",               duration=8,  cooldown=60,  category="INTERRUPT", specs={102},      minLevel=10 }
 SPELL_DB[22812]  = { name="Barkskin",               class="DRUID", icon=136097,  duration=12, cooldown=60,  category="DEFENSIVE", specs={102,104,105},  minLevel=10 }
 SPELL_DB[99]     = { name="Incapacitating Roar",    class="DRUID", icon=236937,  duration=3,  cooldown=30,  category="UTILITY",   specs={104},      minLevel=10 }
 SPELL_DB[61336]  = { name="Survival Instincts",     class="DRUID", icon=236169,  duration=6,  cooldown=180, category="DEFENSIVE", specs={103,104},  minLevel=10, maxCharges=2 }
@@ -211,7 +212,14 @@ SPELL_DB[106951] = { name="Berserk",                class="DRUID", icon=236149, 
 SPELL_DB[194223] = { name="Celestial Alignment",    class="DRUID", icon=1396760, duration=20, cooldown=180, category="OFFENSIVE", specs={102},      minLevel=10 }
 
 -- ── DEMON HUNTER ─────────────────────────────────────────────
-SPELL_DB[183752] = { name="Consume Magic",          class="DEMONHUNTER", icon=1344654, duration=0,  cooldown=10,  category="UTILITY",               minLevel=98 }
+-- 183752 was previously mislabeled "Consume Magic" (a Battle for Azeroth
+-- ability that doesn't exist in Legion 7.3.5) - it's actually Disrupt, the
+-- DH interrupt, which is why it never showed up under the Interrupt subtab
+-- despite already being wired into KastaCD_Interrupts.lua's standalone bar
+-- tracker (INT_SPELLS/INT_DEFAULT) under the same ID. No icon fallback is
+-- hardcoded here - GetSpellTexture(sid) already resolves it live wherever
+-- this entry's icon is used, same as every other spell in this table.
+SPELL_DB[183752] = { name="Disrupt",                class="DEMONHUNTER",               duration=0,  cooldown=15,  category="INTERRUPT",             minLevel=98 }
 SPELL_DB[179057] = { name="Chaos Nova",             class="DEMONHUNTER", icon=1247261, duration=5,  cooldown=60,  category="UTILITY",               minLevel=98 }
 SPELL_DB[198589] = { name="Blur",                   class="DEMONHUNTER", icon=1305150, duration=10, cooldown=60,  category="DEFENSIVE", specs={577}, minLevel=98 }
 SPELL_DB[209426] = { name="Darkness",               class="DEMONHUNTER", icon=1305149, duration=8,  cooldown=300, category="DEFENSIVE", specs={577}, minLevel=98 }
