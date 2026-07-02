@@ -597,9 +597,15 @@ function RebuildIcons()
     PersistActiveProfile()
 
     -- Master switch (Party Cooldowns > Enable) - hides every icon
-    -- entirely, same early-bail pattern as the other gates below.
+    -- entirely. Unlike the other early-bail gates below, this one calls
+    -- ClearIcons() unconditionally (not just on the signature-changed
+    -- transition) - it's the one path where "still visible after
+    -- disabling" absolutely cannot be tolerated, so every single call
+    -- while disabled re-asserts the hidden state instead of trusting
+    -- that a previous call already got it right.
     if KastaCDDB.iconsEnabled == false then
-        if lastBuildSignature ~= nil then lastBuildSignature = nil; ClearIcons() end
+        lastBuildSignature = nil
+        ClearIcons()
         return
     end
 
