@@ -1,3 +1,5 @@
+Would you like to buy me a **[Kofi](https://ko-fi.com/kastaqt)**? :>
+
 **KastaCD** is a lightweight party cooldown tracker built for players who want instant awareness of their group's defensives, interrupts, and immunities without digging through a raid-cooldown spreadsheet mid-pull. Perfect for Mythic+ and Arena scenarios.
 
 ---
