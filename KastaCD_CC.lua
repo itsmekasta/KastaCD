@@ -71,13 +71,12 @@ CC_SPELLS = {
     -- ROGUE
     [2094]   = { class="ROGUE",       cooldown=120                  },                    -- Blind
     [1776]   = { class="ROGUE",       cooldown=10,  specs={260},    isTalent=true },       -- Gouge (Outlaw, uncertain baseline/talent)
-    -- Kidney Shot is a combo-point finisher with no real fixed cooldown
-    -- (spammable off the GCD whenever combo points allow) - cooldown here
-    -- is a short nominal "just used" flash, not a real timer. isTalent=true
-    -- keeps it out of the default-guess pool (see PickGuessCC below) so it
-    -- never shows as someone's *default* bar - only after an actual
-    -- witnessed cast.
-    [408]    = { class="ROGUE",       cooldown=2,   isTalent=true   },                    -- Kidney Shot
+    -- Kidney Shot has a real 20s cooldown on this server (unlike retail,
+    -- where it's an uncapped combo-point finisher) - confirmed by the
+    -- user. isTalent=true keeps it out of the default-guess pool (see
+    -- PickGuessCC below) so it never shows as someone's *default* bar -
+    -- only after an actual witnessed cast.
+    [408]    = { class="ROGUE",       cooldown=20,  isTalent=true   },                    -- Kidney Shot
 
     -- DEATHKNIGHT
     [108194] = { class="DEATHKNIGHT", cooldown=45,  specs={252}     },                    -- Asphyxiate (Unholy, baseline)
@@ -122,9 +121,13 @@ CC_SPELLS = {
     -- above is kept in place for any future racial CC additions.
 }
 
--- Per-unit state and bar frames
-local ccBarState  = {}   -- [unit] = { spellId, cooldown, endTime, class }
-local ccBarFrames = {}   -- [unit] = { row, sb, ico, nameText, cdText }
+-- Per-unit, per-spell state and bar frames. Nested by spellId (not a
+-- single entry per unit) so a unit with multiple independent CC options
+-- (e.g. a Rogue's Blind AND Kidney Shot) gets one bar per spell that
+-- never overwrites the other - casting one doesn't erase the other's
+-- in-progress cooldown.
+local ccBarState  = {}   -- [unit][spellId] = { spellId, cooldown, endTime, class }
+local ccBarFrames = {}   -- [unit][spellId] = { row, sb, ico, nameText, cdText }
 local ccAnchorFrame = nil
 local ccBarsParent  = nil
 
@@ -164,6 +167,15 @@ local function GetCCDB()
     if db.testMode    == nil then db.testMode    = false end
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
     if db.hideBorder  == nil then db.hideBorder  = false end
+    if db.showReady   == nil then db.showReady   = true  end
+    -- Independent "Active in:" choice for this tracker - no longer bound
+    -- to the main icon tracker's shared KastaCDDB.contentTypes.
+    if db.contentTypes == nil then
+        db.contentTypes = {
+            ["Open World"]=true, ["Dungeon"]=true,
+            ["Arena"]=true,      ["Battleground"]=true,
+        }
+    end
     return db
 end
 
@@ -177,21 +189,28 @@ local function SpecInList(specs, specId)
     return false
 end
 
--- Picks a CC_SPELLS entry matching the given class (and, when known, the
--- unit's actual current spec) to serve as their default bar - there's no
--- static CC_DEFAULT, see the comment above that table for why. Prefers a
--- spec-matching or spec-unrestricted (baseline) spell over one that's
--- simply the first entry found for the class, so an Arcane Mage doesn't
--- get shown a Fire-only spell like Dragon's Breath.
+-- Picks the CC_SPELLS entries matching the given class (and, when known,
+-- the unit's actual current spec) worth showing a preview bar for before
+-- any real cast happens - there's no static CC_DEFAULT, see the comment
+-- above that table for why. Returns a LIST, not a single best guess: a
+-- class can have more than one independent CC option worth previewing at
+-- once (e.g. a Rogue always has Blind available, and separately may have
+-- a confirmed talent like Kidney Shot) - these must never replace each
+-- other's bar, so every eligible entry is returned and the caller seeds
+-- a preview for each spellId that doesn't already have one.
 --
--- isTalent=true entries are normally skipped in the baseline pass below -
--- spec alone can't tell us which talent was picked (e.g. Shockwave and
--- Storm Bolt are both valid for Protection), so guessing purely from spec
--- would be wrong as often as right. They're instead handled in a separate
--- first pass that only fires once KNOWN_UNIT_SPELLS actually confirms the
--- pick - either a real witnessed cast, or a resolved inspect talent scan
--- (ScanUnitTalents in KastaCD_DB.lua) - real ground truth either way, so
--- it's allowed to win outright over a generic baseline guess.
+-- For the baseline (non-talent) half, only the single most specific match
+-- is included (an exact spec match over a spec-unrestricted fallback) -
+-- unlike talents, baseline CC options for the same class are typically
+-- mutually exclusive across specs (only one applies to a given spec at a
+-- time), so including every class-wide baseline entry would show
+-- irrelevant other-spec abilities.
+--
+-- isTalent=true entries are only included once KNOWN_UNIT_SPELLS actually
+-- confirms the pick - either a real witnessed cast, or a resolved inspect
+-- talent scan (ScanUnitTalents in KastaCD_DB.lua) - never guessed from
+-- spec alone, since multiple CC spells can share a spec (e.g. Shockwave
+-- and Storm Bolt are both valid for Protection).
 --
 -- raceToken (from UnitRace(unit)'s second return) gates race-restricted
 -- entries (class="ALL", e.g. Arcane Torrent) the same way specId gates
@@ -201,19 +220,21 @@ local function PickGuessCC(unit, class, specId, raceToken)
     local guid  = unit and UnitGUID(unit)
     local known = guid and KNOWN_UNIT_SPELLS[guid]
 
+    local guesses = {}
+
     if known then
         for sid, info in pairs(CC_SPELLS) do
             if info.isTalent and known[sid] then
                 local classOk = info.class == class or info.class == "ALL"
                 local raceOk  = not info.race or info.race == raceToken
                 if classOk and raceOk and SpecInList(info.specs, specId) then
-                    return { spellId = sid, cooldown = info.cooldown }
+                    table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
                 end
             end
         end
     end
 
-    local fallback = nil
+    local fallback, exactMatch = nil, nil
     for sid, info in pairs(CC_SPELLS) do
         local classOk = info.class == class or info.class == "ALL"
         local raceOk  = not info.race or info.race == raceToken
@@ -223,11 +244,15 @@ local function PickGuessCC(unit, class, specId, raceToken)
                 -- more specific (an exact spec match) turns up.
                 fallback = fallback or { spellId = sid, cooldown = info.cooldown }
             elseif SpecInList(info.specs, specId) then
-                return { spellId = sid, cooldown = info.cooldown }
+                exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
             end
         end
     end
-    return fallback
+    if exactMatch or fallback then
+        table.insert(guesses, exactMatch or fallback)
+    end
+
+    return guesses
 end
 
 -- ─────────────────────────────────────────────────────────────
@@ -424,11 +449,12 @@ function RebuildCCBars()
         return
     end
 
-    -- Hide entirely when the current content type is disabled via the
-    -- Settings panel's "Active in:" toggles, same unlocked/testMode
-    -- exception as above - matches the main icon tracker's own gating
-    -- (IsContentEnabled in KastaCD_DB.lua).
-    if db.locked and not db.testMode and type(IsContentEnabled) == "function" and not IsContentEnabled() then
+    -- Hide entirely when the current content type is disabled via this
+    -- tracker's OWN "Active in:" toggles (Crowd Control panel >
+    -- Visibility) - independent of the main icon tracker's and the
+    -- Interrupt tracker's own choices, same unlocked/testMode exception
+    -- as above.
+    if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         for _, bf in pairs(ccBarFrames) do bf.row:Hide() end
         return
@@ -484,8 +510,10 @@ function RebuildCCBars()
     local ROW = ICO + BW  -- total row width
 
     -- Hide all rows; we re-show only the ones that are active
-    for _, bf in pairs(ccBarFrames) do
-        bf.row:Hide()
+    for _, unitFrames in pairs(ccBarFrames) do
+        for _, bf in pairs(unitFrames) do
+            bf.row:Hide()
+        end
     end
 
     local yOff   = 0
@@ -501,9 +529,8 @@ function RebuildCCBars()
             class = c
         end
         if class then
-            local st     = ccBarState[unit]
-            local defCC  = CC_DEFAULT[class]
-            local isPreviewPick = false
+            ccBarState[unit] = ccBarState[unit] or {}
+            local unitState = ccBarState[unit]
 
             -- Seed a fully "live" animated demo bar the first time a fake
             -- unit is seen: staggered cooldown position (spread across
@@ -511,39 +538,47 @@ function RebuildCCBars()
             -- states - just used, mid-cooldown, nearly ready - instead of
             -- all sitting idle-ready. The ticker keeps looping it once it
             -- reaches ready, so the animation runs continuously.
-            if fakeInfo and not st then
+            if fakeInfo and not next(unitState) then
                 local frac = (i - 1) / 5
-                ccBarState[unit] = {
+                unitState[fakeInfo.spellId] = {
                     spellId  = fakeInfo.spellId,
                     cooldown = fakeInfo.cooldown,
                     endTime  = GetTime() + fakeInfo.cooldown * (1 - frac),
                     class    = class,
                     isFake   = true,
                 }
-                st = ccBarState[unit]
             end
 
-            -- No static default for this class: guess a spec-appropriate
-            -- spell so the bar shows something immediately, same as the
-            -- interrupt tracker's INT_DEFAULT. Only substitutes for
-            -- nothing or a *previous guess* (st.isPreview) - never a real
-            -- witnessed cast, never a fake unit (already seeded above) -
-            -- and re-evaluates every rebuild so a talent/spec swap (e.g.
-            -- Storm Bolt -> Shockwave) updates it immediately instead of
-            -- getting stuck on the first guess.
-            if not fakeInfo and not defCC and (not st or st.isPreview) then
+            -- No static default for this class: guess every
+            -- spec-appropriate CC option so a bar shows something
+            -- immediately, same as the interrupt tracker's INT_DEFAULT -
+            -- but a class can have more than one independent CC option at
+            -- once (e.g. a Rogue's Blind is always available, and
+            -- separately Kidney Shot once confirmed), so PickGuessCC
+            -- returns a list and every entry gets its own bar - one never
+            -- replaces another. Only seeds an entry that doesn't exist yet
+            -- or is itself still just a preview (isPreview) - never
+            -- overwrites a real witnessed cast - and re-evaluates every
+            -- rebuild so a talent/spec swap updates that specific preview
+            -- immediately instead of getting stuck on the first guess.
+            if not fakeInfo then
                 local specId    = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
                 local raceToken = select(2, UnitRace(unit))
-                defCC = PickGuessCC(unit, class, specId, raceToken)
-                isPreviewPick = true
+                for _, guess in ipairs(PickGuessCC(unit, class, specId, raceToken)) do
+                    local existing = unitState[guess.spellId]
+                    if not existing or existing.isPreview then
+                        unitState[guess.spellId] = {
+                            spellId = guess.spellId, cooldown = guess.cooldown,
+                            endTime = 0, class = class, isPreview = true,
+                        }
+                    end
+                end
             end
 
-            local spellId = (not isPreviewPick and st and st.spellId)  or (defCC and defCC.spellId)
-            local cd      = (not isPreviewPick and st and st.cooldown) or (defCC and defCC.cooldown)
-
-            if spellId and cd then
+            for sid, st in pairs(unitState) do
                 -- Get or create bar frames
-                local bf = ccBarFrames[unit]
+                ccBarFrames[unit] = ccBarFrames[unit] or {}
+                local bf = ccBarFrames[unit][sid]
                 if not bf then
                     local row = CreateFrame("Frame", nil, ccBarsParent)
 
@@ -596,13 +631,14 @@ function RebuildCCBars()
                     ico:SetAllPoints()
                     ico:SetTexCoord(0, 1, 0, 1)
 
-                    -- Tooltip: always reads the unit's *current* tracked spell
-                    -- (not the one captured at row-creation time), since the
-                    -- CC bound to a unit changes as they cast different spells.
+                    -- Tooltip: this bar is permanently bound to this one
+                    -- (unit, sid) pair, so it just reads the live state for
+                    -- that exact spell rather than "whatever the unit's
+                    -- current spell happens to be" - each spell now has
+                    -- its own bar instead of sharing one per unit.
                     iconF:SetScript("OnEnter", function(self)
-                        local liveSt = ccBarState[unit]
-                        local sid    = liveSt and liveSt.spellId
-                        if not sid then return end
+                        local liveSt = ccBarState[unit] and ccBarState[unit][sid]
+                        if not liveSt then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
                         if not ok then
@@ -644,7 +680,7 @@ function RebuildCCBars()
                     cdText:SetTextColor(1, 1, 0.7)
 
                     bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText, border=border }
-                    ccBarFrames[unit] = bf
+                    ccBarFrames[unit][sid] = bf
                 end
 
                 -- Resize / reposition
@@ -670,7 +706,7 @@ function RebuildCCBars()
                 for _, b in ipairs(bf.border) do b:SetShown(not db.hideBorder) end
 
                 -- Icon texture
-                local tex = GetSpellTexture and GetSpellTexture(spellId)
+                local tex = GetSpellTexture and GetSpellTexture(sid)
                 if tex then bf.ico:SetTexture(tex) end
 
                 -- Class colour: fill always class-colored, background
@@ -681,7 +717,7 @@ function RebuildCCBars()
                 local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
                 if cc then
                     bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
-                    local onCooldown = st and st.endTime and st.endTime > GetTime()
+                    local onCooldown = st.endTime and st.endTime > GetTime()
                     if onCooldown then
                         bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
                     else
@@ -701,19 +737,7 @@ function RebuildCCBars()
                 -- Name
                 bf.nameText:SetText((fakeInfo and fakeInfo.name) or UnitName(unit) or unit)
 
-                -- Initialise/refresh state. A preview pick is fabricated,
-                -- not ground truth, so it's always overwritten wholesale
-                -- (letting a talent/spec swap replace it); real state only
-                -- has missing fields filled in, never overwritten.
-                if isPreviewPick then
-                    ccBarState[unit] = { spellId=spellId, cooldown=cd, endTime=0, class=class, isPreview=true }
-                elseif not ccBarState[unit] then
-                    ccBarState[unit] = { spellId=spellId, cooldown=cd, endTime=0, class=class }
-                else
-                    if not ccBarState[unit].spellId  then ccBarState[unit].spellId  = spellId end
-                    if not ccBarState[unit].cooldown then ccBarState[unit].cooldown = cd end
-                    ccBarState[unit].class = class
-                end
+                st.class = class
 
                 bf.row:Show()
                 yOff   = yOff + BH
@@ -760,11 +784,16 @@ function HandleCCCast(sourceGUID, spellId)
     local now = GetTime()
     local _, class = UnitClass(unit)
 
-    if not ccBarState[unit] then
-        ccBarState[unit] = { spellId=spellId, cooldown=ccInfo.cooldown, endTime=0, class=class or ccInfo.class }
+    -- Keyed by (unit, spellId), not just unit - casting a different CC
+    -- spell must never overwrite/replace another CC spell's own
+    -- in-progress bar for the same unit (e.g. a Rogue's Blind and Kidney
+    -- Shot track independently).
+    ccBarState[unit] = ccBarState[unit] or {}
+    if not ccBarState[unit][spellId] then
+        ccBarState[unit][spellId] = { spellId=spellId, cooldown=ccInfo.cooldown, endTime=0, class=class or ccInfo.class }
     end
 
-    local st      = ccBarState[unit]
+    local st      = ccBarState[unit][spellId]
     st.spellId    = spellId
     st.cooldown   = ccInfo.cooldown
     st.endTime    = now + ccInfo.cooldown
@@ -772,13 +801,13 @@ function HandleCCCast(sourceGUID, spellId)
     st.isPreview  = nil  -- real cast is ground truth, overrides any prior spec-based guess
 
     -- Update icon immediately if bar already exists
-    local bf = ccBarFrames[unit]
+    local bf = ccBarFrames[unit] and ccBarFrames[unit][spellId]
     if bf then
         local tex = GetSpellTexture and GetSpellTexture(spellId)
         if tex then bf.ico:SetTexture(tex) end
     end
 
-    -- First-seen unit → need a new bar row
+    -- First-seen (unit, spellId) → need a new bar row
     if not bf or not bf.row:IsShown() then
         RebuildCCBars()
     end
@@ -793,41 +822,52 @@ C_Timer.NewTicker(0.1, function()
     if not db.enabled then return end
 
     local now = GetTime()
-    for unit, st in pairs(ccBarState) do
-        local bf = ccBarFrames[unit]
-        if bf and bf.row:IsShown() then
-            local cd = st.cooldown or 1
-            local cc = RAID_CLASS_COLORS and st.class and RAID_CLASS_COLORS[st.class]
-            if st.endTime and st.endTime > now then
-                local remaining = st.endTime - now
-                -- Inverted: 0 = just used, fills toward 1 = ready
-                bf.sb:SetValue(math.max(0, math.min(1, 1 - remaining / cd)))
-                -- Fill stays class-colored; grey the background track
-                -- instead while on cooldown - makes "still down" instantly
-                -- readable without checking the text, without losing the
-                -- class-color identity on the active bar itself.
-                if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
-                bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
-                local secs = math.ceil(remaining)
-                if secs >= 60 then
-                    bf.cdText:SetText(math.floor(secs / 60) .. "m" .. string.format("%02d", secs % 60))
-                else
-                    bf.cdText:SetText(secs .. "s")
-                end
-            else
-                bf.sb:SetValue(1)
-                if cc then
-                    bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
-                    bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
-                end
-                bf.cdText:SetText("")
+    for unit, spells in pairs(ccBarState) do
+        local unitFrames = ccBarFrames[unit]
+        if unitFrames then
+            for sid, st in pairs(spells) do
+                local bf = unitFrames[sid]
+                if bf and bf.row:IsShown() then
+                    local cd = st.cooldown or 1
+                    local cc = RAID_CLASS_COLORS and st.class and RAID_CLASS_COLORS[st.class]
+                    if st.endTime and st.endTime > now then
+                        local remaining = st.endTime - now
+                        -- Inverted: 0 = just used, fills toward 1 = ready
+                        bf.sb:SetValue(math.max(0, math.min(1, 1 - remaining / cd)))
+                        -- Fill stays class-colored; grey the background track
+                        -- instead while on cooldown - makes "still down" instantly
+                        -- readable without checking the text, without losing the
+                        -- class-color identity on the active bar itself.
+                        if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
+                        bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
+                        bf.cdText:SetTextColor(1, 1, 0.7)
+                        local secs = math.ceil(remaining)
+                        if secs >= 60 then
+                            bf.cdText:SetText(math.floor(secs / 60) .. "m" .. string.format("%02d", secs % 60))
+                        else
+                            bf.cdText:SetText(secs .. "s")
+                        end
+                    else
+                        bf.sb:SetValue(1)
+                        if cc then
+                            bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
+                            bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
+                        end
+                        if db.showReady then
+                            bf.cdText:SetTextColor(0, 1, 0)
+                            bf.cdText:SetText("READY")
+                        else
+                            bf.cdText:SetText("")
+                        end
 
-                -- Fake demo units (solo Test Mode preview) loop forever
-                -- instead of sitting ready after the first cycle, so the
-                -- animation keeps demonstrating what an active cooldown
-                -- looks like without requiring a real cast.
-                if st.isFake then
-                    st.endTime = now + cd
+                        -- Fake demo units (solo Test Mode preview) loop forever
+                        -- instead of sitting ready after the first cycle, so the
+                        -- animation keeps demonstrating what an active cooldown
+                        -- looks like without requiring a real cast.
+                        if st.isFake then
+                            st.endTime = now + cd
+                        end
+                    end
                 end
             end
         end

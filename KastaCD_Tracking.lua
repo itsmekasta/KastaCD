@@ -596,6 +596,13 @@ end
 function RebuildIcons()
     PersistActiveProfile()
 
+    -- Master switch (Party Cooldowns > Enable) - hides every icon
+    -- entirely, same early-bail pattern as the other gates below.
+    if KastaCDDB.iconsEnabled == false then
+        if lastBuildSignature ~= nil then lastBuildSignature = nil; ClearIcons() end
+        return
+    end
+
     -- Hide in raids — too many frames to be useful, and CompactRaidFrames
     -- are protected and harder to anchor to reliably at raid scale.
     if not IsInPartyOnly() then

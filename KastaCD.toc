@@ -2,7 +2,7 @@
 ## Title: Kasta|cffff7f00CD|r – Cooldown Tracker
 ## Notes: Tracks party/raid cooldowns on raid frames.
 ## Author: Kasta
-## Version: 1.5.9
+## Version: 1.6.0
 ## SavedVariables: KastaCDDB
 ## OptionalDeps: SharedMedia, LibSharedMedia-3.0
 
@@ -26,7 +26,11 @@ KastaCD_DB.lua
 # 5. Core tracking, icon building, layout (depends on DB + SpellDB)
 KastaCD_Tracking.lua
 
-# 6. Combat log handler (depends on Tracking)
+# 5b. Interrupt announcement (chat message on the player's own successful
+#     interrupt) - depends on DB, must load before CombatLog uses it
+KastaCD_Announce.lua
+
+# 6. Combat log handler (depends on Tracking + Announce)
 KastaCD_CombatLog.lua
 
 # 6b. Interrupt tracker (independent anchor, class-colored bars)
@@ -40,6 +44,10 @@ KastaCD_Options.lua
 
 # 7b. Settings UI bootstrap (depends on KastaCD_Options.lua)
 KastaCD_UI.lua
+
+# 7c. Chat profile sharing ("Post to Chat" clickable import link) -
+#     depends on DB + Options.lua (SerializeProfile/DeserializeProfile)
+KastaCD_ProfileShare.lua
 
 # 8. Event frame + slash command + SpecPollTicker (depends on
 #    everything above)

@@ -65,18 +65,18 @@ INT_SPELLS = {
     -- eventually unifying them, and this server doesn't have that
     -- unification for every class - each ID below is confirmed via
     -- /kcdcast against this specific server, per-class, not guessed.
-    [155145] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (confirmed on this server)
-    [25046]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Energy - Rogue, confirmed)
-    [50613]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight, confirmed)
-    [129597] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Chi - Monk, confirmed)
-    [232633] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Priest, confirmed)
-    [202719] = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Demon Hunter, confirmed)
+    [155145] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (confirmed on this server)
+    [25046]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Energy - Rogue, confirmed)
+    [50613]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight, confirmed)
+    [129597] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Chi - Monk, confirmed)
+    [232633] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Priest, confirmed)
+    [202719] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Demon Hunter, confirmed)
     -- Not yet confirmed on this server - kept as a reasonable guess since
     -- an unconfirmed/wrong ID is harmless (worst case it just never gets
     -- cast); replace with the real ID via /kcdcast if these turn out wrong.
-    [28730]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Mana - unconfirmed)
-    [69179]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Rage - Warrior, unconfirmed)
-    [80483]  = { class="ALL", cooldown=120, isRacial=true },  -- Arcane Torrent (Focus - Hunter, unconfirmed)
+    [28730]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Mana - unconfirmed)
+    [69179]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Rage - Warrior, unconfirmed)
+    [80483]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Focus - Hunter, unconfirmed)
 }
 
 -- Always-visible racial default per UnitRace() token - shown immediately
@@ -84,7 +84,7 @@ INT_SPELLS = {
 -- *additional* bar rather than a replacement (see the "#racial" synthetic
 -- unit key throughout this file).
 local RACIAL_DEFAULT = {
-    BloodElf = { spellId=155145, cooldown=120 },
+    BloodElf = { spellId=155145, cooldown=90 },
 }
 
 -- Per-unit state and bar frames
@@ -128,6 +128,15 @@ local function GetIntDB()
     if db.testMode    == nil then db.testMode    = false end
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
     if db.hideBorder  == nil then db.hideBorder  = false end
+    if db.showReady   == nil then db.showReady   = true  end
+    -- Independent "Active in:" choice for this tracker - no longer bound
+    -- to the main icon tracker's shared KastaCDDB.contentTypes.
+    if db.contentTypes == nil then
+        db.contentTypes = {
+            ["Open World"]=true, ["Dungeon"]=true,
+            ["Arena"]=true,      ["Battleground"]=true,
+        }
+    end
     return db
 end
 
@@ -324,11 +333,11 @@ function RebuildInterruptBars()
         return
     end
 
-    -- Hide entirely when the current content type is disabled via the
-    -- Settings panel's "Active in:" toggles, same unlocked/testMode
-    -- exception as above - matches the main icon tracker's own gating
-    -- (IsContentEnabled in KastaCD_DB.lua).
-    if db.locked and not db.testMode and type(IsContentEnabled) == "function" and not IsContentEnabled() then
+    -- Hide entirely when the current content type is disabled via this
+    -- tracker's OWN "Active in:" toggles (Interrupts panel > Visibility) -
+    -- independent of the main icon tracker's and the CC tracker's own
+    -- choices, same unlocked/testMode exception as above.
+    if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if intAnchorFrame then intAnchorFrame:Hide() end
         for _, bf in pairs(intBarFrames) do bf.row:Hide() end
         return
@@ -719,6 +728,7 @@ C_Timer.NewTicker(0.1, function()
                 -- class-color identity on the active bar itself.
                 if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
                 bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
+                bf.cdText:SetTextColor(1, 1, 0.7)
                 local secs = math.ceil(remaining)
                 if secs >= 60 then
                     bf.cdText:SetText(math.floor(secs / 60) .. "m" .. string.format("%02d", secs % 60))
@@ -731,7 +741,12 @@ C_Timer.NewTicker(0.1, function()
                     bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
                     bf.sbBg:SetVertexColor(cc.r, cc.g, cc.b)
                 end
-                bf.cdText:SetText("")
+                if db.showReady then
+                    bf.cdText:SetTextColor(0, 1, 0)
+                    bf.cdText:SetText("READY")
+                else
+                    bf.cdText:SetText("")
+                end
 
                 -- Fake demo units (solo Test Mode preview) loop forever
                 -- instead of sitting ready after the first cycle, so the

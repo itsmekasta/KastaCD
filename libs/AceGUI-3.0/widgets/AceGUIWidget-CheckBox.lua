@@ -255,8 +255,7 @@ local function Constructor()
 	frame:SetScript("OnMouseDown", CheckBox_OnMouseDown)
 	frame:SetScript("OnMouseUp", CheckBox_OnMouseUp)
 
-	-- KastaCD-local: checkbox art and label font both bumped up (see
-	-- SetType's `size = 28` above and GameFontHighlightLarge below).
+	-- KastaCD-local: checkbox art bumped up (size = 28 in SetType above).
 	local checkbg = frame:CreateTexture(nil, "ARTWORK")
 	checkbg:SetWidth(28)
 	checkbg:SetHeight(28)
@@ -267,7 +266,16 @@ local function Constructor()
 	check:SetAllPoints(checkbg)
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
 
-	local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+	-- KastaCD-local: label font nudged up from stock GameFontHighlight, but
+	-- only slightly - GameFontHighlightLarge (~16pt) read as too big for
+	-- dense content like per-spell checkbox rows, so this keeps the same
+	-- font file/outline GameFontHighlight already uses and just bumps the
+	-- point size a couple steps instead of jumping to the "Large" object.
+	local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	do
+		local fontFile, _, fontFlags = text:GetFont()
+		text:SetFont(fontFile, 13, fontFlags)
+	end
 	text:SetJustifyH("LEFT")
 	text:SetHeight(24)
 	text:SetPoint("LEFT", checkbg, "RIGHT")

@@ -102,6 +102,12 @@ function KastaCDInitDB()
     if ia.testMode  == nil then ia.testMode  = false                  end
     if ia.texturePath == nil then ia.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
     if ia.hideBorder == nil then ia.hideBorder = false                end
+    if type(ia.contentTypes) ~= "table" then
+        ia.contentTypes = {
+            ["Open World"]=true, ["Dungeon"]=true,
+            ["Arena"]=true,      ["Battleground"]=true,
+        }
+    end
 
     -- Crowd-control anchor settings
     if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
@@ -115,6 +121,12 @@ function KastaCDInitDB()
     if ca.fontSize  == nil then ca.fontSize  = 10                     end
     if ca.texturePath == nil then ca.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
     if ca.hideBorder == nil then ca.hideBorder = false                end
+    if type(ca.contentTypes) ~= "table" then
+        ca.contentTypes = {
+            ["Open World"]=true, ["Dungeon"]=true,
+            ["Arena"]=true,      ["Battleground"]=true,
+        }
+    end
 
     PersistActiveProfile()
     ApplyActiveProfile()
@@ -164,8 +176,18 @@ function GetCurrentContentType()
     return "Open World"
 end
 
+-- Generalised form: takes an explicit contentTypes table instead of always
+-- reading the main icon tracker's KastaCDDB.contentTypes, so the Interrupt
+-- and Crowd Control trackers can each have their own independent "Active
+-- in:" choice (KastaCDDB.intAnchor.contentTypes / .ccAnchor.contentTypes)
+-- instead of all three being bound to the same shared setting.
+function IsContentEnabledFor(contentTypes)
+    if type(contentTypes) ~= "table" then return true end
+    return contentTypes[GetCurrentContentType()] == true
+end
+
 function IsContentEnabled()
-    return KastaCDDB.contentTypes[GetCurrentContentType()] == true
+    return IsContentEnabledFor(KastaCDDB.contentTypes)
 end
 
 -- -------------------------------------------------------------

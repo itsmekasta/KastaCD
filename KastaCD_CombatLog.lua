@@ -17,13 +17,15 @@ function HandleCombatLog(...)
     local timestamp, subEvent, hideCaster,
         sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
         destGUID, destName, destFlags, destRaidFlags,
-        spellId, spellName, spellSchool
+        spellId, spellName, spellSchool,
+        extraSpellId, extraSpellName, extraSchool
 
     if CombatLogGetCurrentEventInfo then
         timestamp, subEvent, hideCaster,
             sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
             destGUID, destName, destFlags, destRaidFlags,
-            spellId, spellName, spellSchool = CombatLogGetCurrentEventInfo()
+            spellId, spellName, spellSchool,
+            extraSpellId, extraSpellName, extraSchool = CombatLogGetCurrentEventInfo()
     end
 
     -- Fallback: pserver passed args directly via the event
@@ -31,7 +33,20 @@ function HandleCombatLog(...)
         timestamp, subEvent, hideCaster,
             sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
             destGUID, destName, destFlags, destRaidFlags,
-            spellId, spellName, spellSchool = ...
+            spellId, spellName, spellSchool,
+            extraSpellId, extraSpellName, extraSchool = ...
+    end
+
+    -- ── Interrupt announcement ─────────────────────────────────
+    -- SPELL_INTERRUPT is a distinct sub-event from SPELL_CAST_SUCCESS -
+    -- extraSpellName is the *interrupted* spell (what the enemy was
+    -- casting), not the interrupt ability itself. Only announces the
+    -- player's own interrupts, never party members' - this is a "let
+    -- others know KastaCD is doing this" broadcast, not a tracker.
+    if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
+        if type(AnnounceInterrupt) == "function" then
+            AnnounceInterrupt(spellName, extraSpellName, destName)
+        end
     end
 
     -- ── Interrupt tracker hook ─────────────────────────────────
@@ -40,6 +55,29 @@ function HandleCombatLog(...)
     if subEvent == "SPELL_CAST_SUCCESS" and spellId and INT_SPELLS and INT_SPELLS[spellId] then
         if sourceGUID and type(HandleInterruptCast) == "function" then
             HandleInterruptCast(sourceGUID, spellId)
+        end
+
+        -- ── Interrupt announcement fallback (racials, e.g. Arcane
+        -- Torrent) ───────────────────────────────────────────────
+        -- Confirmed on this server: SPELL_INTERRUPT doesn't reliably fire
+        -- for the Arcane Torrent racial the way it does for real class
+        -- interrupts (the primary hook above handles those), so this
+        -- falls back to SPELL_CAST_SUCCESS for exactly the isRacial
+        -- entries in INT_SPELLS - the same detection path the Interrupt
+        -- Tracker already uses successfully for this ability. There's no
+        -- single-target SPELL_INTERRUPT payload to read the interrupted
+        -- spell's name from here, so it's approximated from whatever the
+        -- player's current target is casting/channeling at that instant;
+        -- if nothing is found, the announcement is skipped rather than
+        -- claiming an interrupt that can't be confirmed.
+        if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
+        and type(AnnounceInterrupt) == "function" then
+            local castName
+            if UnitCastingInfo then castName = UnitCastingInfo("target") end
+            if not castName and UnitChannelInfo then castName = UnitChannelInfo("target") end
+            if castName then
+                AnnounceInterrupt(spellName, castName, UnitName("target"))
+            end
         end
     end
 

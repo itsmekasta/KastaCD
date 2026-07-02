@@ -52,7 +52,9 @@ local CATEGORY_NAMES = {
 -- ── Profile export/import scratch state (dialog-local, not saved) ──
 local newProfileNameVal = ""
 
-local function SerializeProfile(p)
+-- Global (not local) so KastaCD_ProfileShare.lua can reuse the exact same
+-- string format for chat-shared profile links, instead of duplicating it.
+function SerializeProfile(p)
     local parts = {}
     for sid, v in pairs(p.enabled or {}) do
         if v then table.insert(parts, "e" .. sid) end
@@ -66,8 +68,9 @@ local function SerializeProfile(p)
         table.concat(parts, ","))
 end
 
--- Deserialise — KCD3 is current; KCD1/KCD2 are legacy (group data ignored)
-local function DeserializeProfile(str)
+-- Deserialise — KCD3 is current; KCD1/KCD2 are legacy (group data ignored).
+-- Global for the same reason as SerializeProfile above.
+function DeserializeProfile(str)
     local p = type(NewProfileData) == "function" and NewProfileData() or {}
     p.enabled = p.enabled or {}
     local ox, oy, isz, ipr, rest =
@@ -110,7 +113,11 @@ end
 -- Settings group (offsets, icon layout, misc toggles, content types)
 -- =============================================================
 local function BuildSettingsGroup()
-    local args = {
+    -- Grouped into three inline "cells" so related settings are visually
+    -- separated without adding extra tab navigation: Position (every
+    -- slider), Misc (everything else toggle-like), Visibility (borders +
+    -- "Active in:" content-type gating).
+    local positionArgs = {
         offsetX = {
             type = "range", order = 10, name = "Offset X", min = -200, max = 200, step = 1,
             get = function() return KastaCDDB.offsetX end,
@@ -131,14 +138,16 @@ local function BuildSettingsGroup()
             get = function() return KastaCDDB.iconsPerRow end,
             set = function(_, v) KastaCDDB.iconsPerRow = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
         },
+    }
+
+    local miscArgs = {
         growLeft = {
-            type = "toggle", order = 50, name = "Grow Left",
+            type = "toggle", order = 10, name = "Grow Left",
             get = function() return KastaCDDB.growLeft == true end,
             set = function(_, v) KastaCDDB.growLeft = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
         },
-        miscHeader = { type = "header", order = 60, name = "Misc" },
         pvpMedallion = {
-            type = "toggle", order = 70, name = "PvP Medallion",
+            type = "toggle", order = 20, name = "PvP Medallion",
             get = function() return KastaCDDB.enabled[208683] == true end,
             set = function(_, v)
                 KastaCDDB.enabled[208683] = v and true or nil
@@ -146,15 +155,18 @@ local function BuildSettingsGroup()
             end,
         },
         medallionOutsidePvP = {
-            type = "toggle", order = 80, name = "Medallion outside PvP",
+            type = "toggle", order = 30, name = "Medallion outside PvP",
             get = function() return KastaCDDB.medallionOutsidePvP == true end,
             set = function(_, v)
                 KastaCDDB.medallionOutsidePvP = v and true or false
                 if type(RebuildIcons) == "function" then RebuildIcons() end
             end,
         },
+    }
+
+    local visibilityArgs = {
         showIconBorders = {
-            type = "toggle", order = 90, name = "Icon Borders",
+            type = "toggle", order = 10, name = "Icon Borders",
             get = function() return KastaCDDB.showIconBorders == true end,
             set = function(_, v)
                 KastaCDDB.showIconBorders = v and true or false
@@ -162,13 +174,12 @@ local function BuildSettingsGroup()
                 NotifyRefresh() -- re-crop the class tree icons to match
             end,
         },
-        contentHeader = { type = "header", order = 100, name = "Active in" },
+        contentHeader = { type = "header", order = 20, name = "Active in" },
     }
-
-    local ctOrder = 110
+    local ctOrder = 30
     for _, ct in ipairs(CONTENT_TYPES or {}) do
         local ctName = ct
-        args["content_" .. ctName:gsub(" ", "_")] = {
+        visibilityArgs["content_" .. ctName:gsub(" ", "_")] = {
             type = "toggle", order = ctOrder, name = ctName,
             get = function() return KastaCDDB.contentTypes[ctName] == true end,
             set = function(_, v)
@@ -179,7 +190,82 @@ local function BuildSettingsGroup()
         ctOrder = ctOrder + 10
     end
 
+    -- Master switch sits above everything else on the page (order 1) and
+    -- hides the rest of the page's content when off, same treatment as
+    -- the tracker pages' own Enable toggle.
+    local isHidden = function() return KastaCDDB.iconsEnabled == false end
+
+    local args = {
+        enabled = {
+            type = "toggle", order = 1, name = "Enable",
+            get = function() return KastaCDDB.iconsEnabled ~= false end,
+            set = function(_, v)
+                KastaCDDB.iconsEnabled = v and true or false
+                if type(RebuildIcons) == "function" then RebuildIcons() end
+            end,
+        },
+        position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs },
+        misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs },
+        visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs },
+    }
+
     return { type = "group", name = "Party Cooldowns", order = 10, args = args }
+end
+
+-- =============================================================
+-- Interrupt Announce - chat message on the player's own successful
+-- interrupt (see KastaCD_Announce.lua for the actual announce logic).
+-- Placed as its own tab under Party Cooldowns for now.
+-- =============================================================
+local function BuildInterruptAnnounceGroup()
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable Interrupt Announce",
+            desc = "Announces your own successful interrupts to chat, so party/raid members without an interrupt addon still see it land.",
+            get = function() return GetAnnounceDB().enabled == true end,
+            set = function(_, v) GetAnnounceDB().enabled = v and true or false end,
+        },
+        channel = {
+            type = "select", order = 20, name = "Chat Channel",
+            values = { SAY = "Say", YELL = "Yell" },
+            get = function() return GetAnnounceDB().channel end,
+            set = function(_, v) GetAnnounceDB().channel = v end,
+        },
+        messageHeader = { type = "header", order = 30, name = "Message" },
+        placeholderDesc = {
+            type = "description", order = 40,
+            name = "Customize your announcement text. Available placeholders:\n" ..
+                "|cffffd200{player}|r - your name\n" ..
+                "|cffffd200{spell}|r - the spell you interrupted\n" ..
+                "|cffffd200{myspell}|r - the interrupt ability you used\n" ..
+                "|cffffd200{target}|r - who you interrupted",
+        },
+        template = {
+            type = "input", order = 50, name = "Announcement Text", width = "full",
+            multiline = 2,
+            get = function() return GetAnnounceDB().template end,
+            set = function(_, v)
+                if not v or v == "" then return end
+                GetAnnounceDB().template = v
+            end,
+        },
+        resetBtn = {
+            type = "execute", order = 60, name = "Reset to Default",
+            func = function()
+                GetAnnounceDB().template = GetDefaultAnnounceTemplate()
+                NotifyRefresh()
+            end,
+        },
+        testBtn = {
+            type = "execute", order = 70, name = "Test",
+            desc = "Sends a sample announcement with your current settings, without needing a real interrupt.",
+            func = function()
+                if type(TestAnnounceInterrupt) == "function" then TestAnnounceInterrupt() end
+            end,
+        },
+    }
+
+    return { type = "group", name = "Interrupt Announce", order = 5, args = args }
 end
 
 -- =============================================================
@@ -197,25 +283,14 @@ local function BuildAnchorGroup(opts)
         return KastaCDDB[dbField]
     end
 
-    local args = {
-        enabled = {
-            type = "toggle", order = 10, name = "Enable",
-            get = function() return GetAnchorDB().enabled ~= false end,
-            set = function(_, v)
-                GetAnchorDB().enabled = v and true or false
-                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
-            end,
-        },
-        testMode = {
-            type = "toggle", order = 20, name = "Test Mode",
-            get = function() return GetAnchorDB().testMode == true end,
-            set = function(_, v)
-                GetAnchorDB().testMode = v and true or false
-                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
-            end,
-        },
+    -- Grouped into four inline "cells": Position (placement + size
+    -- sliders), Misc (enable/test/lock toggles), Visibility (this
+    -- tracker's OWN independent "Active in:" choice - no longer shared
+    -- with the other two trackers), Customize (everything about how the
+    -- bar looks: texture, font, font size, border).
+    local positionArgs = {
         barWidth = {
-            type = "range", order = 30, name = "Bar Width", min = 100, max = 400, step = 1,
+            type = "range", order = 10, name = "Bar Width", min = 100, max = 400, step = 1,
             get = function() return GetAnchorDB().barWidth or 200 end,
             set = function(_, v)
                 GetAnchorDB().barWidth = v
@@ -223,7 +298,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         barHeight = {
-            type = "range", order = 40, name = "Bar Height", min = 14, max = 40, step = 1,
+            type = "range", order = 20, name = "Bar Height", min = 14, max = 40, step = 1,
             get = function() return GetAnchorDB().barHeight or 20 end,
             set = function(_, v)
                 GetAnchorDB().barHeight = v
@@ -231,7 +306,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         positionX = {
-            type = "range", order = 50, name = "Position X", min = -2000, max = 2000, step = 1,
+            type = "range", order = 30, name = "Position X", min = -2000, max = 2000, step = 1,
             get = function()
                 local x = 0
                 if type(opts.GetPos) == "function" then x = opts.GetPos() end
@@ -244,7 +319,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         positionY = {
-            type = "range", order = 60, name = "Position Y", min = -2000, max = 2000, step = 1,
+            type = "range", order = 40, name = "Position Y", min = -2000, max = 2000, step = 1,
             get = function()
                 local _, y = 0, 0
                 if type(opts.GetPos) == "function" then _, y = opts.GetPos() end
@@ -256,8 +331,52 @@ local function BuildAnchorGroup(opts)
                 if type(opts.SetPos) == "function" then opts.SetPos(x, v) end
             end,
         },
+    }
+
+    local miscArgs = {
+        testMode = {
+            type = "toggle", order = 20, name = "Test Mode",
+            get = function() return GetAnchorDB().testMode == true end,
+            set = function(_, v)
+                GetAnchorDB().testMode = v and true or false
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
+        },
+        locked = {
+            type = "toggle", order = 30, name = "Unlock Anchor (drag to reposition)",
+            get = function() return GetAnchorDB().locked == false end,
+            set = function(_, v)
+                if v then
+                    if type(opts.UnlockFn) == "function" then opts.UnlockFn() end
+                else
+                    if type(opts.LockFn) == "function" then opts.LockFn() end
+                end
+            end,
+        },
+    }
+
+    local visibilityArgs = {
+        contentHeader = { type = "header", order = 10, name = "Active in" },
+    }
+    local ctOrder = 20
+    for _, ct in ipairs(CONTENT_TYPES or {}) do
+        local ctName = ct
+        visibilityArgs["content_" .. ctName:gsub(" ", "_")] = {
+            type = "toggle", order = ctOrder, name = ctName,
+            get = function() return GetAnchorDB().contentTypes and GetAnchorDB().contentTypes[ctName] == true end,
+            set = function(_, v)
+                local db = GetAnchorDB()
+                db.contentTypes = db.contentTypes or {}
+                db.contentTypes[ctName] = v
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
+        }
+        ctOrder = ctOrder + 10
+    end
+
+    local customizeArgs = {
         font = {
-            type = "select", order = 70, name = "Font",
+            type = "select", order = 10, name = "Font",
             dialogControl = "LSM30_Font",
             values = LSM:HashTable(LSM.MediaType.FONT),
             get = function()
@@ -273,7 +392,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         texture = {
-            type = "select", order = 80, name = "Texture",
+            type = "select", order = 20, name = "Texture",
             dialogControl = "LSM30_Statusbar",
             values = LSM:HashTable(LSM.MediaType.STATUSBAR),
             get = function()
@@ -289,32 +408,48 @@ local function BuildAnchorGroup(opts)
             end,
         },
         fontSize = {
-            type = "range", order = 90, name = "Font Size", min = 8, max = 18, step = 1,
+            type = "range", order = 30, name = "Font Size", min = 8, max = 18, step = 1,
             get = function() return GetAnchorDB().fontSize or 10 end,
             set = function(_, v)
                 GetAnchorDB().fontSize = v
                 if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
-        locked = {
-            type = "toggle", order = 100, name = "Unlock Anchor (drag to reposition)",
-            get = function() return GetAnchorDB().locked == false end,
-            set = function(_, v)
-                if v then
-                    if type(opts.UnlockFn) == "function" then opts.UnlockFn() end
-                else
-                    if type(opts.LockFn) == "function" then opts.LockFn() end
-                end
-            end,
-        },
         hideBorder = {
-            type = "toggle", order = 110, name = "Hide Border",
+            type = "toggle", order = 40, name = "Hide Border",
             get = function() return GetAnchorDB().hideBorder == true end,
             set = function(_, v)
                 GetAnchorDB().hideBorder = v and true or false
                 if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
+        showReady = {
+            type = "toggle", order = 50, name = "Show \"READY\" Text",
+            desc = "Shows green \"READY\" text on the bar when off cooldown. Turn off to leave that side of the bar blank instead.",
+            get = function() return GetAnchorDB().showReady ~= false end,
+            set = function(_, v) GetAnchorDB().showReady = v and true or false end,
+        },
+    }
+
+    -- Master switch sits above everything else on the page (order 1) and
+    -- hides the rest of the page's content when off, instead of just
+    -- living buried inside Misc - unchecking it is meant to read as
+    -- "nothing else here matters right now."
+    local isHidden = function() return GetAnchorDB().enabled == false end
+
+    local args = {
+        enabled = {
+            type = "toggle", order = 1, name = "Enable",
+            get = function() return GetAnchorDB().enabled ~= false end,
+            set = function(_, v)
+                GetAnchorDB().enabled = v and true or false
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
+        },
+        position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs },
+        misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs },
+        visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs },
+        customize  = { type = "group", inline = true, order = 40, name = "Customize",  hidden = isHidden, args = customizeArgs },
     }
 
     return { type = "group", name = opts.name, order = opts.order, args = args }
@@ -437,6 +572,30 @@ local function BuildProfilesGroup()
                 if type(RebuildIcons) == "function" then RebuildIcons() end
                 NotifyRefresh()
                 print("KastaCD: Imported as '" .. nm .. "'.")
+            end,
+        },
+        shareHeader = { type = "header", order = 100, name = "Share via Chat" },
+        shareDesc = {
+            type = "description", order = 110,
+            name = "Posts a short clickable link instead of the full export string, to " ..
+                "whatever chat you last used (Say, Party, Whisper, etc.) - anyone with " ..
+                "KastaCD who receives it can click it to import your active profile.",
+        },
+        shareBtn = {
+            type = "execute", order = 120, name = "Post to Chat",
+            func = function()
+                if type(PersistActiveProfile) == "function" then PersistActiveProfile() end
+                local profile = KastaCDDB.profiles[KastaCDDB.activeProfile]
+                if type(BroadcastProfileToChat) ~= "function" then
+                    print("KastaCD: Chat sharing unavailable.")
+                    return
+                end
+                local ok, msg = BroadcastProfileToChat(profile)
+                if not ok then
+                    print("|cffff0000KastaCD:|r " .. tostring(msg))
+                elseif msg then
+                    print("|cffffcc00KastaCD:|r " .. msg)
+                end
             end,
         },
     }
@@ -574,9 +733,20 @@ function BuildKastaCDOptions()
         },
     }
 
+    -- "Misc" is a pure category header - Interrupt Announce is the actual
+    -- page, nested as its child. Sits above Profiles in the sidebar.
+    local misc = {
+        type = "group", name = "Misc", order = 30,
+        args = {
+            desc = { type = "description", order = 1, name = "Select an option below." },
+            interruptAnnounce = BuildInterruptAnnounceGroup(),
+        },
+    }
+
     local args = {
         settings = partyCooldowns,
         trackerbars = trackerBars,
+        misc = misc,
         profiles = BuildProfilesGroup(),
     }
 

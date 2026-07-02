@@ -122,16 +122,23 @@ local function UpdateButton(button, treeline, selected, canExpand, isExpanded)
 		button.icon:SetTexCoord(0, 1, 0, 1)
 	end
 
-	-- KastaCD-local: selected row gets an orange background + white text
-	-- instead of stock AceGUI's highlight-only look. Placed after the
-	-- SetText calls above so it isn't clobbered by the font-object color.
-	-- The else branch explicitly restores the normal gold UI color
-	-- (matching GameFontNormal's own color) rather than leaving it alone -
-	-- buttons are recycled across different tree lines as the list
-	-- scrolls/rebuilds, so without this a button last drawn as "selected"
-	-- would keep showing white text after being reused for an unrelated,
-	-- unselected row.
+	-- KastaCD-local: selected row gets a colored background + white text
+	-- instead of stock AceGUI's highlight-only look - orange by default,
+	-- but a class row (value matches a CLASS_INFO[].key, e.g. "WARRIOR")
+	-- uses that class's own color instead. Re-set unconditionally every
+	-- call (not just at creation) since buttons are recycled across
+	-- different tree lines as the list scrolls/rebuilds - without this a
+	-- button last drawn for one class would keep that class's color after
+	-- being reused for an unrelated row. Placed after the SetText calls
+	-- above so text color isn't clobbered by the font-object color.
 	if selected and not disabled then
+		local r, g, b = 1, 0.55, 0
+		if value and CLASS_INFO then
+			for _, ci in ipairs(CLASS_INFO) do
+				if ci.key == value then r, g, b = ci.r, ci.g, ci.b; break end
+			end
+		end
+		button.bg:SetColorTexture(r, g, b, 0.65)
 		button.bg:Show()
 		button.text:SetTextColor(1, 1, 1)
 	else

@@ -126,7 +126,7 @@ SPELL_DB[202800] = { name="Flanking Strike",        class="HUNTER", icon=1380856
 
 -- ── ROGUE ─────────────────────────────────────────────────────
 SPELL_DB[5277]   = { name="Evasion",                class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE",              minLevel=22 }
-SPELL_DB[31224]  = { name="Cloak of Shadows",       class="ROGUE", icon=136177, duration=5,  cooldown=60,  category="IMMUNITY",               minLevel=66 }
+SPELL_DB[31224]  = { name="Cloak of Shadows",       class="ROGUE", icon=136177, duration=5,  cooldown=90,  category="IMMUNITY",               minLevel=66 }
 SPELL_DB[1766]   = { name="Kick",                   class="ROGUE", icon=132219, duration=0,  cooldown=15,  category="INTERRUPT",              minLevel=18 }
 SPELL_DB[2094]   = { name="Blind",                  class="ROGUE", icon=136175, duration=60, cooldown=120, category="UTILITY",                minLevel=14 }
 SPELL_DB[1856]   = { name="Vanish",                 class="ROGUE", icon=132331, duration=3,  cooldown=120, category="DEFENSIVE",              minLevel=22 }
