@@ -39,6 +39,11 @@ KastaCD_Interrupts.lua
 # 6c. Crowd-control tracker (independent anchor, class-colored bars)
 KastaCD_CC.lua
 
+# 6d. Overshield display (hooks Blizzard's absorb-bar overlay so it shows
+#     shield amounts past max HP) - depends on DB, must load before
+#     Options.lua uses GetOvershieldDB()
+KastaCD_Overshield.lua
+
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 KastaCD_Options.lua
 

@@ -8,6 +8,25 @@
 --             KastaCD_Interrupts.lua, KastaCD_CC.lua, KastaCD_libs.xml
 -- =============================================================
 
+-- Shared dark/flat theme for the settings menu's Ace3 widgets (see the
+-- KastaCD-local patches in libs/AceGUI-3.0/widgets/*.lua). A single global
+-- table instead of hardcoding colors in every widget file so the whole
+-- menu stays visually consistent and can be re-tuned in one place. This
+-- file loads before KastaCD_UI.lua opens the menu, and the widget files
+-- (loaded even earlier, via KastaCD_libs.xml) only read KASTACD_THEME from
+-- inside functions that run at actual widget-creation time - never at
+-- file-load time - so the load-order difference doesn't matter.
+KASTACD_THEME = {
+    flatTex   = "Interface\\Buttons\\WHITE8x8",       -- solid 1x1 texture, tinted via color below
+    bgWindow  = { 0.07, 0.07, 0.07, 0.97 },            -- outer settings window
+    bgPanel   = { 0.11, 0.11, 0.11, 0.95 },            -- inline group / tab / tree panels
+    bgElement = { 0.16, 0.16, 0.16, 1.00 },            -- sliders, dropdowns, edit boxes
+    border    = { 0.24, 0.24, 0.24, 1.00 },            -- subtle panel/element borders
+    accent    = { 1.00, 0.55, 0.00, 1.00 },            -- KastaCD's existing orange brand color
+    text      = { 0.92, 0.92, 0.92, 1.00 },
+    textDim   = { 0.60, 0.60, 0.60, 1.00 },
+}
+
 local LSM = LibStub("LibSharedMedia-3.0")
 
 -- LibSharedMedia-3.0 ships with statusbar textures pre-registered but NO
@@ -268,6 +287,13 @@ local function NotifyRefresh()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("KastaCD")
 end
 
+-- Blank vertical-gap option - used around buttons that don't already sit
+-- next to a header divider for a visual break (e.g. Interrupt Announce's
+-- Reset/Test buttons).
+local function Spacer(order)
+    return { type = "description", order = order, name = " ", fontSize = "large" }
+end
+
 -- =============================================================
 -- Settings group (offsets, icon layout, misc toggles, content types)
 -- =============================================================
@@ -363,10 +389,10 @@ local function BuildSettingsGroup()
                 if type(RebuildIcons) == "function" then RebuildIcons() end
             end,
         },
-        position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs },
-        misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs },
-        visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs },
     }
+    args.position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs }
+    args.misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs }
+    args.visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs }
 
     return { type = "group", name = "Party Cooldowns", order = 10, args = args }
 end
@@ -379,7 +405,7 @@ end
 local function BuildInterruptAnnounceGroup()
     local args = {
         enabled = {
-            type = "toggle", order = 10, name = "Enable Interrupt Announce",
+            type = "toggle", order = 10, name = "Enable", width = "full",
             desc = "Announces your own successful interrupts to chat, so party/raid members without an interrupt addon still see it land.",
             get = function() return GetAnnounceDB().enabled == true end,
             set = function(_, v) GetAnnounceDB().enabled = v and true or false end,
@@ -408,6 +434,7 @@ local function BuildInterruptAnnounceGroup()
                 GetAnnounceDB().template = v
             end,
         },
+        resetBtnSpacer = Spacer(55),
         resetBtn = {
             type = "execute", order = 60, name = "Reset to Default",
             func = function()
@@ -425,6 +452,30 @@ local function BuildInterruptAnnounceGroup()
     }
 
     return { type = "group", name = "Interrupt Announce", order = 5, args = args }
+end
+
+-- =============================================================
+-- Overshield Display - ported from Derangement's Shield Meters (see
+-- KastaCD_Overshield.lua for the actual hook logic). Extends Blizzard's
+-- default absorb-bar overlay so shield amounts past max HP stay
+-- visible, on party/raid frames and player/target/focus/pet frames.
+-- =============================================================
+local function BuildOvershieldGroup()
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Shows the full shield/absorb amount on unit frames (party, raid, player, target, focus, pet) even past max HP, instead of Blizzard's default which hides the extra shield once a unit is at full health.",
+            get = function() return GetOvershieldDB().enabled == true end,
+            set = function(_, v) GetOvershieldDB().enabled = v and true or false end,
+        },
+        alwaysShowGlow = {
+            type = "toggle", order = 20, name = "Always Show Glow", width = "full",
+            desc = "Shows a faint glow to the left of the shield overlay whenever a unit has any overshield, not just while it's changing.",
+            get = function() return GetOvershieldDB().alwaysShowGlow == true end,
+            set = function(_, v) GetOvershieldDB().alwaysShowGlow = v and true or false end,
+        },
+    }
+    return { type = "group", name = "Overshield Display", order = 6, args = args }
 end
 
 -- =============================================================
@@ -488,28 +539,6 @@ local function BuildAnchorGroup(opts)
                 local x = 0
                 if type(opts.GetPos) == "function" then x = opts.GetPos() end
                 if type(opts.SetPos) == "function" then opts.SetPos(x, v) end
-            end,
-        },
-    }
-
-    local miscArgs = {
-        testMode = {
-            type = "toggle", order = 20, name = "Test Mode",
-            get = function() return GetAnchorDB().testMode == true end,
-            set = function(_, v)
-                GetAnchorDB().testMode = v and true or false
-                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
-            end,
-        },
-        locked = {
-            type = "toggle", order = 30, name = "Unlock Anchor (drag to reposition)",
-            get = function() return GetAnchorDB().locked == false end,
-            set = function(_, v)
-                if v then
-                    if type(opts.UnlockFn) == "function" then opts.UnlockFn() end
-                else
-                    if type(opts.LockFn) == "function" then opts.LockFn() end
-                end
             end,
         },
     }
@@ -605,11 +634,33 @@ local function BuildAnchorGroup(opts)
                 if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
-        position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs },
-        misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs },
-        visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs },
-        customize  = { type = "group", inline = true, order = 40, name = "Customize",  hidden = isHidden, args = customizeArgs },
+        -- KastaCD-local: Test Mode/Unlock moved up to the top layer next
+        -- to Enable (were previously buried inside the "Misc" inline
+        -- section) - Enable > Test Mode > Unlock reads as the natural
+        -- order for getting a tracker visible and positioned.
+        testMode = {
+            type = "toggle", order = 2, name = "Test Mode", hidden = isHidden,
+            get = function() return GetAnchorDB().testMode == true end,
+            set = function(_, v)
+                GetAnchorDB().testMode = v and true or false
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
+        },
+        locked = {
+            type = "toggle", order = 3, name = "Unlock", hidden = isHidden,
+            get = function() return GetAnchorDB().locked == false end,
+            set = function(_, v)
+                if v then
+                    if type(opts.UnlockFn) == "function" then opts.UnlockFn() end
+                else
+                    if type(opts.LockFn) == "function" then opts.LockFn() end
+                end
+            end,
+        },
     }
+    args.position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs }
+    args.visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs }
+    args.customize  = { type = "group", inline = true, order = 40, name = "Customize",  hidden = isHidden, args = customizeArgs }
 
     return { type = "group", name = opts.name, order = opts.order, args = args }
 end
@@ -679,7 +730,11 @@ local function BuildProfilesGroup()
             end,
         },
         copyProfile = {
-            type = "execute", order = 60, name = "Copy Current As New",
+            -- KastaCD-local: width="full" - this button ends up alone on
+            -- its row (createProfile above it already pairs with the
+            -- name input), so without an explicit width it left a dead
+            -- gap to the right instead of filling the row.
+            type = "execute", order = 60, name = "Copy Current As New", width = "full",
             func = function()
                 local nm = newProfileNameVal
                 if not nm or nm == "" then print("KastaCD: Enter a name."); return end
@@ -747,7 +802,9 @@ local function BuildProfilesGroup()
                 "on-screen position.",
         },
         shareBtn = {
-            type = "execute", order = 120, name = "Post to Chat",
+            -- KastaCD-local: width="full" - alone on its row (nothing to
+            -- its right), so it left a dead gap without this.
+            type = "execute", order = 120, name = "Post to Chat", width = "full",
             func = function()
                 if type(PersistActiveProfile) == "function" then PersistActiveProfile() end
                 local profile = KastaCDDB.profiles[KastaCDDB.activeProfile]
@@ -898,13 +955,15 @@ function BuildKastaCDOptions()
         },
     }
 
-    -- "Misc" is a pure category header - Interrupt Announce is the actual
-    -- page, nested as its child. Sits above Profiles in the sidebar.
+    -- "Misc" is a pure category header - Interrupt Announce/Overshield
+    -- Display are the actual pages, nested as its children. Sits above
+    -- Profiles in the sidebar.
     local misc = {
         type = "group", name = "Misc", order = 30,
         args = {
             desc = { type = "description", order = 1, name = "Select an option below." },
             interruptAnnounce = BuildInterruptAnnounceGroup(),
+            overshieldDisplay = BuildOvershieldGroup(),
         },
     }
 
