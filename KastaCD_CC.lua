@@ -88,7 +88,7 @@ CC_SPELLS = {
     [51485]  = { class="SHAMAN",      cooldown=30,  specs={262,263},isTalent=true },       -- Earthgrab Totem (Ele/Enh, uncertain)
 
     -- MAGE
-    [122]    = { class="MAGE",        cooldown=25                   },                    -- Frost Nova
+    [122]    = { class="MAGE",        cooldown=30                   },                    -- Frost Nova
     [113724] = { class="MAGE",        cooldown=45,  isTalent=true   },                    -- Ring of Frost (talent)
     [31661]  = { class="MAGE",        cooldown=20,  specs={63}      },                    -- Dragon's Breath (Fire only, baseline)
     [44572]  = { class="MAGE",        cooldown=25,  specs={64}      },                    -- Deep Freeze (Frost only, baseline)

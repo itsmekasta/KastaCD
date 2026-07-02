@@ -60,18 +60,35 @@ local function FormatAnnounce(template, vars)
     return msg .. BRAND_SUFFIX
 end
 
--- interruptedSpellName: the spell that got stopped (SPELL_INTERRUPT's
--- extraSpellName). mySpellName: the interrupt ability used (Kick, Rebuke,
--- etc). targetName: who was casting it.
-function AnnounceInterrupt(mySpellName, interruptedSpellName, targetName)
+-- Real, clickable spell hyperlink (shows the actual spell tooltip on
+-- hover/click, exactly like any spell link a player shift-clicks into
+-- chat) when a spellId is known, falling back to the plain name
+-- otherwise. GetSpellLink is a real Blizzard API/link type, unlike
+-- KastaCD's own custom "kastacd:" chat links - those turned out to get
+-- silently stripped by this server's chat sanitization, but spell links
+-- are a first-class, universally-supported hyperlink type servers can't
+-- reasonably break without breaking normal spell-linking too.
+local function SpellLinkOrName(spellId, fallbackName)
+    if spellId and GetSpellLink then
+        local link = GetSpellLink(spellId)
+        if link then return link end
+    end
+    return fallbackName or ""
+end
+
+-- interruptedSpellName/interruptedSpellId: the spell that got stopped
+-- (SPELL_INTERRUPT's extraSpellName/extraSpellId). mySpellName/mySpellId:
+-- the interrupt ability used (Kick, Rebuke, etc). targetName: who was
+-- casting it.
+function AnnounceInterrupt(mySpellName, interruptedSpellName, targetName, interruptedSpellId, mySpellId)
     local db = GetAnnounceDB()
     if not db.enabled then return end
     if not interruptedSpellName or interruptedSpellName == "" then return end
 
     local msg = FormatAnnounce(db.template, {
         player  = UnitName("player"),
-        spell   = interruptedSpellName,
-        myspell = mySpellName or "",
+        spell   = SpellLinkOrName(interruptedSpellId, interruptedSpellName),
+        myspell = SpellLinkOrName(mySpellId, mySpellName),
         target  = targetName or "",
     })
     SendChatMessage(msg, db.channel or "SAY")
@@ -79,13 +96,15 @@ end
 
 -- Fires a sample announcement using the current template/channel, for the
 -- "Test" button in Settings - lets the user preview their customized
--- message without needing to land a real interrupt first.
+-- message without needing to land a real interrupt first. Uses two real,
+-- well-known spell IDs (Pummel, Fireball) rather than fake names, so the
+-- preview also demonstrates the clickable spell-link/tooltip behavior.
 function TestAnnounceInterrupt()
     local db = GetAnnounceDB()
     local msg = FormatAnnounce(db.template, {
         player  = UnitName("player"),
-        spell   = "Test Spell",
-        myspell = "Test Interrupt",
+        spell   = SpellLinkOrName(133, "Test Spell"),      -- Fireball
+        myspell = SpellLinkOrName(6552, "Test Interrupt"), -- Pummel
         target  = "Target Dummy",
     })
     SendChatMessage(msg, db.channel or "SAY")

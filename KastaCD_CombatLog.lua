@@ -43,9 +43,13 @@ function HandleCombatLog(...)
     -- casting), not the interrupt ability itself. Only announces the
     -- player's own interrupts, never party members' - this is a "let
     -- others know KastaCD is doing this" broadcast, not a tracker.
+    -- Passes both spell IDs along too (extraSpellId for the interrupted
+    -- spell, spellId for the interrupt ability itself) so the chat
+    -- message can link them as real, clickable spell links instead of
+    -- plain text - see AnnounceInterrupt in KastaCD_Announce.lua.
     if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
         if type(AnnounceInterrupt) == "function" then
-            AnnounceInterrupt(spellName, extraSpellName, destName)
+            AnnounceInterrupt(spellName, extraSpellName, destName, extraSpellId, spellId)
         end
     end
 
@@ -72,11 +76,15 @@ function HandleCombatLog(...)
         -- claiming an interrupt that can't be confirmed.
         if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
         and type(AnnounceInterrupt) == "function" then
-            local castName
-            if UnitCastingInfo then castName = UnitCastingInfo("target") end
-            if not castName and UnitChannelInfo then castName = UnitChannelInfo("target") end
+            local castName, castSpellId
+            if UnitCastingInfo then
+                castName, _, _, _, _, _, _, _, castSpellId = UnitCastingInfo("target")
+            end
+            if not castName and UnitChannelInfo then
+                castName, _, _, _, _, _, _, _, castSpellId = UnitChannelInfo("target")
+            end
             if castName then
-                AnnounceInterrupt(spellName, castName, UnitName("target"))
+                AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
             end
         end
     end

@@ -52,6 +52,40 @@ local CATEGORY_NAMES = {
 -- ── Profile export/import scratch state (dialog-local, not saved) ──
 local newProfileNameVal = ""
 
+local function SplitColon(str)
+    local t, pos = {}, 1
+    while true do
+        local s, e = str:find(":", pos, true)
+        if not s then
+            table.insert(t, str:sub(pos))
+            break
+        end
+        table.insert(t, str:sub(pos, s - 1))
+        pos = e + 1
+    end
+    return t
+end
+
+local function B(v) return v and 1 or 0 end
+
+-- KCD5 bundles the full settings picture, not just the per-profile spell
+-- list: Party Cooldowns' own global toggles (growLeft, medallion,
+-- borders, master enable) plus BOTH trackers' settings (enabled, test
+-- mode, bar size, font size, border, READY text, "Active in:", and their
+-- anchor's saved screen position) - all of it, since intAnchor/ccAnchor
+-- are global (not part of the switchable profile object `p`) in this
+-- addon's data model, they're read/written straight to/from KastaCDDB
+-- here rather than through `p`. This is what makes /kcdimport (and the
+-- plain paste-import box) actually change something beyond the spell
+-- list - previously KCD3 only ever touched
+-- offsets/iconSize/iconsPerRow/enabled/contentTypes.
+--
+-- Font/texture *choice* is deliberately NOT included - safely encoding
+-- arbitrary SharedMedia-registered names in this delimited format risks
+-- collisions with the format's own separators, for a cosmetic setting
+-- that's the least likely thing anyone actually wants transplanted from
+-- someone else's setup.
+--
 -- Global (not local) so KastaCD_ProfileShare.lua can reuse the exact same
 -- string format for chat-shared profile links, instead of duplicating it.
 function SerializeProfile(p)
@@ -62,19 +96,136 @@ function SerializeProfile(p)
     for ct, v in pairs(p.contentTypes or {}) do
         if v then table.insert(parts, "c" .. ct:gsub(" ", "_")) end
     end
+    local ia = KastaCDDB.intAnchor or {}
+    for ct, v in pairs(ia.contentTypes or {}) do
+        if v then table.insert(parts, "i" .. ct:gsub(" ", "_")) end
+    end
+    local ca = KastaCDDB.ccAnchor or {}
+    for ct, v in pairs(ca.contentTypes or {}) do
+        if v then table.insert(parts, "x" .. ct:gsub(" ", "_")) end
+    end
     table.sort(parts)
-    return string.format("KCD3:%d:%d:%d:%d:%s",
+
+    -- savedX/savedY are left as "" (not 0) when nil - the sender's anchor
+    -- has never been manually positioned yet, still sitting at its
+    -- CENTER-relative default. Encoding that as 0/0 would make the
+    -- receiver's tracker jump to the screen corner on import, the exact
+    -- "snaps to corner" bug already fixed once for the Position sliders
+    -- (see GetIntAnchorPos's comment) - so DeserializeProfile below only
+    -- calls SetIntAnchorPos/SetCCAnchorPos when both fields are present.
+    local fields = {
         p.offsetX or 0, p.offsetY or 0, p.iconSize or 22, p.iconsPerRow or 5,
-        table.concat(parts, ","))
+        B(KastaCDDB.growLeft), B(KastaCDDB.medallionOutsidePvP), B(KastaCDDB.showIconBorders),
+        B(KastaCDDB.iconsEnabled ~= false),
+        B(ia.enabled ~= false), B(ia.testMode), ia.barWidth or 200, ia.barHeight or 20,
+        ia.fontSize or 10, B(ia.hideBorder), B(ia.showReady ~= false),
+        ia.savedX or "", ia.savedY or "",
+        B(ca.enabled ~= false), B(ca.testMode), ca.barWidth or 200, ca.barHeight or 20,
+        ca.fontSize or 10, B(ca.hideBorder), B(ca.showReady ~= false),
+        ca.savedX or "", ca.savedY or "",
+    }
+
+    return "KCD5:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
 end
 
--- Deserialise — KCD3 is current; KCD1/KCD2 are legacy (group data ignored).
--- Global for the same reason as SerializeProfile above.
+-- Deserialise — KCD5 is current (full settings + tracker anchor position,
+-- see SerializeProfile); KCD4 is legacy (full settings, no position);
+-- KCD1/2/3 are legacy (spell list + offsets only, tracker/global settings
+-- left untouched). Global for the same reason as SerializeProfile above.
+--
+-- NOTE: for KCD4/KCD5 this has a side effect beyond building the returned
+-- profile table `p` - it writes directly into KastaCDDB.growLeft/
+-- medallionOutsidePvP/showIconBorders/iconsEnabled/intAnchor/ccAnchor,
+-- since those are global settings the imported data is meant to replace,
+-- not profile-scoped ones. Every caller should follow up with
+-- RebuildInterruptBars()/RebuildCCBars() (not just RebuildIcons()) so the
+-- live trackers pick up the change immediately.
 function DeserializeProfile(str)
     local p = type(NewProfileData) == "function" and NewProfileData() or {}
     p.enabled = p.enabled or {}
-    local ox, oy, isz, ipr, rest =
-        str:match("^KCD3:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
+    local ox, oy, isz, ipr, rest
+
+    if str:sub(1, 5) == "KCD5:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 26 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        -- Empty field ("") means the sender's anchor was never manually
+        -- positioned - leave it alone instead of forcing 0/0, which would
+        -- snap the receiver's tracker to the screen corner (see the
+        -- comment on savedX/savedY in SerializeProfile above).
+        local function NOpt(i)
+            local s = f[i]
+            if not s or s == "" then return nil end
+            return tonumber(s)
+        end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        local ia = KastaCDDB.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+        local iaX, iaY = NOpt(16), NOpt(17)
+
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        local ca = KastaCDDB.ccAnchor
+        ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
+        ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
+        ca.contentTypes = {}
+        local caX, caY = NOpt(25), NOpt(26)
+
+        rest = f[27] or ""
+
+        -- SetIntAnchorPos/SetCCAnchorPos (not a raw db.savedX/savedY write)
+        -- so the live frame actually jumps to the new position immediately
+        -- instead of only taking effect after the next reload.
+        if iaX and iaY and type(SetIntAnchorPos) == "function" then SetIntAnchorPos(iaX, iaY) end
+        if caX and caY and type(SetCCAnchorPos) == "function" then SetCCAnchorPos(caX, caY) end
+        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        if type(RebuildCCBars) == "function" then RebuildCCBars() end
+    end
+
+    if not ox and str:sub(1, 5) == "KCD4:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 22 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
+        local ia = KastaCDDB.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        local ca = KastaCDDB.ccAnchor
+        ca.enabled, ca.testMode = N(16) == 1, N(17) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(18), N(19), N(20)
+        ca.hideBorder, ca.showReady = N(21) == 1, N(22) == 1
+        ca.contentTypes = {}
+
+        rest = f[23] or ""
+        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+        if type(RebuildCCBars) == "function" then RebuildCCBars() end
+    end
+
+    if not ox then
+        ox, oy, isz, ipr, rest =
+            str:match("^KCD3:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
+    end
     if not ox then
         local _, _, _, a, b, c, d, r =
             str:match("^KCD2:(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(%-?%d+):(.*)$")
@@ -91,6 +242,8 @@ function DeserializeProfile(str)
     p.iconSize    = tonumber(isz) or 22
     p.iconsPerRow = tonumber(ipr) or 5
     p.contentTypes = {}
+    local ia2 = KastaCDDB.intAnchor
+    local ca2 = KastaCDDB.ccAnchor
     for tok in ((rest or "") .. ","):gmatch("([^,]*),") do
         if tok ~= "" then
             local k, v = tok:sub(1, 1), tok:sub(2)
@@ -99,6 +252,12 @@ function DeserializeProfile(str)
                 if sid then p.enabled[sid] = true end
             elseif k == "c" then
                 p.contentTypes[v:gsub("_", " ")] = true
+            elseif k == "i" and ia2 then
+                ia2.contentTypes = ia2.contentTypes or {}
+                ia2.contentTypes[v:gsub("_", " ")] = true
+            elseif k == "x" and ca2 then
+                ca2.contentTypes = ca2.contentTypes or {}
+                ca2.contentTypes[v:gsub("_", " ")] = true
             end
         end
     end
@@ -236,8 +395,8 @@ local function BuildInterruptAnnounceGroup()
             type = "description", order = 40,
             name = "Customize your announcement text. Available placeholders:\n" ..
                 "|cffffd200{player}|r - your name\n" ..
-                "|cffffd200{spell}|r - the spell you interrupted\n" ..
-                "|cffffd200{myspell}|r - the interrupt ability you used\n" ..
+                "|cffffd200{spell}|r - the spell you interrupted (posted as a clickable spell link)\n" ..
+                "|cffffd200{myspell}|r - the interrupt ability you used (also a clickable spell link)\n" ..
                 "|cffffd200{target}|r - who you interrupted",
         },
         template = {
@@ -570,6 +729,8 @@ local function BuildProfilesGroup()
                 KastaCDDB.activeProfile = nm
                 if type(ApplyActiveProfile) == "function" then ApplyActiveProfile() end
                 if type(RebuildIcons) == "function" then RebuildIcons() end
+                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                if type(RebuildCCBars) == "function" then RebuildCCBars() end
                 NotifyRefresh()
                 print("KastaCD: Imported as '" .. nm .. "'.")
             end,
@@ -581,7 +742,9 @@ local function BuildProfilesGroup()
                 "chat you last used (Say, Party, Whisper, etc.) - anyone with KastaCD who " ..
                 "receives it can type |cffffd200/kcdimport <your name>|r to import your active " ..
                 "profile (a clickable link is also included, but some servers strip it in " ..
-                "transit - the slash command always works).",
+                "transit - the slash command always works). Shares everything: Party " ..
+                "Cooldowns' spell list and layout, plus both trackers' settings and their " ..
+                "on-screen position.",
         },
         shareBtn = {
             type = "execute", order = 120, name = "Post to Chat",
