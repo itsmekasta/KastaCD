@@ -133,6 +133,17 @@ function HandleCombatLog(...)
         -- same as the rebuild-restore path already does.
         state.phase   = "uptime"
         state.endTime = now + data.duration
+        -- Cooldown starts at the moment of casting, not when uptime ends -
+        -- the "duration" window overlaps the front of the cooldown, it
+        -- doesn't happen before it (e.g. Shield Wall's 240s cooldown
+        -- starts the instant you cast it, even though the shield itself
+        -- is only up for 8s of that). Precomputed here from `now` so the
+        -- ticker's uptime->cooldown transition can use this real end time
+        -- instead of restarting a fresh `data.cooldown`-length timer once
+        -- uptime finishes, which silently added the duration on top of the
+        -- cooldown and made the displayed timer run long/desync from the
+        -- real spell cooldown.
+        state.cdEndTime = now + (data.cooldown or 0)
         f.glowing = false
         f.bar:Show()
         f.bar:SetWidth(f:GetWidth())

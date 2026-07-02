@@ -237,6 +237,54 @@ function RequestUnitInspect(unit)
     end
 end
 
+-- -------------------------------------------------------------
+-- ScanUnitTalents  –  confirms a unit's actual talent picks via the
+-- inspect API, writing results into KNOWN_UNIT_SPELLS - the exact same
+-- ground-truth cache a real witnessed combat-log cast writes to. This
+-- lets a talent-gated spell (isTalent=true in SPELL_DB/CC_SPELLS, e.g.
+-- Storm Bolt, Mighty Bash) show up the moment inspect confirms it's
+-- talented, instead of only after the first time it's actually cast.
+--
+-- Called from Events.lua's INSPECT_READY handler, right alongside
+-- PollUnitSpec - same trigger, same "only useful once an inspect
+-- request has actually resolved" caveat. GetTalentInfo(tier, column, 1,
+-- true, unit) is scanned across all 7 tiers x 3 columns rather than
+-- using a hardcoded tier/column-per-spell table, so this doesn't depend
+-- on manually sourced (and easy to get wrong) Legion talent-tree layout
+-- data - it just reads back whatever spellId the game itself reports
+-- for each selected talent.
+--
+-- Player's own talents are already reliably known via IsPlayerSpell/
+-- IsSpellKnown (see IsSpellKnownForUnit below) without needing inspect
+-- at all, so this only bothers with other party members. Same
+-- self-correcting philosophy as everything else here: if inspect never
+-- resolves on a given server, this simply never adds anything and
+-- talent-gated spells keep working exactly as before (witnessed-cast
+-- only) - no regression either way.
+-- -------------------------------------------------------------
+function ScanUnitTalents(unit)
+    if unit == "player" then return false end
+    if not GetTalentInfo then return false end
+
+    local guid = UnitGUID(unit)
+    if not guid then return false end
+
+    local learnedSomethingNew = false
+    for tier = 1, 7 do
+        for column = 1, 3 do
+            local _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, true, unit)
+            if selected and spellId and spellId ~= 0 then
+                KNOWN_UNIT_SPELLS[guid] = KNOWN_UNIT_SPELLS[guid] or {}
+                if not KNOWN_UNIT_SPELLS[guid][spellId] then
+                    KNOWN_UNIT_SPELLS[guid][spellId] = true
+                    learnedSomethingNew = true
+                end
+            end
+        end
+    end
+    return learnedSomethingNew
+end
+
 -- Returns the last-known specId for a unit, or nil if never resolved.
 function GetUnitSpec(unit)
     if unit == "player" then

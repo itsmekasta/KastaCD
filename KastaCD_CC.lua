@@ -108,7 +108,7 @@ CC_SPELLS = {
     -- Cooldowns below marked "approx" are the author's best-known Legion
     -- value, not yet confirmed against this specific server - correct via
     -- the in-game tooltip if a bar's countdown looks off.
-    [5211]   = { class="DRUID",       cooldown=50,  specs={103,104},isTalent=true },       -- Mighty Bash (Feral/Guardian talent)
+    [5211]   = { class="DRUID",       cooldown=50,                  isTalent=true },       -- Mighty Bash
     [102359] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Mass Entanglement (Feral/Guardian talent, approx CD)
     [132469] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Typhoon (Feral/Guardian talent, approx CD)
     [102793] = { class="DRUID",       cooldown=60,  specs={105},    isTalent=true },       -- Ursol's Vortex (Restoration talent, approx CD)
@@ -167,6 +167,16 @@ local function GetCCDB()
     return db
 end
 
+-- True if specs is unset (unrestricted) or specId is in the list.
+local function SpecInList(specs, specId)
+    if not specs then return true end
+    if not specId then return false end
+    for _, s in ipairs(specs) do
+        if s == specId then return true end
+    end
+    return false
+end
+
 -- Picks a CC_SPELLS entry matching the given class (and, when known, the
 -- unit's actual current spec) to serve as their default bar - there's no
 -- static CC_DEFAULT, see the comment above that table for why. Prefers a
@@ -174,16 +184,35 @@ end
 -- simply the first entry found for the class, so an Arcane Mage doesn't
 -- get shown a Fire-only spell like Dragon's Breath.
 --
--- isTalent=true entries are always skipped here - spec alone can't tell
--- us which talent was picked (e.g. Shockwave and Storm Bolt are both
--- valid for Protection), so guessing one would just be wrong as often as
--- right. Those only ever appear once actually witnessed via combat log.
+-- isTalent=true entries are normally skipped in the baseline pass below -
+-- spec alone can't tell us which talent was picked (e.g. Shockwave and
+-- Storm Bolt are both valid for Protection), so guessing purely from spec
+-- would be wrong as often as right. They're instead handled in a separate
+-- first pass that only fires once KNOWN_UNIT_SPELLS actually confirms the
+-- pick - either a real witnessed cast, or a resolved inspect talent scan
+-- (ScanUnitTalents in KastaCD_DB.lua) - real ground truth either way, so
+-- it's allowed to win outright over a generic baseline guess.
 --
 -- raceToken (from UnitRace(unit)'s second return) gates race-restricted
 -- entries (class="ALL", e.g. Arcane Torrent) the same way specId gates
 -- spec-restricted ones - an entry with a race requirement is skipped for
 -- anyone who isn't that race, regardless of class/spec match.
-local function PickGuessCC(class, specId, raceToken)
+local function PickGuessCC(unit, class, specId, raceToken)
+    local guid  = unit and UnitGUID(unit)
+    local known = guid and KNOWN_UNIT_SPELLS[guid]
+
+    if known then
+        for sid, info in pairs(CC_SPELLS) do
+            if info.isTalent and known[sid] then
+                local classOk = info.class == class or info.class == "ALL"
+                local raceOk  = not info.race or info.race == raceToken
+                if classOk and raceOk and SpecInList(info.specs, specId) then
+                    return { spellId = sid, cooldown = info.cooldown }
+                end
+            end
+        end
+    end
+
     local fallback = nil
     for sid, info in pairs(CC_SPELLS) do
         local classOk = info.class == class or info.class == "ALL"
@@ -193,12 +222,8 @@ local function PickGuessCC(class, specId, raceToken)
                 -- Baseline for every spec - good enough unless something
                 -- more specific (an exact spec match) turns up.
                 fallback = fallback or { spellId = sid, cooldown = info.cooldown }
-            elseif specId then
-                for _, s in ipairs(info.specs) do
-                    if s == specId then
-                        return { spellId = sid, cooldown = info.cooldown }
-                    end
-                end
+            elseif SpecInList(info.specs, specId) then
+                return { spellId = sid, cooldown = info.cooldown }
             end
         end
     end
@@ -509,7 +534,7 @@ function RebuildCCBars()
             if not fakeInfo and not defCC and (not st or st.isPreview) then
                 local specId    = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
                 local raceToken = select(2, UnitRace(unit))
-                defCC = PickGuessCC(class, specId, raceToken)
+                defCC = PickGuessCC(unit, class, specId, raceToken)
                 isPreviewPick = true
             end
 

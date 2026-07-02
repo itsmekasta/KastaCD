@@ -415,16 +415,27 @@ local _allContainers = {}
 -- RebuildIcons uses this to skip full rebuilds when nothing changed.
 local lastBuildSignature = nil
 
-function ClearIcons()
+-- keepFrames (optional): [unit][spellId] = true for icons the caller is
+-- about to reuse this same rebuild pass (see RebuildIcons Pass 2) - those
+-- are left completely untouched (not hidden, glow not stopped) instead of
+-- being torn down like every other icon. Without this, an icon mid-uptime
+-- glow got its glow explicitly stopped here and then restarted from
+-- scratch a moment later on a brand new frame, which is what caused the
+-- glow to visibly flicker/refresh on every rebuild even though the
+-- underlying cooldown timer itself was never actually reset.
+function ClearIcons(keepFrames)
     for _, container in ipairs(_allContainers) do
         container:Hide()
         container:ClearAllPoints()
     end
-    for _, iconList in pairs(iconContainers) do
+    for unit, iconList in pairs(iconContainers) do
         local icons = iconList.icons or {}
+        local keep = keepFrames and keepFrames[unit]
         for _, ico in ipairs(icons) do
-            if ico.spellId then HideProcGlow(ico) end
-            ico:Hide()
+            if not (keep and ico.spellId and keep[ico.spellId]) then
+                if ico.spellId then HideProcGlow(ico) end
+                ico:Hide()
+            end
         end
     end
     -- Wipe in-place — never reassign globals to new tables.
@@ -700,12 +711,39 @@ function RebuildIcons()
             oldState[unit][sid] = {
                 phase = state.phase, endTime = state.endTime,
                 charges = state.charges, maxCharges = state.maxCharges,
-                rechargeEndTimes = rechargeCopy,
+                rechargeEndTimes = rechargeCopy, cdEndTime = state.cdEndTime,
             }
         end
     end
 
-    ClearIcons()
+    -- Snapshot which existing (unit, spellId) icon frames can be carried
+    -- straight into the new build - anything present in both the old
+    -- iconContainers and the new `desired` set. Reusing the same frame
+    -- object (instead of destroying it and calling MakeIconFrame again)
+    -- means f.glowing survives the rebuild untouched, so an icon that's
+    -- actively mid-uptime glow just keeps glowing instead of visibly
+    -- flickering off and back on - which is what happened every time
+    -- *anything* elsewhere in the party changed the build signature,
+    -- forcing a full teardown/recreate of every icon regardless of
+    -- whether that specific icon actually needed to change.
+    local keepFrames, reusedFrame = {}, {}
+    for unit, iconList in pairs(iconContainers) do
+        for _, ico in ipairs(iconList.icons or {}) do
+            if ico.spellId and desired[unit] then
+                for _, entry in ipairs(desired[unit].spells) do
+                    if entry.sid == ico.spellId then
+                        keepFrames[unit] = keepFrames[unit] or {}
+                        keepFrames[unit][ico.spellId] = true
+                        reusedFrame[unit] = reusedFrame[unit] or {}
+                        reusedFrame[unit][ico.spellId] = ico
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    ClearIcons(keepFrames)
 
     local now = GetTime()
 
@@ -727,7 +765,28 @@ function RebuildIcons()
                 iconContainers[unit] = iconList
 
                 for _, entry in ipairs(entries) do
-                    local ico = MakeIconFrame(entry.sid, entry.data, container)
+                    local reused = reusedFrame[unit] and reusedFrame[unit][entry.sid]
+                    local ico
+                    if reused then
+                        -- Carry the existing frame over instead of making a
+                        -- new one - preserves f.glowing (see the comment on
+                        -- the keepFrames snapshot above). Re-apply anything
+                        -- MakeIconFrame would normally set fresh, since size/
+                        -- border settings may have changed since this frame
+                        -- was first created.
+                        ico = reused
+                        ico:SetParent(container)
+                        local size = KastaCDDB.iconSize
+                        ico:SetSize(size, size)
+                        if KastaCDDB and KastaCDDB.showIconBorders then
+                            ico.tex:SetTexCoord(0, 1, 0, 1)
+                        else
+                            ico.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                        end
+                        ico:Show()
+                    else
+                        ico = MakeIconFrame(entry.sid, entry.data, container)
+                    end
                     local state = { frame=ico, phase=nil, endTime=0 }
 
                     -- Initialise charge tracking for multi-charge spells
@@ -750,16 +809,23 @@ function RebuildIcons()
                             ico.chargesText:SetText(tostring(state.charges))
                         end
 
+                        state.cdEndTime = prev.cdEndTime
+
                         if prev.phase and prev.endTime and prev.endTime > now then
                             state.phase   = prev.phase
                             state.endTime = prev.endTime
                             if state.phase == "uptime" then
-                                -- Don't call ShowProcGlow directly here - calling it on
-                                -- every rebuild while glow is active restarts the flipbook
-                                -- animation, causing visible flicker. Leave glowing=false
-                                -- so the 0.1s update ticker calls ShowProcGlow once on its
-                                -- next pass through the same guard it uses during normal play.
-                                ico.glowing = false
+                                if not reused then
+                                    -- Don't call ShowProcGlow directly here - calling it on
+                                    -- every rebuild while glow is active restarts the flipbook
+                                    -- animation, causing visible flicker. Leave glowing=false
+                                    -- so the 0.1s update ticker calls ShowProcGlow once on its
+                                    -- next pass through the same guard it uses during normal play.
+                                    ico.glowing = false
+                                end
+                                -- Reused frames already carry the correct
+                                -- f.glowing from before this rebuild - leave
+                                -- it alone so an active glow just keeps playing.
                                 ico.bar:Show()
                             elseif state.phase == "cooldown" then
                                 ico.desat:Show()
@@ -854,8 +920,21 @@ C_Timer.NewTicker(0.1, function()
                             state.phase = nil   -- still has charges, icon stays ready
                         end
                     else
+                        -- Use the cooldown end time computed from the
+                        -- original cast (see state.cdEndTime in
+                        -- KastaCD_CombatLog.lua) rather than restarting a
+                        -- fresh full-length cooldown from "now" - the
+                        -- cooldown started the moment the spell was cast,
+                        -- not when its uptime/duration window ended.
                         local cd = SPELL_DB[sid].cooldown
-                        if cd and cd > 0 then
+                        if state.cdEndTime and state.cdEndTime > now then
+                            state.phase   = "cooldown"
+                            state.endTime = state.cdEndTime
+                        elseif cd and cd > 0 and not state.cdEndTime then
+                            -- No precomputed cooldown end (shouldn't
+                            -- normally happen once cast via combat log, but
+                            -- kept as a safe fallback) - best we can do is
+                            -- start a fresh timer here.
                             state.phase = "cooldown"
                             state.endTime = now + cd
                         else

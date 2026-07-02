@@ -237,7 +237,13 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                 if UnitGUID(unit) == guid then
                     local oldSpec = GetUnitSpec(unit)
                     PollUnitSpec(unit)
-                    if GetUnitSpec(unit) ~= oldSpec then
+                    local specChanged = GetUnitSpec(unit) ~= oldSpec
+                    -- Also confirm actual talent picks (Storm Bolt, Mighty
+                    -- Bash, etc.) via the same inspect data - see
+                    -- ScanUnitTalents in KastaCD_DB.lua for why this needs
+                    -- its own rebuild trigger separate from the spec check.
+                    local talentsLearned = type(ScanUnitTalents) == "function" and ScanUnitTalents(unit)
+                    if specChanged or talentsLearned then
                         RebuildIcons()
                         if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                         if type(RebuildCCBars) == "function" then RebuildCCBars() end
