@@ -94,7 +94,7 @@ SPELL_DB[107570] = { name="Storm Bolt",            class="WARRIOR", icon=613534,
 SPELL_DB[1719]   = { name="Recklessness",          class="WARRIOR", icon=132109, duration=10, cooldown=90,  category="OFFENSIVE", specs={71,72},     minLevel=10 }
 SPELL_DB[107574] = { name="Avatar",                class="WARRIOR", icon=613534, duration=20, cooldown=90,  category="OFFENSIVE", specs={71,73},     isTalent=true }
 SPELL_DB[227847] = { name="Bladestorm",            class="WARRIOR", icon=132357, duration=6,  cooldown=60,  category="OFFENSIVE", specs={71},        isTalent=true }
-SPELL_DB[118038] = { name="Die by the Sword",      class="WARRIOR", icon=132338, duration=8,  cooldown=90,  category="DEFENSIVE", specs={71},        minLevel=10 }
+SPELL_DB[118038] = { name="Die by the Sword",      class="WARRIOR", icon=132338, duration=8,  cooldown=180,  category="DEFENSIVE", specs={71},        minLevel=10 }
 SPELL_DB[12975]  = { name="Last Stand",            class="WARRIOR", icon=135871, duration=15, cooldown=180, category="DEFENSIVE", specs={73},        minLevel=10 }
 SPELL_DB[198304] = { name="Intercept",             class="WARRIOR", icon=132938, duration=3,  cooldown=30,  category="UTILITY",   specs={72},        minLevel=10 }
 SPELL_DB[156287] = { name="Ravager",               class="WARRIOR", icon=970854, duration=10, cooldown=90,  category="OFFENSIVE", specs={71},        isTalent=true }
