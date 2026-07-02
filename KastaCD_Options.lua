@@ -577,9 +577,11 @@ local function BuildProfilesGroup()
         shareHeader = { type = "header", order = 100, name = "Share via Chat" },
         shareDesc = {
             type = "description", order = 110,
-            name = "Posts a short clickable link instead of the full export string, to " ..
-                "whatever chat you last used (Say, Party, Whisper, etc.) - anyone with " ..
-                "KastaCD who receives it can click it to import your active profile.",
+            name = "Posts a short message instead of the full export string, to whatever " ..
+                "chat you last used (Say, Party, Whisper, etc.) - anyone with KastaCD who " ..
+                "receives it can type |cffffd200/kcdimport <your name>|r to import your active " ..
+                "profile (a clickable link is also included, but some servers strip it in " ..
+                "transit - the slash command always works).",
         },
         shareBtn = {
             type = "execute", order = 120, name = "Post to Chat",

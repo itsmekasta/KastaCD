@@ -1,22 +1,29 @@
 -- =============================================================
 -- KastaCD_ProfileShare.lua
--- "Post to Chat" profile sharing: posts a short clickable chat link
--- ("Click to Import [KastaCD Profile]") instead of the full export
--- string, which is far too long to fit in a single chat message (WoW
--- caps chat messages at 255 characters). The instant the link is
--- posted, the full profile is broadcast as a series of hidden addon
--- messages to that same channel - every KastaCD client listening on it
--- silently caches the data, keyed by the sender's name, so clicking the
--- link later (even after the sender has logged off) imports instantly
+-- "Post to Chat" profile sharing: posts a short chat message ("type
+-- /kcdimport <name> to get it", plus a best-effort clickable link)
+-- instead of the full export string, which is far too long to fit in a
+-- single chat message (WoW caps chat messages at 255 characters). The
+-- instant it's posted, the full profile is broadcast as a series of
+-- hidden addon messages to that same channel - every KastaCD client
+-- listening on it silently caches the data, keyed by the sender's name,
+-- so /kcdimport (even after the sender has logged off) imports instantly
 -- from that local cache rather than needing to ask the sender live.
+--
+-- /kcdimport, not the chat hyperlink, is the primary/guaranteed path:
+-- some servers strip or mangle |H...|h escape sequences out of chat text
+-- before relaying it (anti-exploit sanitization), which silently turns
+-- the clickable link into inert plain text with no way for the addon to
+-- detect that happened. Plain text always survives, so the link is only
+-- ever a nicer bonus for servers where it isn't stripped.
 --
 -- No channel picker - it posts to whatever chat type the player actually
 -- last used (Say, Party, Whisper, etc.), tracked via a SendChatMessage
 -- wrap, since there's no reliable way to read "the active channel" at
 -- the moment a Settings-panel button is clicked (the chat edit box isn't
--- open/focused then). Say/Yell/Emote can carry the visible link but have
--- no addon-message equivalent, so the profile data itself can't ride
--- along on those specifically - see ResolveAddonChannel below.
+-- open/focused then). Say/Yell/Emote can carry the visible message but
+-- have no addon-message equivalent, so the profile data itself can't
+-- ride along on those specifically - see ResolveAddonChannel below.
 --
 -- This is purely an ADDITIONAL transport on top of the existing plain
 -- Export/Import text boxes in KastaCD_Options.lua (SerializeProfile /
@@ -33,6 +40,7 @@ local MAX_CHUNKS     = 50   -- sanity cap (~10KB) - real profiles are far smalle
 -- [senderName] = { data = "<reassembled string>", receivedAt = time }
 -- Only the most recent completed transfer per sender is kept.
 local receivedProfiles = {}
+local lastReceivedSender = nil -- for /kcdimport with no argument
 
 -- In-progress reassembly: [senderName][transferId] = { total, have, parts={} }
 local pendingTransfers = {}
@@ -113,10 +121,19 @@ function BroadcastProfileToChat(profile)
         end
     end
 
+    -- The clickable hyperlink is included as a best-effort bonus, but the
+    -- /kcdimport slash command is the message's real, guaranteed-to-work
+    -- payload - some servers strip/mangle |H...|h escape sequences out of
+    -- chat text before relaying it (anti-exploit sanitization), which
+    -- silently turns the link into inert plain text with no way to know
+    -- from the addon side whether that happened. Plain text always
+    -- survives, so it's the primary instruction, not a fallback footnote.
     local playerName = UnitName("player")
     local link = string.format(
-        "|cff71d5ff|Hkastacd:%s|h[Click to Import KastaCD Profile]|h|r", playerName)
-    local ok = pcall(SendChatMessage, link, chatType, nil, target)
+        "|cff71d5ff|Hkastacd:%s|h[Click to Import]|h|r", playerName)
+    local msg = string.format(
+        "KastaCD profile shared - type /kcdimport %s to get it (or %s)", playerName, link)
+    local ok = pcall(SendChatMessage, msg, chatType, nil, target)
     if not ok then
         return false, "Couldn't post to " .. tostring(chatType) .. " - try chatting there first so KastaCD knows it's valid."
     end
@@ -160,6 +177,7 @@ local function HandleAddonMessage(prefix, message, _, sender)
         if t.have >= t.total then
             local full = table.concat(t.parts, "", 1, t.total)
             receivedProfiles[senderShort] = { data = full, receivedAt = GetTime() }
+            lastReceivedSender = senderShort
             byTransfer[transferId] = nil
             -- Addon messages never show up in the chat window (that's the
             -- entire point - only the short link is meant to be visible),
@@ -169,7 +187,8 @@ local function HandleAddonMessage(prefix, message, _, sender)
             -- an echo of your own SendAddonMessage broadcast, so testing
             -- solo on one character will never show this.
             print("|cff71d5ffKastaCD:|r Received " .. tostring(senderShort) ..
-                "'s shared profile - click their chat link to import it.")
+                "'s shared profile - type |cffffd200/kcdimport|r to import it (or |cffffd200/kcdimport " ..
+                tostring(senderShort) .. "|r if you've received more than one).")
         end
     end
 end
@@ -245,4 +264,27 @@ SetItemRef = function(link, text, button, chatFrame)
         return
     end
     origSetItemRef(link, text, button, chatFrame)
+end
+
+-- -------------------------------------------------------------
+-- /kcdimport [name] - guaranteed-to-work alternative to clicking the
+-- chat link, since some servers strip |H...|h hyperlink escape
+-- sequences out of chat text before relaying it, silently turning the
+-- link into plain inert text with no way for the addon to detect that
+-- happened. Plain text always survives, so this is the reliable path;
+-- the chat link is just a nicer bonus for servers where it works.
+-- No argument = import whoever's data arrived most recently.
+-- -------------------------------------------------------------
+SLASH_KASTACDIMPORT1 = "/kcdimport"
+SlashCmdList["KASTACDIMPORT"] = function(msg)
+    local name = msg and msg:match("^%s*(.-)%s*$")
+    if not name or name == "" then
+        name = lastReceivedSender
+        if not name then
+            print("|cffff0000KastaCD:|r No shared profile received yet - " ..
+                "ask someone to post one first, or use /kcdimport <name>.")
+            return
+        end
+    end
+    ImportProfileFromChatShare(name)
 end
