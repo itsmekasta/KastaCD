@@ -70,6 +70,22 @@ function KastaCDInitDB()
         KastaCDDB.contentTypes = nil
     end
 
+    -- ── One-time cleanup: revert a leftover raid-style-party-frames CVar
+    -- flip left behind by an early, since-fully-removed Test Mode feature
+    -- that toggled it on to preview against. CVars live in the client's
+    -- own WTF settings, not in this addon's SavedVariables, so removing
+    -- that feature's code didn't undo the flip on anyone who'd tried it -
+    -- their client keeps showing Blizzard's raid-style party frame
+    -- background even with the addon's code long gone. Runs once ever per
+    -- account (never re-touches it again after this, so a user's own
+    -- later, unrelated choice to enable raid-style frames is respected).
+    if not KastaCDDB._partyTestModeCVarCleanupDone then
+        KastaCDDB._partyTestModeCVarCleanupDone = true
+        if GetCVar and SetCVar and GetCVar("useCompactPartyFrames") == "1" then
+            SetCVar("useCompactPartyFrames", "0")
+        end
+    end
+
     -- ── Sanitise active profile fields ───────────────────────
     local p = KastaCDDB.profiles[KastaCDDB.activeProfile]
     if type(p.enabled)      ~= "table"  then p.enabled      = {} end
