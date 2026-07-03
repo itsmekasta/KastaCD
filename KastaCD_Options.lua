@@ -479,6 +479,29 @@ local function BuildOvershieldGroup()
 end
 
 -- =============================================================
+-- Keystone Helper - adds Ready Check / Pull Timer buttons to the Mythic+
+-- keystone frame (Font of Power) and best-effort auto-inserts the
+-- player's keystone when that frame opens. See KastaCD_Keystone.lua.
+-- =============================================================
+local function BuildKeystoneGroup()
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Adds Ready Check and Pull Timer buttons to the Mythic+ keystone frame that appears at a Font of Power.",
+            get = function() return GetKeystoneDB().enabled == true end,
+            set = function(_, v) GetKeystoneDB().enabled = v and true or false end,
+        },
+        autoInsert = {
+            type = "toggle", order = 20, name = "Auto-Insert Keystone", width = "full",
+            desc = "Automatically uses your Mythic Keystone as soon as the Font of Power frame opens, the same as right-clicking it in your bags. Turn this off if it ever inserts the wrong item or misbehaves.",
+            get = function() return GetKeystoneDB().autoInsert == true end,
+            set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
+        },
+    }
+    return { type = "group", name = "Keystone Helper", order = 7, args = args }
+end
+
+-- =============================================================
 -- Interrupt Tracker / Crowd Control Tracker groups
 -- Both share identical shape - anchor field name ("intAnchor"/
 -- "ccAnchor") and the tracker's own accessor functions are the only
@@ -539,6 +562,22 @@ local function BuildAnchorGroup(opts)
                 local x = 0
                 if type(opts.GetPos) == "function" then x = opts.GetPos() end
                 if type(opts.SetPos) == "function" then opts.SetPos(x, v) end
+            end,
+        },
+        growDirection = {
+            -- KastaCD-local: string keys ("up"/"down"), not booleans -
+            -- AceConfigDialog sorts a select option's `values` keys with
+            -- plain table.sort, and Lua's default `<` comparator errors on
+            -- booleans ("attempt to compare two boolean values"), which
+            -- silently kept this whole option from rendering at all.
+            type = "select", order = 50, name = "Grow Direction",
+            desc = "Which way new bars stack. Grow Down keeps the header fixed at the top and adds bars below it (the anchor's saved position is its top-left corner). Grow Up keeps the header fixed at the bottom and adds bars above it (the anchor's saved position is its bottom-left corner instead) - drag/reposition again after switching to re-anchor from the new corner.",
+            values = { down = "Grow Down", up = "Grow Up" },
+            get = function() return GetAnchorDB().growUp and "up" or "down" end,
+            set = function(_, v)
+                GetAnchorDB().growUp = (v == "up")
+                GetAnchorDB().savedX, GetAnchorDB().savedY = nil, nil
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
     }
@@ -956,14 +995,15 @@ function BuildKastaCDOptions()
     }
 
     -- "Misc" is a pure category header - Interrupt Announce/Overshield
-    -- Display are the actual pages, nested as its children. Sits above
-    -- Profiles in the sidebar.
+    -- Display/Keystone Helper are the actual pages, nested as its
+    -- children. Sits above Profiles in the sidebar.
     local misc = {
         type = "group", name = "Misc", order = 30,
         args = {
             desc = { type = "description", order = 1, name = "Select an option below." },
             interruptAnnounce = BuildInterruptAnnounceGroup(),
             overshieldDisplay = BuildOvershieldGroup(),
+            keystoneHelper = BuildKeystoneGroup(),
         },
     }
 

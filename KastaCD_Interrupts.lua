@@ -129,6 +129,10 @@ local function GetIntDB()
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
     if db.hideBorder  == nil then db.hideBorder  = false end
     if db.showReady   == nil then db.showReady   = true  end
+    -- Grow direction: false/nil = grow down (bars stack below a fixed top
+    -- edge, the original behavior), true = grow up (bars stack above a
+    -- fixed bottom edge).
+    if db.growUp      == nil then db.growUp      = false end
     -- Independent "Active in:" choice for this tracker - no longer bound
     -- to the main icon tracker's shared KastaCDDB.contentTypes.
     if db.contentTypes == nil then
@@ -146,6 +150,47 @@ end
 -- ─────────────────────────────────────────────────────────────
 local HEADER_H = 18
 local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
+
+-- KastaCD-local: which corner of the anchor frame is the fixed/dragged
+-- point - TOPLEFT for "grow down" (bars stack below a fixed top edge,
+-- the original/default behavior), BOTTOMLEFT for "grow up" (bars stack
+-- above a fixed bottom edge). Used everywhere the frame's position is
+-- read or written so all of them agree on which edge "savedX/savedY"
+-- actually refers to.
+local function IntAnchorPoint(db)
+    return db.growUp and "BOTTOMLEFT" or "TOPLEFT"
+end
+
+-- Positions the header strip/label and the bars container relative to
+-- the anchor frame according to the current grow direction - called both
+-- once at creation and on every RebuildInterruptBars pass (so toggling
+-- Grow Up/Down in settings takes effect immediately, not just for
+-- newly-created frames). For "grow down" the header sits at the top and
+-- bars extend below it (original layout); for "grow up" the header sits
+-- at the bottom and bars extend above it, so the header stays next to
+-- whichever edge the user actually dragged/anchored.
+local function ApplyIntGrowLayout()
+    local a, bp = intAnchorFrame, intBarsParent
+    if not a or not bp then return end
+    local db = GetIntDB()
+
+    a.hdrBg:ClearAllPoints()
+    a.hdrLbl:ClearAllPoints()
+    bp:ClearAllPoints()
+    if db.growUp then
+        a.hdrBg:SetPoint("BOTTOMLEFT",  a, "BOTTOMLEFT",  0, 0)
+        a.hdrBg:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
+        a.hdrLbl:SetPoint("BOTTOMLEFT",  a, "BOTTOMLEFT",  0, 0)
+        a.hdrLbl:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
+        bp:SetPoint("BOTTOMLEFT", a, "BOTTOMLEFT", 0, HEADER_H)
+    else
+        a.hdrBg:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
+        a.hdrBg:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
+        a.hdrLbl:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
+        a.hdrLbl:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
+        bp:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -HEADER_H)
+    end
+end
 
 local function EnsureIntAnchor()
     if intAnchorFrame then return end
@@ -169,22 +214,19 @@ local function EnsureIntAnchor()
         local db2  = GetIntDB()
         local esc  = self:GetEffectiveScale()
         local usc  = UIParent:GetEffectiveScale()
-        db2.savedX = self:GetLeft()  * esc
-        db2.savedY = (self:GetTop()  * esc) - (UIParent:GetTop() * usc)
+        db2.savedX = self:GetLeft() * esc
+        local refY = db2.growUp and self:GetBottom() or self:GetTop()
+        db2.savedY = (refY * esc) - (UIParent:GetTop() * usc)
     end)
 
     -- Header background strip (dark normally, orange when unlocked)
     local hdrBg = a:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hdrBg:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
-    hdrBg:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
     hdrBg:SetHeight(HEADER_H)
     hdrBg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
     a.hdrBg = hdrBg
 
     -- Header label: always "Interrupts"
     local hdrLbl = a:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hdrLbl:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
-    hdrLbl:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
     hdrLbl:SetHeight(HEADER_H)
     hdrLbl:SetJustifyH("CENTER")
     hdrLbl:SetJustifyV("MIDDLE")
@@ -195,14 +237,13 @@ local function EnsureIntAnchor()
     -- Restore saved position or default to centre-right
     if db.savedX and db.savedY then
         local esc = a:GetEffectiveScale()
-        a:SetPoint("TOPLEFT", UIParent, "TOPLEFT", db.savedX / esc, db.savedY / esc)
+        a:SetPoint(IntAnchorPoint(db), UIParent, "TOPLEFT", db.savedX / esc, db.savedY / esc)
     else
-        a:SetPoint("CENTER", UIParent, "CENTER", 250, 100)
+        a:SetPoint(IntAnchorPoint(db), UIParent, "CENTER", 250, 100)
     end
 
-    -- Container for bars (position managed by RebuildInterruptBars)
+    -- Container for bars (exact position set by ApplyIntGrowLayout below)
     local bp = CreateFrame("Frame", nil, a)
-    bp:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
     bp:SetSize(1, 1)
 
     -- Hidden by default - WoW frames are shown unless told otherwise, and
@@ -217,6 +258,7 @@ local function EnsureIntAnchor()
 
     intAnchorFrame = a
     intBarsParent  = bp
+    ApplyIntGrowLayout()
 end
 
 -- Show/hide the header strip based on lock state.
@@ -269,7 +311,7 @@ function SetIntAnchorPos(x, y)
     db.savedY = y
     local esc = intAnchorFrame:GetEffectiveScale()
     intAnchorFrame:ClearAllPoints()
-    intAnchorFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x / esc, y / esc)
+    intAnchorFrame:SetPoint(IntAnchorPoint(db), UIParent, "TOPLEFT", x / esc, y / esc)
 end
 
 -- Returns the anchor's current resolved x/y in the same units
@@ -288,7 +330,8 @@ function GetIntAnchorPos()
     local esc = intAnchorFrame:GetEffectiveScale()
     local usc = UIParent:GetEffectiveScale()
     local x = intAnchorFrame:GetLeft() * esc
-    local y = (intAnchorFrame:GetTop() * esc) - (UIParent:GetTop() * usc)
+    local refY = db.growUp and intAnchorFrame:GetBottom() or intAnchorFrame:GetTop()
+    local y = (refY * esc) - (UIParent:GetTop() * usc)
     return x, y
 end
 
@@ -568,10 +611,16 @@ function RebuildInterruptBars()
                     intBarFrames[unit] = bf
                 end
 
-                -- Resize / reposition
+                -- Resize / reposition - stacks downward from the top (grow
+                -- down) or upward from the bottom (grow up), see
+                -- ApplyIntGrowLayout for how intBarsParent itself is anchored.
                 bf.row:SetSize(ROW, BH)
                 bf.row:ClearAllPoints()
-                bf.row:SetPoint("TOPLEFT", intBarsParent, "TOPLEFT", 0, -yOff)
+                if db.growUp then
+                    bf.row:SetPoint("BOTTOMLEFT", intBarsParent, "BOTTOMLEFT", 0, yOff)
+                else
+                    bf.row:SetPoint("TOPLEFT", intBarsParent, "TOPLEFT", 0, -yOff)
+                end
 
                 -- Icon always matches bar height
                 bf.iconF:SetSize(ICO, ICO)
@@ -644,9 +693,8 @@ function RebuildInterruptBars()
 
     -- Header space is always reserved (whether locked or not) so the bars never
     -- shift position when the header strip is shown/hidden by locking/unlocking.
-    intBarsParent:ClearAllPoints()
     intAnchorFrame:SetHeight(HEADER_H + math.max(1, yOff))
-    intBarsParent:SetPoint("TOPLEFT", intAnchorFrame, "TOPLEFT", 0, -HEADER_H)
+    ApplyIntGrowLayout()
     ApplyIntAnchorLockState()
     intAnchorFrame:SetShown(anyBar or not db.locked)
 end

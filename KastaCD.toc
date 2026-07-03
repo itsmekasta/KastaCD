@@ -44,6 +44,11 @@ KastaCD_CC.lua
 #     Options.lua uses GetOvershieldDB()
 KastaCD_Overshield.lua
 
+# 6e. Keystone helper (Ready Check / Pull Timer buttons + auto-insert on
+#     the Mythic+ Font of Power frame) - depends on DB, must load before
+#     Options.lua uses GetKeystoneDB()
+KastaCD_Keystone.lua
+
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 KastaCD_Options.lua
 
