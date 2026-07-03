@@ -475,7 +475,7 @@ local function BuildOvershieldGroup()
             set = function(_, v) GetOvershieldDB().alwaysShowGlow = v and true or false end,
         },
     }
-    return { type = "group", name = "Overshield Display", order = 6, args = args }
+    return { type = "group", name = "Overshield Display", order = 10, inline = true, args = args }
 end
 
 -- =============================================================
@@ -498,7 +498,7 @@ local function BuildKeystoneGroup()
             set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
         },
     }
-    return { type = "group", name = "Keystone Helper", order = 7, args = args }
+    return { type = "group", name = "Keystone Helper", order = 20, inline = true, args = args }
 end
 
 -- =============================================================
@@ -994,13 +994,14 @@ function BuildKastaCDOptions()
         },
     }
 
-    -- "Misc" is a pure category header - Interrupt Announce/Overshield
-    -- Display/Keystone Helper are the actual pages, nested as its
-    -- children. Sits above Profiles in the sidebar.
+    -- "Misc" holds Overshield Display and Keystone Helper directly as
+    -- inline sub-sections on this same page (not separate sub-tabs) -
+    -- Interrupt Announce is the only child that's still a real, separate
+    -- navigable sub-tab, since its settings page is bigger/template-based
+    -- and reads better on its own. Sits above Profiles in the sidebar.
     local misc = {
         type = "group", name = "Misc", order = 30,
         args = {
-            desc = { type = "description", order = 1, name = "Select an option below." },
             interruptAnnounce = BuildInterruptAnnounceGroup(),
             overshieldDisplay = BuildOvershieldGroup(),
             keystoneHelper = BuildKeystoneGroup(),

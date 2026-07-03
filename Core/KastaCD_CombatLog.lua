@@ -97,6 +97,34 @@ function HandleCombatLog(...)
         if sourceGUID and type(HandleCCCast) == "function" then
             HandleCCCast(sourceGUID, spellId)
         end
+
+        -- Also cache the sighting into KNOWN_UNIT_SPELLS and, same as the
+        -- SPELL_DB path below, infer spec from a single-spec-restricted
+        -- cast - CC_SPELLS entries (e.g. Shockwave, specs={73}) never fed
+        -- this fallback before, so a party member's spec-gated CC bar
+        -- stayed stuck on "unresolved" until they happened to cast
+        -- something from SPELL_DB instead. See the SPELL_DB block below
+        -- for the full "why" on the spec-inference approach itself.
+        if sourceGUID then
+            KNOWN_UNIT_SPELLS[sourceGUID] = KNOWN_UNIT_SPELLS[sourceGUID] or {}
+            KNOWN_UNIT_SPELLS[sourceGUID][spellId] = true
+
+            -- A real cast is the strongest possible confirmation - clear
+            -- any competing pick in the same mutually-exclusive talent
+            -- row (e.g. casting Storm Bolt proves Shockwave is NOT their
+            -- current pick, whatever earlier ground truth said).
+            if type(ClearCompetingCCTalents) == "function" then
+                ClearCompetingCCTalents(sourceGUID, spellId)
+            end
+
+            local ccData = CC_SPELLS[spellId]
+            if ccData.specs and #ccData.specs == 1 then
+                UNIT_SPEC_CACHE[sourceGUID] = ccData.specs[1]
+                if sourceGUID == UnitGUID("player") then
+                    UNIT_SPEC_CACHE["player"] = ccData.specs[1]
+                end
+            end
+        end
     end
 
     -- We only care about successful casts

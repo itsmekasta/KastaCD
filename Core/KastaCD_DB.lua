@@ -276,35 +276,86 @@ end
 -- data - it just reads back whatever spellId the game itself reports
 -- for each selected talent.
 --
--- Player's own talents are already reliably known via IsPlayerSpell/
--- IsSpellKnown (see IsSpellKnownForUnit below) without needing inspect
--- at all, so this only bothers with other party members. Same
--- self-correcting philosophy as everything else here: if inspect never
--- resolves on a given server, this simply never adds anything and
--- talent-gated spells keep working exactly as before (witnessed-cast
--- only) - no regression either way.
+-- Also callable with unit == "player" (isInspect=false, reads your own
+-- talent frame directly) - originally skipped on the assumption that
+-- IsPlayerSpell/IsSpellKnown already covered the player's own talents
+-- reliably (see IsSpellKnownForUnit), but live testing showed those can
+-- ALSO lag behind a real respec on this server for a currently-selected
+-- talent row, not just the spec-index API. GetTalentInfo reads the
+-- talent frame's actual current selection directly, and structurally
+-- can't report two selections in the same row, so it's the more
+-- authoritative source for talent-gated CC_SPELLS entries specifically -
+-- see KastaCD_Sync.lua's BuildSyncPayload, which now calls this before
+-- building the outgoing payload instead of trusting IsPlayerSpell alone
+-- for isTalent entries.
+--
+-- Clears any previously-confirmed talent pick that ISN'T reconfirmed by
+-- THIS scan before adding the current one - mirrors OmniCD's own
+-- InspectUnit/InspectUser (wipe(info.talentData) before repopulating)
+-- and the same fix already applied to KastaCD_Sync.lua's
+-- HandleSyncMessage. Without this, swapping to a competing talent in the
+-- same row (e.g. Bladestorm -> a different Arms option, or respeccing
+-- away from Arms entirely) left the OLD pick stuck in KNOWN_UNIT_SPELLS
+-- forever, since this only ever ADDED before - and because this function
+-- runs independently on its own inspect cadence (Events.lua), it kept
+-- re-polluting KNOWN_UNIT_SPELLS with the stale pick right after
+-- anything else (like Sync) correctly cleared it, a tug-of-war between
+-- the two mechanisms. Only clears entries that are THEMSELVES
+-- talent-gated (isTalent=true) in SPELL_DB/CC_SPELLS - never touches a
+-- real witnessed cast of a baseline ability, unrelated to this scan.
+--
+-- ALSO calls ClearCompetingCCTalents (KastaCD_CC.lua) for each newly
+-- (re)confirmed pick - defense in depth for mutually-exclusive CC_SPELLS
+-- rows (e.g. Shockwave vs Storm Bolt): GetTalentInfo already structurally
+-- can't return two selections for the same row, so this should be a
+-- no-op in practice, but keeps every write site consistent regardless.
 -- -------------------------------------------------------------
 function ScanUnitTalents(unit)
-    if unit == "player" then return false end
     if not GetTalentInfo then return false end
 
-    local guid = UnitGUID(unit)
+    local guid = (unit == "player") and UnitGUID("player") or UnitGUID(unit)
     if not guid then return false end
 
-    local learnedSomethingNew = false
+    local isInspect = (unit ~= "player")
+
+    local confirmed = {}
     for tier = 1, 7 do
         for column = 1, 3 do
-            local _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, true, unit)
+            local _, _, _, selected, _, spellId
+            if isInspect then
+                _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, true, unit)
+            else
+                _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, false, "player")
+            end
             if selected and spellId and spellId ~= 0 then
-                KNOWN_UNIT_SPELLS[guid] = KNOWN_UNIT_SPELLS[guid] or {}
-                if not KNOWN_UNIT_SPELLS[guid][spellId] then
-                    KNOWN_UNIT_SPELLS[guid][spellId] = true
-                    learnedSomethingNew = true
-                end
+                confirmed[spellId] = true
             end
         end
     end
-    return learnedSomethingNew
+
+    KNOWN_UNIT_SPELLS[guid] = KNOWN_UNIT_SPELLS[guid] or {}
+    local known   = KNOWN_UNIT_SPELLS[guid]
+    local changed = false
+
+    for sid in pairs(known) do
+        local data = (type(SPELL_DB) == "table" and SPELL_DB[sid]) or (type(CC_SPELLS) == "table" and CC_SPELLS[sid])
+        if data and data.isTalent and not confirmed[sid] then
+            known[sid] = nil
+            changed = true
+        end
+    end
+
+    for spellId in pairs(confirmed) do
+        if not known[spellId] then
+            known[spellId] = true
+            changed = true
+        end
+        if type(ClearCompetingCCTalents) == "function" then
+            ClearCompetingCCTalents(guid, spellId)
+        end
+    end
+
+    return changed
 end
 
 -- Returns the last-known specId for a unit, or nil if never resolved.
@@ -373,6 +424,22 @@ function IsSpellKnownForUnit(unit, spellId)
     if data.class == "ALL" then return true end
 
     if unit == "player" then
+        -- isTalent entries: trust the GetTalentInfo-backed KNOWN_UNIT_SPELLS
+        -- cache (kept fresh by ScanUnitTalents("player"), called from
+        -- KastaCD_Sync.lua's BuildSyncPayload) over raw IsPlayerSpell/
+        -- IsSpellKnown - live testing showed those two can BOTH report
+        -- "known" simultaneously for two mutually-exclusive picks in the
+        -- same talent row for a stretch after respeccing (e.g. Shockwave
+        -- and Storm Bolt both true at once), which showed both on the
+        -- player's own screen instead of just the current pick.
+        -- GetTalentInfo reads the talent frame directly and structurally
+        -- can't report two selections for one row.
+        if data.isTalent then
+            local guid = UnitGUID("player")
+            local known = guid and KNOWN_UNIT_SPELLS[guid]
+            return known and known[spellId] == true
+        end
+
         local checkId = spellId
         if FindSpellOverrideByID then
             local ov = FindSpellOverrideByID(spellId)
@@ -380,10 +447,18 @@ function IsSpellKnownForUnit(unit, spellId)
         end
         local known = (IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)))
             or (IsSpellKnown and (IsSpellKnown(checkId) or IsSpellKnown(spellId)))
-        if not known then return false end
-
-        local specId = GetUnitSpec("player")
-        return SpellMatchesSpec(data, specId)
+        -- Deliberately NOT cross-checked against GetUnitSpec("player")/
+        -- SpellMatchesSpec below: IsPlayerSpell/IsSpellKnown already
+        -- reflects your ACTUAL current spec (Blizzard adds/removes
+        -- spec-exclusive spells from your spellbook the moment you swap),
+        -- so a "known" result is already spec-correct on its own. Adding
+        -- a second check against UNIT_SPEC_CACHE["player"] only ever made
+        -- this WORSE - GetSpecialization()/GetSpecializationInfo() can
+        -- fail to resolve on some servers (see the spec-inference comment
+        -- in KastaCD_CombatLog.lua), which used to hide an already-
+        -- confirmed-known, spec-restricted spell until something else
+        -- happened to populate the spec cache.
+        return known
     end
 
     -- ── Non-player units ──────────────────────────────────────

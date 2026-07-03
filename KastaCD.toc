@@ -7,62 +7,69 @@
 ## OptionalDeps: SharedMedia, LibSharedMedia-3.0
 
 # 0. Bundled Ace3 subset (AceGUI-3.0/AceConfig-3.0) that powers the
-#    settings menu - must load before KastaCD_Options.lua/KastaCD_UI.lua
+#    settings menu - must load before UI\KastaCD_Options.lua/KastaCD_UI.lua
 KastaCD_libs.xml
 
 # 1. Entry point: addon identity, version global, load message
-KastaCD.lua
+Core\KastaCD.lua
 
 # 2. Shared constants + class metadata (declares the global SPELL_DB
 #    table that every Classes\*.lua file appends into - no dependencies)
-KastaCD_SpellDB.lua
+Core\KastaCD_SpellDB.lua
 
 # 3. Class spell definitions are now appended directly to KastaCD_SpellDB.lua above.
 
 # 4. SavedVariables / profile management + spec-detection/gating
 #    (depends on SpellDB + Classes for SPELL_DB contents)
-KastaCD_DB.lua
+Core\KastaCD_DB.lua
 
 # 5. Core tracking, icon building, layout (depends on DB + SpellDB)
-KastaCD_Tracking.lua
+Core\KastaCD_Tracking.lua
 
 # 5b. Interrupt announcement (chat message on the player's own successful
 #     interrupt) - depends on DB, must load before CombatLog uses it
-KastaCD_Announce.lua
+Modules\KastaCD_Announce.lua
 
 # 6. Combat log handler (depends on Tracking + Announce)
-KastaCD_CombatLog.lua
+Core\KastaCD_CombatLog.lua
 
 # 6b. Interrupt tracker (independent anchor, class-colored bars)
-KastaCD_Interrupts.lua
+Modules\KastaCD_Interrupts.lua
 
 # 6c. Crowd-control tracker (independent anchor, class-colored bars)
-KastaCD_CC.lua
+Modules\KastaCD_CC.lua
 
 # 6d. Overshield display (hooks Blizzard's absorb-bar overlay so it shows
 #     shield amounts past max HP) - depends on DB, must load before
 #     Options.lua uses GetOvershieldDB()
-KastaCD_Overshield.lua
+Modules\KastaCD_Overshield.lua
 
 # 6e. Keystone helper (Ready Check / Pull Timer buttons + auto-insert on
 #     the Mythic+ Font of Power frame) - depends on DB, must load before
 #     Options.lua uses GetKeystoneDB()
-KastaCD_Keystone.lua
+Modules\KastaCD_Keystone.lua
+
+# 6f. Ability sync - broadcasts your own confirmed spec/known-spell data
+#     to other KastaCD users in the party so talent-gated abilities show
+#     up instantly instead of waiting on Blizzard's inspect API (which
+#     often never resolves on private servers) or a witnessed cast.
+#     Depends on DB + SpellDB + CC + Tracking/Interrupts/CC's Rebuild*.
+Modules\KastaCD_Sync.lua
 
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
-KastaCD_Options.lua
+UI\KastaCD_Options.lua
 
 # 7b. Settings UI bootstrap (depends on KastaCD_Options.lua)
-KastaCD_UI.lua
+UI\KastaCD_UI.lua
 
 # 7c. Chat profile sharing ("Post to Chat" clickable import link) -
 #     depends on DB + Options.lua (SerializeProfile/DeserializeProfile)
-KastaCD_ProfileShare.lua
+UI\KastaCD_ProfileShare.lua
 
 # 8. Event frame + slash command + SpecPollTicker (depends on
 #    everything above)
-KastaCD_Events.lua
+Core\KastaCD_Events.lua
 
 # 9. Debug commands: /kcddebug  /kcdlevel  /kcdspec  (depends on
 #    everything above)
-KastaCD_Debug.lua
+Core\KastaCD_Debug.lua

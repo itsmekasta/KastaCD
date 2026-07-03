@@ -55,9 +55,13 @@ local CC_DEFAULT = {}
 --   DRUID:      102=Balance, 103=Feral, 104=Guardian, 105=Restoration
 --   DEMONHUNTER:577=Havoc, 581=Vengeance
 CC_SPELLS = {
-    -- WARRIOR
-    [46968]  = { class="WARRIOR",     cooldown=40,  specs={73}      },                    -- Shockwave (Protection, baseline)
-    [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true   },                    -- Storm Bolt (talent)
+    -- WARRIOR - Shockwave and Storm Bolt are the same talent row, pick
+    -- one or the other, available to all 3 specs (not Protection-only -
+    -- corrected per live confirmation, the old specs={73} restriction was
+    -- wrong). talentGroup marks them as mutually exclusive - see
+    -- ClearCompetingCCTalents below.
+    [46968]  = { class="WARRIOR",     cooldown=40,  isTalent=true,  talentGroup="warr_stormrow" },  -- Shockwave
+    [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true,  talentGroup="warr_stormrow" },  -- Storm Bolt
 
     -- PALADIN
     [853]    = { class="PALADIN",     cooldown=60                   },                    -- Hammer of Justice
@@ -120,6 +124,34 @@ CC_SPELLS = {
     -- INT_SPELLS - see KastaCD_Interrupts.lua. `race`/class="ALL" support
     -- above is kept in place for any future racial CC additions.
 }
+
+-- Clears every OTHER spellId sharing spellId's talentGroup from guid's
+-- KNOWN_UNIT_SPELLS. Confirming one pick in a mutually-exclusive talent
+-- row (e.g. Shockwave vs Storm Bolt) is definitive proof the alternative
+-- is NOT currently selected - Legion's talent system only allows one
+-- choice per row. Without this, ground truth from an earlier pick (a
+-- witnessed cast, a sync update, or an inspect scan) could keep both
+-- marked "known" simultaneously, showing two bars for what's actually
+-- one talent choice, or leaving the display stuck on a stale pick once
+-- the current one's own entry got cleared by something else. Called from
+-- every site that writes a confirmed CC_SPELLS pick into KNOWN_UNIT_SPELLS
+-- (KastaCD_CombatLog.lua's cast hook, KastaCD_DB.lua's ScanUnitTalents,
+-- KastaCD_Sync.lua's HandleSyncMessage).
+function ClearCompetingCCTalents(guid, spellId)
+    if not guid then return end
+    local info = CC_SPELLS[spellId]
+    local group = info and info.talentGroup
+    if not group then return end
+
+    local known = KNOWN_UNIT_SPELLS[guid]
+    if not known then return end
+
+    for sid, otherInfo in pairs(CC_SPELLS) do
+        if sid ~= spellId and otherInfo.talentGroup == group then
+            known[sid] = nil
+        end
+    end
+end
 
 -- Per-unit, per-spell state and bar frames. Nested by spellId (not a
 -- single entry per unit) so a unit with multiple independent CC options
@@ -220,8 +252,44 @@ end
 -- entries (class="ALL", e.g. Arcane Torrent) the same way specId gates
 -- spec-restricted ones - an entry with a race requirement is skipped for
 -- anyone who isn't that race, regardless of class/spec match.
+--
+-- PLAYER-ONLY EXCEPTION: ScanUnitTalents (KastaCD_DB.lua) explicitly
+-- skips "player" on the assumption IsPlayerSpell/IsSpellKnown already
+-- covers them reliably - true for SPELL_DB's IsSpellKnownForUnit path,
+-- but this function has its own separate KNOWN_UNIT_SPELLS-only gate with
+-- no equivalent player self-check, so a talent-gated CC spell (e.g. Storm
+-- Bolt) stayed hidden for your OWN bar until you happened to cast it once.
+-- Same problem for baseline spec-gated entries (e.g. Shockwave) whenever
+-- GetSpecialization()/GetSpecializationInfo() themselves don't resolve
+-- reliably on a given server - KastaCD_CombatLog.lua already documents
+-- this exact failure mode for the player's own spec cache. Both are fixed
+-- below by trusting IsPlayerSpell/IsSpellKnown directly for "player",
+-- bypassing spec-cache/witnessed-cast entirely - "do I have this spell"
+-- is always 100% reliable for your own character.
+local function PlayerHasSpellID(spellId)
+    local checkId = spellId
+    if FindSpellOverrideByID then
+        local ov = FindSpellOverrideByID(spellId)
+        if ov and ov ~= 0 then checkId = ov end
+    end
+    return (IsPlayerSpell and (IsPlayerSpell(checkId) or IsPlayerSpell(spellId)))
+        or (IsSpellKnown and (IsSpellKnown(checkId) or IsSpellKnown(spellId)))
+        or false
+end
+
 local function PickGuessCC(unit, class, specId, raceToken)
+    local isPlayer = (unit == "player")
     local guid  = unit and UnitGUID(unit)
+    -- For "player", KNOWN_UNIT_SPELLS[guid] is kept fresh by
+    -- ScanUnitTalents("player") (KastaCD_DB.lua, called from
+    -- KastaCD_Sync.lua's BuildSyncPayload) - this loop already handles
+    -- the player correctly via that shared cache, no separate
+    -- IsPlayerSpell-based branch needed (that used to exist here and was
+    -- removed: it was redundant with this loop once ScanUnitTalents
+    -- started covering "player" too, and worse, actively risky - raw
+    -- IsPlayerSpell can report a stale competing pick true for a stretch
+    -- after respeccing, which could re-add an already-invalidated talent
+    -- guess right back in).
     local known = guid and KNOWN_UNIT_SPELLS[guid]
 
     local guesses = {}
@@ -247,6 +315,8 @@ local function PickGuessCC(unit, class, specId, raceToken)
                 -- Baseline for every spec - good enough unless something
                 -- more specific (an exact spec match) turns up.
                 fallback = fallback or { spellId = sid, cooldown = info.cooldown }
+            elseif isPlayer and PlayerHasSpellID(sid) then
+                exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
             elseif SpecInList(info.specs, specId) then
                 exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
             end
@@ -607,13 +677,41 @@ function RebuildCCBars()
             if not fakeInfo then
                 local specId    = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
                 local raceToken = select(2, UnitRace(unit))
+                local currentGuesses = {}
                 for _, guess in ipairs(PickGuessCC(unit, class, specId, raceToken)) do
+                    currentGuesses[guess.spellId] = true
                     local existing = unitState[guess.spellId]
                     if not existing or existing.isPreview then
                         unitState[guess.spellId] = {
                             spellId = guess.spellId, cooldown = guess.cooldown,
                             endTime = 0, class = class, isPreview = true,
                         }
+                    end
+                end
+
+                -- Prune stale entries: the seeding loop above only ever
+                -- ADDED entries, never removed one - so a spell that WAS
+                -- guessed/confirmed before (an old talent pick, or a
+                -- since-corrected sync snapshot - see KastaCD_Sync.lua)
+                -- but ISN'T in this rebuild's guess list anymore just sat
+                -- there forever. This covers BOTH guessed previews AND
+                -- real witnessed-cast entries (HandleCCCast clears
+                -- isPreview on those, so an earlier fix here that only
+                -- pruned isPreview==true entries left any spell that had
+                -- ever actually been cast once permanently stuck,
+                -- immune to ever being corrected by a later respec/sync
+                -- update) - PickGuessCC's own isTalent branch already
+                -- re-checks KNOWN_UNIT_SPELLS fresh every call, so
+                -- currentGuesses is always this rebuild's true ground
+                -- truth regardless of how the entry originally got here.
+                -- Never yanks a bar that's actively mid-cooldown right
+                -- now (endTime in the future) - only prunes once it's
+                -- back to idle, so a live countdown never visibly cuts
+                -- off mid-animation.
+                local now = GetTime()
+                for sid, st in pairs(unitState) do
+                    if not currentGuesses[sid] and st.endTime <= now then
+                        unitState[sid] = nil
                     end
                 end
             end
@@ -921,3 +1019,63 @@ C_Timer.NewTicker(0.1, function()
         end
     end
 end)
+
+-- =============================================================
+-- Debug helper: /kcdccunit <party1|party2|party3|party4|player> - compares
+-- ground truth (KNOWN_UNIT_SPELLS/UNIT_SPEC_CACHE) against what
+-- PickGuessCC currently computes against what's actually persisted in
+-- ccBarState right now, for one specific unit. Pinpoints exactly which
+-- stage a "why doesn't this unit's CC bar update" bug is stuck at.
+-- =============================================================
+SLASH_KASTACDCCUNIT1 = "/kcdccunit"
+SlashCmdList["KASTACDCCUNIT"] = function(msg)
+    local unit = (msg and msg:match("^%s*(.-)%s*$")) or ""
+    if unit == "" or not UnitExists(unit) then
+        print("KastaCD CC unit debug: usage /kcdccunit <party1|party2|party3|party4|player> - unit must exist right now.")
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    local _, class = UnitClass(unit)
+    print(string.format("KastaCD CC unit debug: unit=%s class=%s guid=%s", unit, tostring(class), tostring(guid)))
+
+    local specId = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
+    print("  UNIT_SPEC_CACHE:", tostring(specId))
+
+    local known = guid and KNOWN_UNIT_SPELLS[guid]
+    if known then
+        local parts = {}
+        for sid in pairs(known) do parts[#parts + 1] = tostring(sid) end
+        print("  KNOWN_UNIT_SPELLS[guid]:", #parts > 0 and table.concat(parts, ",") or "(empty)")
+    else
+        print("  KNOWN_UNIT_SPELLS[guid]: nil (no entry at all)")
+    end
+
+    local raceToken = select(2, UnitRace(unit))
+    local guesses = PickGuessCC(unit, class, specId, raceToken)
+    local gparts = {}
+    for _, g in ipairs(guesses) do gparts[#gparts + 1] = tostring(g.spellId) end
+    print("  PickGuessCC() returns:", #gparts > 0 and table.concat(gparts, ",") or "(empty)")
+
+    local state = ccBarState[unit]
+    if state then
+        local sparts = {}
+        for sid, st in pairs(state) do
+            sparts[#sparts + 1] = string.format("%d(isPreview=%s,isFake=%s)", sid, tostring(st.isPreview), tostring(st.isFake))
+        end
+        print("  ccBarState[unit] (actually persisted):", #sparts > 0 and table.concat(sparts, " ") or "(empty)")
+    else
+        print("  ccBarState[unit]: nil (no entry at all)")
+    end
+
+    local frames = ccBarFrames[unit]
+    if frames then
+        local fparts = {}
+        for sid, bf in pairs(frames) do
+            fparts[#fparts + 1] = string.format("%d(shown=%s)", sid, tostring(bf.row:IsShown()))
+        end
+        print("  ccBarFrames[unit] (actual bar frames):", #fparts > 0 and table.concat(fparts, " ") or "(empty)")
+    else
+        print("  ccBarFrames[unit]: nil (no entry at all)")
+    end
+end
