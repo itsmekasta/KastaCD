@@ -497,6 +497,13 @@ local function BuildKeystoneGroup()
             get = function() return GetKeystoneDB().autoInsert == true end,
             set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
         },
+        pullTimerSeconds = {
+            type = "select", order = 30, name = "Pull Timer Duration", width = "full",
+            desc = "How many seconds the Pull Timer button's countdown runs (/rt pull timer <seconds>).",
+            values = { [3] = "3 seconds", [5] = "5 seconds", [10] = "10 seconds" },
+            get = function() return GetKeystoneDB().pullTimerSeconds end,
+            set = function(_, v) GetKeystoneDB().pullTimerSeconds = v end,
+        },
     }
     return { type = "group", name = "Keystone Helper", order = 20, inline = true, args = args }
 end

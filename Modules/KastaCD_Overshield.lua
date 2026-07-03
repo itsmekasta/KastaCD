@@ -1,0 +1,196 @@
+-- =============================================================
+-- KastaCD_Overshield.lua
+-- Ported from Derangement's Shield Meters (originally a standalone
+-- Mists of Pandaria addon, interface 50420 - see
+-- DerangementShieldMeters.lua/.toc in this same folder for the
+-- original reference source).
+--
+-- Blizzard's default absorb/shield overlay (the bar shown for things
+-- like Power Word: Shield, Ice Barrier, etc.) is clipped to the unit's
+-- health bar width - once a unit is at full HP, any remaining shield
+-- amount beyond max HP ("overshield") becomes invisible even though
+-- it's still absorbing damage. This hooks the same four Blizzard
+-- functions the original addon did to re-anchor/resize that overlay so
+-- it always reflects the FULL absorb amount, on both compact frames
+-- (party/raid) and standalone frames (player/target/focus/pet).
+--
+-- Unlike the original, this is toggleable (Misc > Overshield Display)
+-- - every hook below checks IsOvershieldEnabled() first and does
+-- nothing when disabled, leaving Blizzard's own already-applied
+-- (vanilla) behavior untouched. hooksecurefunc hooks themselves can't
+-- be uninstalled once registered, so "disabled" means "installed but
+-- inert", not "not hooked".
+-- Depends on: KastaCD_DB.lua (KastaCDDB must exist)
+-- =============================================================
+
+local ABSORB_GLOW_ALPHA  = 0.6
+local ABSORB_GLOW_OFFSET = -5
+
+-- -------------------------------------------------------------
+-- DB accessor with lazy defaults - same pattern as GetIntDB/GetCCDB/
+-- GetAnnounceDB elsewhere in this addon. On by default (the user asked
+-- for shields to just always be visible, not an opt-in they'd have to
+-- remember to enable).
+-- -------------------------------------------------------------
+function GetOvershieldDB()
+    if type(KastaCDDB) ~= "table" then
+        return { enabled = true, alwaysShowGlow = false }
+    end
+    if type(KastaCDDB.overshield) ~= "table" then
+        KastaCDDB.overshield = {}
+    end
+    local db = KastaCDDB.overshield
+    if db.enabled == nil then db.enabled = true end
+    if db.alwaysShowGlow == nil then db.alwaysShowGlow = false end
+    return db
+end
+
+local function IsOvershieldEnabled()
+    return GetOvershieldDB().enabled == true
+end
+
+-- -------------------------------------------------------------
+-- Standalone frames (player/target/focus/pet/party-in-frame-mode) -
+-- frame.totalAbsorbBar / frame.totalAbsorbBarOverlay / frame.healthbar
+-- (lowercase b), matching Blizzard's UnitFrame.lua naming.
+-- -------------------------------------------------------------
+hooksecurefunc("UnitFrame_Update",
+	function(frame)
+		if not IsOvershieldEnabled() then return end
+		local absorbBar = frame.totalAbsorbBar
+		if not absorbBar then return end
+
+		local absorbOverlay = frame.totalAbsorbBarOverlay
+		if not absorbOverlay then return end
+
+		absorbOverlay:SetParent(frame.healthbar)
+		absorbOverlay:ClearAllPoints() -- attached on the heal-prediction update below instead
+
+		local absorbGlow = frame.overAbsorbGlow
+		if absorbGlow then
+			absorbGlow:ClearAllPoints()
+			absorbGlow:SetPoint("TOPLEFT", absorbOverlay, "TOPLEFT", ABSORB_GLOW_OFFSET, 0)
+			absorbGlow:SetPoint("BOTTOMLEFT", absorbOverlay, "BOTTOMLEFT", ABSORB_GLOW_OFFSET, 0)
+			absorbGlow:SetAlpha(ABSORB_GLOW_ALPHA)
+		end
+	end
+)
+
+-- -------------------------------------------------------------
+-- Compact frames (party/raid) - frame.totalAbsorb / frame.totalAbsorbOverlay
+-- / frame.healthBar (uppercase B), matching Blizzard's
+-- CompactUnitFrame.lua naming - deliberately different casing from the
+-- standalone-frame hook above, this isn't a typo.
+-- -------------------------------------------------------------
+hooksecurefunc("CompactUnitFrame_UpdateAll",
+	function(frame)
+		if not IsOvershieldEnabled() then return end
+		local absorbBar = frame.totalAbsorb
+		if not absorbBar then return end
+
+		local absorbOverlay = frame.totalAbsorbOverlay
+		if not absorbOverlay then return end
+
+		absorbOverlay:SetParent(frame.healthBar)
+		absorbOverlay:ClearAllPoints()
+
+		local absorbGlow = frame.overAbsorbGlow
+		if absorbGlow then
+			absorbGlow:ClearAllPoints()
+			absorbGlow:SetPoint("TOPLEFT", absorbOverlay, "TOPLEFT", ABSORB_GLOW_OFFSET, 0)
+			absorbGlow:SetPoint("BOTTOMLEFT", absorbOverlay, "BOTTOMLEFT", ABSORB_GLOW_OFFSET, 0)
+			absorbGlow:SetAlpha(ABSORB_GLOW_ALPHA)
+		end
+	end
+)
+
+-- -------------------------------------------------------------
+-- Standalone frames: the actual overshield sizing/positioning, driven
+-- by UnitGetTotalAbsorbs (the unit's REAL total absorb amount,
+-- uncapped by max HP - this is what makes the "beyond full HP" portion
+-- visible at all).
+-- -------------------------------------------------------------
+hooksecurefunc("UnitFrameHealPredictionBars_Update",
+	function(frame)
+		if not IsOvershieldEnabled() then return end
+		local absorbBar = frame.totalAbsorbBar
+		if not absorbBar then return end
+
+		local absorbOverlay = frame.totalAbsorbBarOverlay
+		if not absorbOverlay then return end
+
+		local _, maxHealth = frame.healthbar:GetMinMaxValues()
+		if maxHealth <= 0 then return end
+
+		local totalAbsorb = UnitGetTotalAbsorbs(frame.unit) or 0
+		if totalAbsorb > maxHealth then
+			totalAbsorb = maxHealth
+		end
+
+		if totalAbsorb > 0 then
+			if absorbBar:IsShown() then
+				absorbOverlay:SetPoint("TOPRIGHT", absorbBar, "TOPRIGHT", 0, 0)
+				absorbOverlay:SetPoint("BOTTOMRIGHT", absorbBar, "BOTTOMRIGHT", 0, 0)
+			else
+				absorbOverlay:SetPoint("TOPRIGHT", frame.healthbar, "TOPRIGHT", 0, 0)
+				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthbar, "BOTTOMRIGHT", 0, 0)
+			end
+
+			local totalWidth, totalHeight = frame.healthbar:GetSize()
+			local barSize = totalAbsorb / maxHealth * totalWidth
+
+			absorbOverlay:SetWidth(barSize)
+			absorbOverlay:SetTexCoord(0, barSize / absorbOverlay.tileSize, 0, totalHeight / absorbOverlay.tileSize)
+			absorbOverlay:Show()
+
+			if GetOvershieldDB().alwaysShowGlow and frame.overAbsorbGlow then
+				frame.overAbsorbGlow:Show()
+			end
+		end
+	end
+)
+
+-- -------------------------------------------------------------
+-- Compact frames: same as above but for party/raid frames, using
+-- UnitGetTotalAbsorbs(frame.displayedUnit) since compact frames track
+-- displayedUnit separately from unit (e.g. raid pets/vehicle swaps).
+-- -------------------------------------------------------------
+hooksecurefunc("CompactUnitFrame_UpdateHealPrediction",
+	function(frame)
+		if not IsOvershieldEnabled() then return end
+		local absorbBar = frame.totalAbsorb
+		if not absorbBar then return end
+
+		local absorbOverlay = frame.totalAbsorbOverlay
+		if not absorbOverlay then return end
+
+		local _, maxHealth = frame.healthBar:GetMinMaxValues()
+		if maxHealth <= 0 then return end
+
+		local totalAbsorb = UnitGetTotalAbsorbs(frame.displayedUnit) or 0
+		if totalAbsorb > maxHealth then
+			totalAbsorb = maxHealth
+		end
+
+		if totalAbsorb > 0 then
+			if absorbBar:IsShown() then
+				absorbOverlay:SetPoint("TOPRIGHT", absorbBar, "TOPRIGHT", 0, 0)
+				absorbOverlay:SetPoint("BOTTOMRIGHT", absorbBar, "BOTTOMRIGHT", 0, 0)
+			else
+				absorbOverlay:SetPoint("TOPRIGHT", frame.healthBar, "TOPRIGHT", 0, 0)
+				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthBar, "BOTTOMRIGHT", 0, 0)
+			end
+
+			local totalWidth, totalHeight = frame.healthBar:GetSize()
+			local barSize = totalAbsorb / maxHealth * totalWidth
+
+			absorbOverlay:SetWidth(barSize)
+			absorbOverlay:SetTexCoord(0, barSize / absorbOverlay.tileSize, 0, totalHeight / absorbOverlay.tileSize)
+			absorbOverlay:Show()
+
+			if GetOvershieldDB().alwaysShowGlow and frame.overAbsorbGlow then
+				frame.overAbsorbGlow:Show()
+			end
+		end
+	end
+)
