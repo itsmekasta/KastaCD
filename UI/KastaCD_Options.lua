@@ -500,7 +500,7 @@ local function BuildKeystoneGroup()
             set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
         },
         mobCountEnabled = {
-            type = "toggle", order = 30, name = "Mob Count", width = "full",
+            type = "toggle", order = 30, name = "Mob Contribution", width = "full",
             desc = "Shows each Mythic+ trash mob's enemy-forces completion percentage next to its nameplate while inside a Mythic Keystone run.",
             get = function() return GetMobCountDB().enabled == true end,
             set = function(_, v)
@@ -517,6 +517,61 @@ local function BuildKeystoneGroup()
         },
     }
     return { type = "group", name = "Keystone Helper", order = 20, inline = true, args = args }
+end
+
+-- =============================================================
+-- Affix Call-outs - warns about Explosive orb spawns and Quaking debuffs
+-- during a Mythic Keystone run. See KastaCD_AffixCallouts.lua.
+-- =============================================================
+local function BuildAffixCalloutGroup()
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Warns about time-critical Mythic+ affix mechanics (Explosive orb spawns, Quaking) with a raid-warning-style screen message.",
+            get = function() return GetAffixCalloutDB().enabled == true end,
+            set = function(_, v) GetAffixCalloutDB().enabled = v and true or false end,
+        },
+        explosive = {
+            type = "toggle", order = 20, name = "Explosive Orbs", width = "full",
+            desc = "Warns the moment an Explosive orb spawns.",
+            get = function() return GetAffixCalloutDB().explosive == true end,
+            set = function(_, v) GetAffixCalloutDB().explosive = v and true or false end,
+        },
+        quaking = {
+            type = "toggle", order = 30, name = "Quaking", width = "full",
+            desc = "Warns when the Quaking debuff lands on you, so you can move away from the group before it pops.",
+            get = function() return GetAffixCalloutDB().quaking == true end,
+            set = function(_, v) GetAffixCalloutDB().quaking = v and true or false end,
+        },
+        sound = {
+            type = "toggle", order = 40, name = "Play Sound", width = "full",
+            desc = "Also plays the raid warning sound alongside the screen message.",
+            get = function() return GetAffixCalloutDB().sound == true end,
+            set = function(_, v) GetAffixCalloutDB().sound = v and true or false end,
+        },
+    }
+    return { type = "group", name = "Affix Call-outs", order = 40, inline = true, args = args }
+end
+
+-- =============================================================
+-- Personal Leaderboard - records your own best Mythic+ completion time
+-- per dungeon (no cross-player sync). See KastaCD_Leaderboard.lua and
+-- the /kcdboard slash command.
+-- =============================================================
+local function BuildLeaderboardGroup()
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Records your personal best Mythic+ completion time per dungeon. View them with /kcdboard, or /kcdboard reset to clear.",
+            get = function() return GetLeaderboardDB().enabled == true end,
+            set = function(_, v) GetLeaderboardDB().enabled = v and true or false end,
+        },
+        hint = {
+            type = "description", order = 20,
+            name = "Type |cffffd200/kcdboard|r in chat to view your recorded best times.",
+        },
+    }
+    return { type = "group", name = "Personal Leaderboard", order = 50, inline = true, args = args }
 end
 
 -- =============================================================
@@ -1023,6 +1078,8 @@ function BuildKastaCDOptions()
             interruptAnnounce = BuildInterruptAnnounceGroup(),
             overshieldDisplay = BuildOvershieldGroup(),
             keystoneHelper = BuildKeystoneGroup(),
+            affixCallouts = BuildAffixCalloutGroup(),
+            leaderboard = BuildLeaderboardGroup(),
         },
     }
 

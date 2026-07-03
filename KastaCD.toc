@@ -61,6 +61,14 @@ Modules\KastaCD_Sync.lua
 #     libs\LibObjectiveProgress-1.0 (loaded via KastaCD_libs.xml).
 Modules\KastaCD_MobCount.lua
 
+# 6h. Affix call-outs - warns about Explosive orb spawns and Quaking
+#     debuffs during a Mythic Keystone run. No dependencies beyond DB.
+Modules\KastaCD_AffixCallouts.lua
+
+# 6i. Personal Mythic+ leaderboard - records your own best completion
+#     time per dungeon. No dependencies beyond DB.
+Modules\KastaCD_Leaderboard.lua
+
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 UI\KastaCD_Options.lua
 
