@@ -212,7 +212,17 @@ local function GetCCDB()
             ["Arena"]=true,      ["Battleground"]=true,
         }
     end
+    -- Per-spell opt-out: every CC_SPELLS entry is shown by default (the
+    -- pre-existing behavior, preserved for anyone who never touches this
+    -- setting) - [sid]=true here explicitly EXCLUDES a spell from the
+    -- tracker regardless of what PickGuessCC/a real cast would otherwise
+    -- show. Set from the "Tracked Spells" sub-tab (KastaCD_Options.lua).
+    if type(db.disabledSpells) ~= "table" then db.disabledSpells = {} end
     return db
+end
+
+local function IsCCSpellEnabled(sid)
+    return not GetCCDB().disabledSpells[sid]
 end
 
 -- True if specs is unset (unrestricted) or specId is in the list.
@@ -296,7 +306,7 @@ local function PickGuessCC(unit, class, specId, raceToken)
 
     if known then
         for sid, info in pairs(CC_SPELLS) do
-            if info.isTalent and known[sid] then
+            if info.isTalent and known[sid] and IsCCSpellEnabled(sid) then
                 local classOk = info.class == class or info.class == "ALL"
                 local raceOk  = not info.race or info.race == raceToken
                 if classOk and raceOk and SpecInList(info.specs, specId) then
@@ -310,7 +320,7 @@ local function PickGuessCC(unit, class, specId, raceToken)
     for sid, info in pairs(CC_SPELLS) do
         local classOk = info.class == class or info.class == "ALL"
         local raceOk  = not info.race or info.race == raceToken
-        if classOk and raceOk and not info.isTalent then
+        if classOk and raceOk and not info.isTalent and IsCCSpellEnabled(sid) then
             if not info.specs then
                 -- Baseline for every spec - good enough unless something
                 -- more specific (an exact spec match) turns up.
@@ -911,6 +921,7 @@ end
 function HandleCCCast(sourceGUID, spellId)
     local ccInfo = CC_SPELLS[spellId]
     if not ccInfo then return end
+    if not IsCCSpellEnabled(spellId) then return end
 
     -- Resolve GUID → unit token
     local unit = nil

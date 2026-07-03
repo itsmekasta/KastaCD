@@ -1031,6 +1031,76 @@ local function BuildClassGroup(ci, order)
 end
 
 -- =============================================================
+-- CC Tracker: per-spell enable/disable ("Tracked Spells" sub-tab)
+--
+-- Every CC_SPELLS entry is shown by default (unchanged pre-existing
+-- behavior) - unchecking one here explicitly excludes it via
+-- KastaCDDB.ccAnchor.disabledSpells (KastaCD_CC.lua's IsCCSpellEnabled),
+-- regardless of what PickGuessCC's guessing or a real witnessed cast
+-- would otherwise show. Grouped by class, one inline box per class with
+-- at least one CC_SPELLS entry - CC_SPELLS entries don't carry a `.name`
+-- field the way SPELL_DB's do, so the label comes from GetSpellInfo(sid)
+-- instead.
+-- =============================================================
+local function BuildCCSpellToggleGroup()
+    local function GetCCAnchorDB()
+        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
+        local db = KastaCDDB.ccAnchor
+        if type(db.disabledSpells) ~= "table" then db.disabledSpells = {} end
+        return db
+    end
+
+    local byClass = {}
+    for sid, data in pairs(CC_SPELLS or {}) do
+        if data.class and data.class ~= "ALL" then
+            byClass[data.class] = byClass[data.class] or {}
+            table.insert(byClass[data.class], { sid = sid, data = data })
+        end
+    end
+    for _, spells in pairs(byClass) do
+        table.sort(spells, function(a, b)
+            local nameA = (GetSpellInfo and GetSpellInfo(a.sid)) or tostring(a.sid)
+            local nameB = (GetSpellInfo and GetSpellInfo(b.sid)) or tostring(b.sid)
+            return nameA < nameB
+        end)
+    end
+
+    local args = {}
+    local classOrder = 10
+    for _, ci in ipairs(CLASS_INFO or {}) do
+        local spells = byClass[ci.key]
+        if spells and #spells > 0 then
+            local classArgs = {}
+            local spellOrder = 10
+            for _, entry in ipairs(spells) do
+                local sid, data = entry.sid, entry.data
+                local name = (GetSpellInfo and GetSpellInfo(sid)) or ("Spell " .. sid)
+                local icon = (GetSpellTexture and GetSpellTexture(sid)) or data.icon
+                classArgs["s" .. sid] = {
+                    type = "toggle", order = spellOrder,
+                    name = name,
+                    image = icon,
+                    desc = BuildSpellDesc(sid, data),
+                    get = function() return not GetCCAnchorDB().disabledSpells[sid] end,
+                    set = function(_, v)
+                        GetCCAnchorDB().disabledSpells[sid] = (not v) or nil
+                        if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                    end,
+                }
+                spellOrder = spellOrder + 10
+            end
+            args[ci.key] = {
+                type = "group", inline = true, order = classOrder, name = ci.label,
+                args = classArgs,
+            }
+            classOrder = classOrder + 10
+        end
+    end
+
+    return { type = "group", name = "Tracked Spells", order = 50, inline = true, args = args }
+end
+
+-- =============================================================
 -- BuildKastaCDOptions  –  top-level tree
 -- =============================================================
 function BuildKastaCDOptions()
@@ -1059,11 +1129,15 @@ function BuildKastaCDOptions()
                 RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
                 LockFn = LockIntAnchor, UnlockFn = UnlockIntAnchor,
             },
-            crowdcontrol = BuildAnchorGroup{
-                name = "Crowd Control", order = 20, dbField = "ccAnchor",
-                RebuildFn = RebuildCCBars, GetPos = GetCCAnchorPos, SetPos = SetCCAnchorPos,
-                LockFn = LockCCAnchor, UnlockFn = UnlockCCAnchor,
-            },
+            crowdcontrol = (function()
+                local g = BuildAnchorGroup{
+                    name = "Crowd Control", order = 20, dbField = "ccAnchor",
+                    RebuildFn = RebuildCCBars, GetPos = GetCCAnchorPos, SetPos = SetCCAnchorPos,
+                    LockFn = LockCCAnchor, UnlockFn = UnlockCCAnchor,
+                }
+                g.args.spells = BuildCCSpellToggleGroup()
+                return g
+            end)(),
         },
     }
 
