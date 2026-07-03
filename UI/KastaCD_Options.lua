@@ -481,7 +481,9 @@ end
 -- =============================================================
 -- Keystone Helper - adds Ready Check / Pull Timer buttons to the Mythic+
 -- keystone frame (Font of Power) and best-effort auto-inserts the
--- player's keystone when that frame opens. See KastaCD_Keystone.lua.
+-- player's keystone when that frame opens (KastaCD_Keystone.lua). Also
+-- houses the Mob Count toggle (KastaCD_MobCount.lua) - both are Mythic+
+-- run helpers, merged into one box instead of two separate ones.
 -- =============================================================
 local function BuildKeystoneGroup()
     local args = {
@@ -497,8 +499,17 @@ local function BuildKeystoneGroup()
             get = function() return GetKeystoneDB().autoInsert == true end,
             set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
         },
+        mobCountEnabled = {
+            type = "toggle", order = 30, name = "Mob Count", width = "full",
+            desc = "Shows each Mythic+ trash mob's enemy-forces completion percentage next to its nameplate while inside a Mythic Keystone run.",
+            get = function() return GetMobCountDB().enabled == true end,
+            set = function(_, v)
+                GetMobCountDB().enabled = v and true or false
+                if type(RefreshMobCountPlates) == "function" then RefreshMobCountPlates() end
+            end,
+        },
         pullTimerSeconds = {
-            type = "select", order = 30, name = "Pull Timer Duration", width = "full",
+            type = "select", order = 40, name = "Pull Timer Duration", width = "full",
             desc = "How many seconds the Pull Timer button's countdown runs (/rt pull timer <seconds>).",
             values = { [3] = "3 seconds", [5] = "5 seconds", [10] = "10 seconds" },
             get = function() return GetKeystoneDB().pullTimerSeconds end,

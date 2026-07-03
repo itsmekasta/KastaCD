@@ -56,6 +56,11 @@ Modules\KastaCD_Keystone.lua
 #     Depends on DB + SpellDB + CC + Tracking/Interrupts/CC's Rebuild*.
 Modules\KastaCD_Sync.lua
 
+# 6g. Mob Count - shows each Mythic+ trash mob's enemy-forces completion
+#     percentage next to its nameplate. Depends on
+#     libs\LibObjectiveProgress-1.0 (loaded via KastaCD_libs.xml).
+Modules\KastaCD_MobCount.lua
+
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 UI\KastaCD_Options.lua
 
