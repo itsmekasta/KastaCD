@@ -95,7 +95,6 @@ CC_SPELLS = {
     [122]    = { class="MAGE",        cooldown=30                   },                    -- Frost Nova
     [113724] = { class="MAGE",        cooldown=45,  isTalent=true   },                    -- Ring of Frost (talent)
     [31661]  = { class="MAGE",        cooldown=20,  specs={63}      },                    -- Dragon's Breath (Fire only, baseline)
-    [44572]  = { class="MAGE",        cooldown=25,  specs={64}      },                    -- Deep Freeze (Frost only, baseline)
 
     -- PRIEST
     [88625]  = { class="PRIEST",      cooldown=30,  specs={257}     },                    -- Holy Word: Chastise (Holy, baseline)

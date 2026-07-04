@@ -486,21 +486,25 @@ end
 -- run helpers, merged into one box instead of two separate ones.
 -- =============================================================
 local function BuildKeystoneGroup()
-    local args = {
+    -- Split into three compact nested boxes (General / Pull Timer / Key
+    -- Announcer) instead of one long flat list - each concern gets its
+    -- own labeled group, and simple checkboxes drop `width="full"` so
+    -- they sit two-per-row instead of each eating a whole line.
+    local generalArgs = {
         enabled = {
-            type = "toggle", order = 10, name = "Enable", width = "full",
+            type = "toggle", order = 10, name = "Enable",
             desc = "Adds Ready Check and Pull Timer buttons to the Mythic+ keystone frame that appears at a Font of Power.",
             get = function() return GetKeystoneDB().enabled == true end,
             set = function(_, v) GetKeystoneDB().enabled = v and true or false end,
         },
         autoInsert = {
-            type = "toggle", order = 20, name = "Auto-Insert Keystone", width = "full",
+            type = "toggle", order = 20, name = "Auto-Insert Keystone",
             desc = "Automatically uses your Mythic Keystone as soon as the Font of Power frame opens, the same as right-clicking it in your bags. Turn this off if it ever inserts the wrong item or misbehaves.",
             get = function() return GetKeystoneDB().autoInsert == true end,
             set = function(_, v) GetKeystoneDB().autoInsert = v and true or false end,
         },
         mobCountEnabled = {
-            type = "toggle", order = 30, name = "Mob Contribution", width = "full",
+            type = "toggle", order = 30, name = "Mob Contribution",
             desc = "Shows each Mythic+ trash mob's enemy-forces completion percentage next to its nameplate while inside a Mythic Keystone run.",
             get = function() return GetMobCountDB().enabled == true end,
             set = function(_, v)
@@ -508,13 +512,75 @@ local function BuildKeystoneGroup()
                 if type(RefreshMobCountPlates) == "function" then RefreshMobCountPlates() end
             end,
         },
+    }
+
+    local pullTimerArgs = {
         pullTimerSeconds = {
-            type = "select", order = 40, name = "Pull Timer Duration", width = "full",
-            desc = "How many seconds the Pull Timer button's countdown runs (/rt pull timer <seconds>).",
+            type = "select", order = 10, name = "Duration", width = "half",
+            desc = "How many seconds the Pull Timer button's countdown runs (/rt pull timer <seconds>). Requires the Exorsus Raid Tools (ExRT) addon - that's what actually implements the /rt command and countdown.",
             values = { [3] = "3 seconds", [5] = "5 seconds", [10] = "10 seconds" },
             get = function() return GetKeystoneDB().pullTimerSeconds end,
             set = function(_, v) GetKeystoneDB().pullTimerSeconds = v end,
         },
+        pullTimerHint = {
+            type = "description", order = 20,
+            name = "|cffffd200Requires the Exorsus Raid Tools (ExRT) addon|r.",
+        },
+    }
+
+    local keyAnnouncerArgs = {
+        keyAnnouncerTriggerInfo = {
+            type = "description", order = 1, fontSize = "medium",
+            name = "|cffffd200Type \"keys please\" in chat (no slash) to have it announce your Mythic Keystone.|r",
+        },
+        keyAnnouncerEnabled = {
+            type = "toggle", order = 10, name = "Enable",
+            desc = "Responds to \"keys please\" in chat (or /kcdkeys) by announcing your currently-owned Mythic Keystone's dungeon and level.",
+            get = function() return GetKeyAnnouncerDB().enabled == true end,
+            set = function(_, v) GetKeyAnnouncerDB().enabled = v and true or false end,
+        },
+        keyAnnouncerTrigger = {
+            type = "toggle", order = 20, name = "Respond to \"keys please\"",
+            desc = "Watches party/raid/instance/guild chat for the literal message \"keys please\" and responds automatically (subject to Response Mode and cooldown below). Turn off to only ever announce via /kcdkeys.",
+            get = function() return GetKeyAnnouncerDB().triggerEnabled == true end,
+            set = function(_, v) GetKeyAnnouncerDB().triggerEnabled = v and true or false end,
+        },
+        keyAnnouncerColor = {
+            type = "toggle", order = 30, name = "Color Formatting",
+            desc = "Colors the dungeon name and key level in the announced chat message.",
+            get = function() return GetKeyAnnouncerDB().colorFormatting == true end,
+            set = function(_, v) GetKeyAnnouncerDB().colorFormatting = v and true or false end,
+        },
+        keyAnnouncerMode = {
+            type = "select", order = 40, name = "Response Mode", width = "half",
+            desc = "Auto: announces immediately when someone types keys please. Semi-Auto: shows a confirmation popup first. Manual: never responds automatically - only /kcdkeys announces.",
+            values = { AUTO = "Auto", SEMI = "Semi-Auto", MANUAL = "Manual" },
+            get = function() return GetKeyAnnouncerDB().mode end,
+            set = function(_, v) GetKeyAnnouncerDB().mode = v end,
+        },
+        keyAnnouncerChannel = {
+            type = "select", order = 50, name = "Announce Channel", width = "half",
+            desc = "Auto picks the best available channel (instance chat > raid > party). The others force that specific channel and print an error if it isn't currently available.",
+            values = { AUTO = "Auto", PARTY = "Party", RAID = "Raid", INSTANCE = "Instance", GUILD = "Guild" },
+            get = function() return GetKeyAnnouncerDB().channel end,
+            set = function(_, v) GetKeyAnnouncerDB().channel = v end,
+        },
+        keyAnnouncerCooldown = {
+            type = "range", order = 60, name = "Cooldown (seconds)", width = "full", min = 5, max = 60, step = 1,
+            desc = "Minimum seconds between keys please responses, both globally and per-sender, to avoid spamming chat.",
+            get = function() return GetKeyAnnouncerDB().cooldown end,
+            set = function(_, v) GetKeyAnnouncerDB().cooldown = v end,
+        },
+        keyAnnouncerHint = {
+            type = "description", order = 70,
+            name = "|cffffd200/kcdkeys|r announce your own key - |cffffd200/kcdkeys ask|r sends \"keys please\" so others respond - |cffffd200/kcdkeys test|r preview - |cffffd200/kcdkeys guild|r force guild chat.",
+        },
+    }
+
+    local args = {
+        general = { type = "group", inline = true, order = 10, name = "General", args = generalArgs },
+        pullTimer = { type = "group", inline = true, order = 20, name = "Pull Timer", args = pullTimerArgs },
+        keyAnnouncer = { type = "group", inline = true, order = 30, name = "Key Announcer", args = keyAnnouncerArgs },
     }
     return { type = "group", name = "Keystone Helper", order = 20, inline = true, args = args }
 end
@@ -773,6 +839,18 @@ local function BuildAnchorGroup(opts)
     args.position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs }
     args.visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs }
     args.customize  = { type = "group", inline = true, order = 40, name = "Customize",  hidden = isHidden, args = customizeArgs }
+
+    -- Extra top-level toggles/entries specific to ONE tracker (not shared
+    -- between Interrupts and CC) - e.g. Interrupts' "Show Arcane Torrent".
+    -- Callers building these get access to this same isHidden/GetAnchorDB
+    -- closure by passing a builder function rather than a plain table, so
+    -- they behave identically to enabled/testMode/locked above instead of
+    -- being bolted on from outside with their own separate DB access.
+    if type(opts.BuildExtraArgs) == "function" then
+        for key, entry in pairs(opts.BuildExtraArgs(GetAnchorDB, isHidden)) do
+            args[key] = entry
+        end
+    end
 
     return { type = "group", name = opts.name, order = opts.order, args = args }
 end
@@ -1128,6 +1206,24 @@ function BuildKastaCDOptions()
                 name = "Interrupts", order = 10, dbField = "intAnchor",
                 RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
                 LockFn = LockIntAnchor, UnlockFn = UnlockIntAnchor,
+                -- Interrupt-tracker-only: every INT_SPELLS isRacial entry
+                -- is a resource-type variant of the same Blood Elf racial
+                -- (Arcane Torrent) - not applicable to the CC tracker
+                -- (BuildAnchorGroup is shared between both), so passed in
+                -- here rather than living in the shared function.
+                BuildExtraArgs = function(GetAnchorDB, isHidden)
+                    return {
+                        showArcaneTorrent = {
+                            type = "toggle", order = 4, name = "Show Arcane Torrent", hidden = isHidden,
+                            desc = "Shows a separate bar for the Blood Elf Arcane Torrent racial interrupt, in addition to each unit's class interrupt.",
+                            get = function() return GetAnchorDB().showArcaneTorrent ~= false end,
+                            set = function(_, v)
+                                GetAnchorDB().showArcaneTorrent = v and true or false
+                                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                            end,
+                        },
+                    }
+                end,
             },
             crowdcontrol = (function()
                 local g = BuildAnchorGroup{

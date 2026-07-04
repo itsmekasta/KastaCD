@@ -68,10 +68,17 @@ local function EnsureMenuDBDefaults()
 end
 
 -- =============================================================
--- CreateKastaCDMenu  –  register + materialize the Ace3 menu (once)
+-- EnsureOptionsRegistered  –  registers the AceConfig options table and
+-- embeds it into Blizzard's own ESC > Interface > AddOns category list,
+-- so KastaCD shows up there too instead of only being reachable via
+-- /kcd's standalone popup. Split out from CreateKastaCDMenu (below) and
+-- called unconditionally at the bottom of this file so the AddOns-list
+-- entry exists from login, not only after /kcd has been typed once.
 -- =============================================================
-function CreateKastaCDMenu()
-    if kcdMenu then return end
+local optionsRegistered = false
+local function EnsureOptionsRegistered()
+    if optionsRegistered then return end
+    optionsRegistered = true
 
     -- Must run before BuildKastaCDOptions()'s get/set closures touch
     -- KastaCDDB.* - see the big comment on EnsureMenuDBDefaults above
@@ -84,6 +91,18 @@ function CreateKastaCDMenu()
 
     AceConfig:RegisterOptionsTable("KastaCD", BuildKastaCDOptions())
     AceConfigDialog:SetDefaultSize("KastaCD", 860, 620)
+    AceConfigDialog:AddToBlizOptions("KastaCD", "KastaCD")
+end
+
+-- =============================================================
+-- CreateKastaCDMenu  –  materialize the /kcd standalone popup (once)
+-- =============================================================
+function CreateKastaCDMenu()
+    if kcdMenu then return end
+
+    EnsureOptionsRegistered()
+
+    local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
     -- AceConfigDialog's standalone "Frame" window releases its underlying
     -- AceGUI widget back into the shared widget pool the instant it's
@@ -101,3 +120,7 @@ function CreateKastaCDMenu()
         Hide    = function() AceConfigDialog:Close("KastaCD") end,
     }
 end
+
+-- Registers the options table (and the Interface Options AddOns-list
+-- entry) immediately, so the category exists even if /kcd is never typed.
+EnsureOptionsRegistered()

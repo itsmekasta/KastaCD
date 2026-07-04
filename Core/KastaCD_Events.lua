@@ -257,6 +257,15 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- =============================================================
+-- /rl  –  shorthand for /reload. Deliberately not surfaced anywhere in
+-- the settings menu - just a quick typing shortcut, nothing to toggle.
+-- =============================================================
+SLASH_KASTACDRELOAD1 = "/rl"
+SlashCmdList["KASTACDRELOAD"] = function()
+    ReloadUI()
+end
+
+-- =============================================================
 -- Slash commands  /kcd, /kastacd, /kasta  –  open / close the settings menu
 -- =============================================================
 SLASH_KASTACD1 = "/kcd"

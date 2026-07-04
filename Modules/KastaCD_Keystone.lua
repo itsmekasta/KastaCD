@@ -78,7 +78,9 @@ local function CreateKeystoneButtons(frame)
     frame.kastaCDPullBtn = pullBtn
 end
 
-local function FindKeystoneBagSlot()
+-- Global (not local) - also used by KastaCD_KeyAnnouncer.lua so it
+-- doesn't need its own separate bag-scan for the same item.
+function FindKeystoneBagSlot()
     for bag = 0, NUM_BAG_SLOTS do
         local slots = GetContainerNumSlots(bag)
         for slot = 1, slots do

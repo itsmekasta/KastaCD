@@ -141,6 +141,12 @@ local function GetIntDB()
             ["Arena"]=true,      ["Battleground"]=true,
         }
     end
+    -- Every INT_SPELLS entry with isRacial=true is a resource-type variant
+    -- of the same Blood Elf racial (Arcane Torrent) - one toggle controls
+    -- all of them, since from a user's perspective it's a single ability.
+    -- Defaults to shown (the pre-existing behavior, preserved for anyone
+    -- who never touches this setting).
+    if db.showArcaneTorrent == nil then db.showArcaneTorrent = true end
     return db
 end
 
@@ -418,16 +424,24 @@ function RebuildInterruptBars()
         -- cast would silently never get a bar frame to render into: this
         -- unit-collection loop is the only thing that puts a "#racial"
         -- key into the render list at all.
-        local racialUnits = {}
-        for _, u in ipairs(units) do
-            local _, raceToken = UnitRace(u)
-            local hasDefault    = raceToken and RACIAL_DEFAULT[raceToken]
-            local hasWitnessed  = intBarState[u .. "#racial"] ~= nil
-            if hasDefault or hasWitnessed then
-                racialUnits[#racialUnits + 1] = u .. "#racial"
+        --
+        -- Gated by db.showArcaneTorrent - every INT_SPELLS isRacial entry
+        -- is a resource-type variant of the same racial, so this one
+        -- toggle suppresses ALL of them (guessed default and any real
+        -- witnessed cast alike) by simply never adding the "#racial" key
+        -- to the render list in the first place.
+        if db.showArcaneTorrent then
+            local racialUnits = {}
+            for _, u in ipairs(units) do
+                local _, raceToken = UnitRace(u)
+                local hasDefault    = raceToken and RACIAL_DEFAULT[raceToken]
+                local hasWitnessed  = intBarState[u .. "#racial"] ~= nil
+                if hasDefault or hasWitnessed then
+                    racialUnits[#racialUnits + 1] = u .. "#racial"
+                end
             end
+            for _, ru in ipairs(racialUnits) do units[#units + 1] = ru end
         end
-        for _, ru in ipairs(racialUnits) do units[#units + 1] = ru end
     end
 
     local BH  = db.barHeight

@@ -49,6 +49,12 @@ Modules\KastaCD_Overshield.lua
 #     Options.lua uses GetKeystoneDB()
 Modules\KastaCD_Keystone.lua
 
+# 6ea. Key Announcer - responds to "!keys" (or /kcdkeys) by announcing
+#      your owned Mythic Keystone's dungeon/level. Backported from the
+#      standalone "MythicKeyAnnouncer" addon. Depends on
+#      KastaCD_Keystone.lua's FindKeystoneBagSlot().
+Modules\KastaCD_KeyAnnouncer.lua
+
 # 6f. Ability sync - broadcasts your own confirmed spec/known-spell data
 #     to other KastaCD users in the party so talent-gated abilities show
 #     up instantly instead of waiting on Blizzard's inspect API (which
