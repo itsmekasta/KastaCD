@@ -712,140 +712,372 @@ KASTAPLATES_NPC_DISPLAYID = {
     [102583] = 62511,
     [102584] = 65542,
 }
-
--- Preset default colors, filtered down from a much larger multi-expansion
--- NPC-color export (a Plater-style "[id, isBoss, colorName, mobName,
--- dungeonName]" list) to only the entries whose dungeon is one of the 12
--- Legion dungeons this addon actually supports - everything else in that
--- list was for retail dungeons that don't exist in this Legion 7.3.5
--- client and could never match anything here. Flat npcID -> {r,g,b},
--- consumed as the DEFAULT color (instead of plain red) wherever a
--- KastaPlates entry doesn't have its own saved color yet - see
--- GetOrCreateKastaPlatesEntry (KastaCD_KastaPlates.lua) and the
--- pickColor/per-dungeon-list color get()s (KastaCD_Options.lua).
--- "HUNTER" in the source data mapped to WoW's actual Hunter class color
--- (matches CLASS_INFO's own HUNTER entry in KastaCD_SpellDB.lua) rather
--- than a literal named color.
+-- Preset default colors - every NPC in every Legion dungeon gets its own
+-- color so mobs stand out from each other when pulling a large group, not
+-- just a handful of manually-flagged priority targets.
+--
+-- Generation method (applied the same way across all 12 dungeons): for
+-- each dungeon's own NPC list (sorted alphabetically, the same order the
+-- in-game dropdown/list already uses), the first 12 entries each get one
+-- full-brightness, fully-saturated hue, spaced 30 degrees apart around the
+-- ENTIRE color wheel - about the practical limit for reliably telling hues
+-- apart at a glance, and far more reliable than inventing lots of
+-- same-family variants (an earlier pass had several different-on-paper
+-- greens/pinks/purples that all read as "the same color" at nameplate
+-- size). Entries 13-24 reuse those same 12 hues at reduced brightness (a
+-- clearly darker version, still easy to tell apart from its bright
+-- counterpart), and 25-36 reuse them again desaturated/pastel - a third,
+-- distinct dimension (hue, then brightness, then saturation) instead of a
+-- straight repeat. Only Return to Karazhan (53 NPCs) needs a 4th cycle;
+-- beyond ~36 simultaneously distinguishable colors is past what any
+-- single-color scheme can realistically offer.
 KASTAPLATES_PRESET_COLORS = {
+    -- Black Rook Hold
+    [98542] = { 1, 0, 0 }, -- Amalgam of Souls (red)
+    [101549] = { 1, 0.5, 0 }, -- Arcane Minion (orange)
+    [98813] = { 1, 1, 0 }, -- Bloodscent Felhound (yellow)
+    [98706] = { 0.5, 1, 0 }, -- Commander Shemdah'sohn (chartreuse)
+    [102781] = { 0, 1, 0 }, -- Fel Bat Pup (green)
+    [102788] = { 0, 1, 0.5 }, -- Felspite Dominator (spring green)
+    [98370] = { 0, 1, 1 }, -- Ghostly Councilor (cyan)
+    [98368] = { 0, 0.5, 1 }, -- Ghostly Protector (azure)
+    [98366] = { 0, 0, 1 }, -- Ghostly Retainer (blue)
+    [98696] = { 0.5, 0, 1 }, -- Illysanna Ravencrest (violet)
+    [98965] = { 1, 0, 1 }, -- Kur'talos Ravencrest (magenta)
+    [98538] = { 1, 0, 0.5 }, -- Lady Velandras Ravencrest (rose)
+    [98521] = { 0.5, 0, 0 }, -- Lord Etheldrin Ravencrest (red, dark)
+    [100486] = { 0.5, 0.25, 0 }, -- Risen Arcanist (orange, dark)
+    [98280] = { 0.5, 0.5, 0 }, -- Risen Arcanist (yellow, dark)
+    [98275] = { 0.25, 0.5, 0 }, -- Risen Archer (chartreuse, dark)
+    [101839] = { 0, 0.5, 0 }, -- Risen Companion (green, dark)
+    [102095] = { 0, 0.5, 0.25 }, -- Risen Lancer (spring green, dark)
+    [98691] = { 0, 0.5, 0.5 }, -- Risen Scout (cyan, dark)
+    [102094] = { 0, 0.25, 0.5 }, -- Risen Swordsman (azure, dark)
+    [98677] = { 0, 0, 0.5 }, -- Rook Spiderling (blue, dark)
+    [98681] = { 0.25, 0, 0.5 }, -- Rook Spinner (violet, dark)
+    [98949] = { 0.5, 0, 0.5 }, -- Smashspite the Hateful (magenta, dark)
+    [98243] = { 0.5, 0, 0.25 }, -- Soul-Torn Champion (rose, dark)
+    [100485] = { 1, 0.55, 0.55 }, -- Soul-torn Vanguard (red, pastel)
+    [98362] = { 1, 0.775, 0.55 }, -- Troubled Soul (orange, pastel)
+    [98810] = { 1, 1, 0.55 }, -- Wrathguard Bladelord (yellow, pastel)
+    [98792] = { 0.775, 1, 0.55 }, -- Wyrmtongue Scavenger (chartreuse, pastel)
+    [98900] = { 0.55, 1, 0.55 }, -- Wyrmtongue Trickster (green, pastel)
+
+    -- Cathedral of Eternal Night
+    [117193] = { 1, 0, 0 }, -- Agronox (red)
+    [118716] = { 1, 0.5, 0 }, -- Bilespray Lasher (orange)
+    [118804] = { 1, 1, 0 }, -- Domatrax (yellow)
+    [121553] = { 0.5, 1, 0 }, -- Dreadhunter (chartreuse)
+    [119930] = { 0, 1, 0 }, -- Dreadwing (green)
+    [118704] = { 0, 1, 0.5 }, -- Dul'zak (spring green)
+    [118700] = { 0, 1, 1 }, -- Felblight Stalker (cyan)
+    [118703] = { 0, 0.5, 1 }, -- Felborne Botanist (azure)
+    [119952] = { 0, 0, 1 }, -- Felguard Destroyer (blue)
+    [120770] = { 0.5, 0, 1 }, -- Felguard Destroyer (No Count) (violet)
+    [118712] = { 1, 0, 1 }, -- Felstrider Enforcer (magenta)
+    [118713] = { 1, 0, 0.5 }, -- Felstrider Orbcaster (rose)
+    [119978] = { 0.5, 0, 0 }, -- Fulminating Lasher (red, dark)
+    [118723] = { 0.5, 0.25, 0 }, -- Gazerax (orange, dark)
+    [118724] = { 0.5, 0.5, 0 }, -- Helblaze Felbringer (yellow, dark)
+    [120779] = { 0.25, 0.5, 0 }, -- Helblaze Felbringer (No Count) (chartreuse, dark)
+    [118717] = { 0, 0.5, 0 }, -- Helblaze Imp (green, dark)
+    [119923] = { 0, 0.5, 0.25 }, -- Helblaze Soulmender (spring green, dark)
+    [120366] = { 0, 0.5, 0.5 }, -- Hellblaze Temptress (cyan, dark)
+    [116944] = { 0, 0.25, 0.5 }, -- Mephistroth (azure, dark)
+    [118705] = { 0, 0, 0.5 }, -- Nal'asha (blue, dark)
+    [118706] = { 0.25, 0, 0.5 }, -- Necrotic Spiderling (violet, dark)
+    [119977] = { 0.5, 0, 0.5 }, -- Stranglevine Lasher (magenta, dark)
+    [117194] = { 0.5, 0, 0.25 }, -- Thrashbite the Scornful (rose, dark)
+    [121569] = { 1, 0.55, 0.55 }, -- Vilebark Walker (red, pastel)
+    [120550] = { 1, 0.775, 0.55 }, -- Wrathguard Invader (orange, pastel)
+    [120778] = { 1, 1, 0.55 }, -- Wrathguard Invader (No Count) (yellow, pastel)
+    [118719] = { 0.775, 1, 0.55 }, -- Wyrmtongue Scavenger (chartreuse, pastel)
+
     -- Court of Stars
-    [120651] = { 1.00, 0.549, 0 },      -- Explosives (darkorange)
-    [104295] = { 1, 0, 1 },             -- Blazing Imp (fuchsia)
-    [105704] = { 1, 0, 1 },             -- Arcane Manifestation (fuchsia)
-    [105715] = { 1, 0, 1 },             -- Watchful Inquisitor (fuchsia)
-    [104247] = { 1, 0, 1 },             -- Duskwatch Arcanist (fuchsia)
-    [104300] = { 1, 0, 1 },             -- Shadow Mistress (fuchsia)
+    [104218] = { 1, 0, 0 }, -- Advisor Melandrus (red)
+    [105704] = { 1, 0.5, 0 }, -- Arcane Manifestation (orange)
+    [104274] = { 1, 1, 0 }, -- Baalgar the Watchful (yellow)
+    [104295] = { 0.5, 1, 0 }, -- Blazing Imp (chartreuse)
+    [105705] = { 0, 1, 0 }, -- Bound Energy (green)
+    [104247] = { 0, 1, 0.5 }, -- Duskwatch Arcanist (spring green)
+    [111563] = { 0, 1, 1 }, -- Duskwatch Guard (cyan)
+    [104251] = { 0, 0.5, 1 }, -- Duskwatch Sentry (azure)
+    [120651] = { 0, 0, 1 }, -- Explosives (blue)
+    [104278] = { 0.5, 0, 1 }, -- Felbound Enforcer (violet)
+    [108151] = { 1, 0, 1 }, -- Gerenth the Vile (magenta)
+    [104270] = { 1, 0, 0.5 }, -- Guardian Construct (rose)
+    [104275] = { 0.5, 0, 0 }, -- Imacu'tya (red, dark)
+    [104273] = { 0.5, 0.25, 0 }, -- Jazshariu (orange, dark)
+    [104277] = { 0.5, 0.5, 0 }, -- Legion Hound (yellow, dark)
+    [105699] = { 0.25, 0.5, 0 }, -- Mana Saber (chartreuse, dark)
+    [105703] = { 0, 0.5, 0 }, -- Mana Wyrm (green, dark)
+    [104215] = { 0, 0.5, 0.25 }, -- Patrol Captain Gerdo (spring green, dark)
+    [104300] = { 0, 0.5, 0.5 }, -- Shadow Mistress (cyan, dark)
+    [104217] = { 0, 0.25, 0.5 }, -- Talixae Flamewreath (azure, dark)
+    [105715] = { 0, 0, 0.5 }, -- Watchful Inquisitor (blue, dark)
 
     -- Darkheart Thicket
-    [99359]  = { 0.420, 0.557, 0.137 }, -- Rotheart Keeper (olivedrab)
-    [99360]  = { 0.5, 0, 0.5 },         -- Vilethorn Blossom (purple)
-    [99366]  = { 0.5, 0, 0.5 },         -- Taintheart Summoner (purple)
-    [100527] = { 0.5, 0, 0.5 },         -- Dreadfire Imp (purple)
-    [100529] = { 0.827, 0.827, 0.827 }, -- Hatespawn Slime (lightgray)
-    [100531] = { 0, 1, 1 },             -- Bloodtainted Fury (aqua)
-    [100532] = { 0.5, 0, 0.5 },         -- Bloodtainted Burster (purple)
-    [103344] = { 0, 1, 1 },             -- Oakheart (aqua)
-
-    -- Neltharion's Lair
-    [90997]  = { 0, 1, 1 },             -- Mightstone Breaker (aqua)
-    [92612]  = { 0, 1, 1 },             -- Mightstone Breaker (aqua)
-    [90998]  = { 1, 0, 1 },             -- Blightshard Shaper (fuchsia)
-    [91000]  = { 0, 1, 1 },             -- Vileshard Hulk (aqua)
-    [91006]  = { 1, 0, 1 },             -- Rockback Gnasher (fuchsia)
-
-    -- Black Rook Hold
-    [101549] = { 0.67, 0.83, 0.45 },    -- Arcane Minion (HUNTER class color)
-    [98677]  = { 0.827, 0.827, 0.827 }, -- Rook Spiderling (lightgray)
-    [98813]  = { 0.5, 0, 0.5 },         -- Bloodscent Felhound (purple)
-    [98243]  = { 0, 1, 1 },             -- Soul-Torn Champion (aqua)
-    [98370]  = { 1, 0, 1 },             -- Ghostly Councilor (fuchsia)
-    [98691]  = { 0.5, 0, 0.5 },         -- Risen Scout (purple)
-    [100485] = { 0.5, 0, 0.5 },         -- Soul-torn Vanguard (purple)
-    [100486] = { 1, 0, 1 },             -- Risen Arcanist (fuchsia)
-    [102781] = { 0.827, 0.827, 0.827 }, -- Fel Bat Pup (lightgray)
-    [102788] = { 0.420, 0.557, 0.137 }, -- Felspite Dominator (olivedrab)
-
-    -- Halls of Valor
-    [97197]  = { 1, 0, 1 },             -- Valarjar Purifier (fuchsia)
-    [95842]  = { 1, 0, 1 },             -- Valarjar Thundercaller (fuchsia)
-    [95834]  = { 0, 1, 0 },             -- Valarjar Mystic
-    [96664]  = { 0.2, 0.5, 1 },         -- Valarjar Runecarver
-    [97081]  = { 1, 0.84, 0 },          -- King Bjorn
-    [97084]  = { 1, 0.5, 0 },           -- King Tor
-    [95843]  = { 0, 1, 1 },             -- King Haldor
-    [97083]  = { 1, 0.4, 0.7 },         -- King Ranulf
-
-    -- Maw of Souls (no colors given by the user for this batch -
-    -- individually assigned from a rotating palette instead)
-    [97200]  = { 1, 0, 0 },             -- Seacursed Soulkeeper
-    [97043]  = { 1, 0.5, 0 },           -- Seacursed Slaver
-    [102104] = { 1, 1, 0 },             -- Enslaved Shieldmaiden
-    [102375] = { 0, 1, 0 },             -- Runecarver Slave
-    [99188]  = { 0, 1, 1 },             -- Waterlogged Soul Guard
-    [97182]  = { 0.2, 0.5, 1 },         -- Night Watch Mariner
-    [97097]  = { 0.5, 0, 0.5 },         -- Helarjar Champion
-    [97365]  = { 1, 0, 1 },             -- Seacursed Mistmender
-    [99033]  = { 1, 0.4, 0.7 },         -- Helarjar Mistcaller
-    [99307]  = { 1, 0.84, 0 },          -- Skjal
-
-    -- The Arcway
-    [98425]  = { 1, 0, 0 },             -- Unstable Amalgamation
-    [105651] = { 1, 0.5, 0 },           -- Deadborne Seer
-    [98770]  = { 1, 1, 0 },             -- Wrathguard Felblade
-    [105617] = { 0, 1, 0 },             -- Eredar Chaosbringer
-    [105706] = { 0, 1, 1 },             -- Priestess of Misery
-    [105682] = { 0.2, 0.5, 1 },         -- Felguard Destroyer
-    [105952] = { 0.5, 0, 0.5 },         -- Withered Manawraith
-    [105921] = { 1, 0, 1 },             -- Nightborne Spellsword
-    [105915] = { 1, 0.4, 0.7 },         -- Nightborne Reclaimer
-    [106059] = { 1, 0.84, 0 },          -- Warp Shade
-    [113699] = { 0.6, 1, 0.2 },         -- Forgotten Spirit
-    [98756]  = { 0, 0.6, 0.6 },         -- Arcane Anomaly
-    [98728]  = { 0.29, 0, 0.51 },       -- Acidic Bile
-
-    -- Vault of the Wardens
-    [100364] = { 1, 0, 0 },             -- Spirit of Vengeance
-    [97678]  = { 1, 0.5, 0 },           -- Aranasi Broodmother
-    [96657]  = { 1, 1, 0 },             -- Blade Dancer Illianna
-    [96584]  = { 0, 1, 0 },             -- Immoliant Fury
-    [96587]  = { 0, 1, 1 },             -- Felsworn Infester
-    [98954]  = { 0.2, 0.5, 1 },         -- Felsworn Myrmidon
-
-    -- Court of Stars (additions)
-    [105703] = { 0.5, 0, 0.5 },         -- Duskwatch Sentry
-    [104270] = { 1, 0.4, 0.7 },         -- Guardian Construct
-    [105699] = { 1, 0.84, 0 },          -- Mana Saber
-    [104273] = { 0, 0.6, 0.6 },         -- Felbound Enforcer
-
-    -- Darkheart Thicket (additions)
-    [95769]  = { 1, 0, 0 },             -- Mindshattered Screecher
-    [95772]  = { 1, 0.5, 0 },           -- Frenzied Nightclaw
-    [99358]  = { 1, 1, 0 },             -- Rotheart Dryad
-    [99365]  = { 0.2, 0.5, 1 },         -- Taintheart Stalker
-
-    -- Black Rook Hold (additions)
-    [98368]  = { 1, 0, 0 },             -- Ghostly Protector
-    [98366]  = { 1, 0.5, 0 },           -- Ghostly Retainer
-    [98521]  = { 1, 0.84, 0 },          -- Lord Etheldrin Ravencrest
-    [98280]  = { 1, 1, 0 },             -- Risen Arcanist
-    [98275]  = { 0, 1, 0 },             -- Risen Archer
-    [101839] = { 0, 1, 1 },             -- Risen Companion
-    [98810]  = { 0.2, 0.5, 1 },         -- Wrathguard Bladelord
-    [98792]  = { 1, 0.4, 0.7 },         -- Wyrmtongue Scavenger
-    [102094] = { 0, 0.6, 0.6 },         -- Risen Swordsman
+    [96512] = { 1, 0, 0 }, -- Archdruid Glaidalis (red)
+    [100532] = { 1, 0.5, 0 }, -- Bloodtainted Burster (orange)
+    [100531] = { 1, 1, 0 }, -- Bloodtainted Fury (yellow)
+    [95766] = { 0.5, 1, 0 }, -- Crazed Razorbeak (chartreuse)
+    [100527] = { 0, 1, 0 }, -- Dreadfire Imp (green)
+    [101679] = { 0, 1, 0.5 }, -- Dreadsoul Poisoner (spring green)
+    [95771] = { 0, 1, 1 }, -- Dreadsoul Ruiner (cyan)
+    [99200] = { 0, 0.5, 1 }, -- Dresaron (azure)
+    [95779] = { 0, 0, 1 }, -- Festerhide Grizzly (blue)
+    [95772] = { 0.5, 0, 1 }, -- Frenzied Nightclaw (violet)
+    [100529] = { 1, 0, 1 }, -- Hatespawn Slime (magenta)
+    [95769] = { 1, 0, 0.5 }, -- Mindshattered Screecher (rose)
+    [101991] = { 0.5, 0, 0 }, -- Nightmare Dweller (red, dark)
+    [103344] = { 0.5, 0.25, 0 }, -- Oakheart (orange, dark)
+    [99358] = { 0.5, 0.5, 0 }, -- Rotheart Dryad (yellow, dark)
+    [99359] = { 0.25, 0.5, 0 }, -- Rotheart Keeper (chartreuse, dark)
+    [99192] = { 0, 0.5, 0 }, -- Shade of Xavius (green, dark)
+    [100539] = { 0, 0.5, 0.25 }, -- Taintheart Deadeye (spring green, dark)
+    [99365] = { 0, 0.5, 0.5 }, -- Taintheart Stalker (cyan, dark)
+    [99366] = { 0, 0.25, 0.5 }, -- Taintheart Summoner (azure, dark)
+    [100526] = { 0, 0, 0.5 }, -- Tormented Bloodseeker (blue, dark)
+    [99360] = { 0.25, 0, 0.5 }, -- Vilethorn Blossom (violet, dark)
 
     -- Eye of Azshara
-    [95861]  = { 1, 0, 0 },             -- Hatecoil Oracle
-    [91783]  = { 1, 0.5, 0 },           -- Hatecoil Stormweaver
-    [97171]  = { 1, 1, 0 },             -- Hatecoil Arcanist
-    [100248] = { 0, 1, 0 },             -- Ritualist Lesha
-    [100249] = { 0, 1, 1 },             -- Channeler Varisz
-    [100250] = { 0.2, 0.5, 1 },         -- Binder Ashioi
-    [98173]  = { 0.5, 0, 0.5 },         -- Mystic Ssa'veh
-    [91790]  = { 1, 0, 1 },             -- Mak'rana Siltwalker
+    [95920] = { 1, 0, 0 }, -- Animated Storm (red)
+    [100250] = { 1, 0.5, 0 }, -- Binder Ashioi (orange)
+    [99630] = { 1, 1, 0 }, -- Bitterbrine Scavenger (yellow)
+    [106787] = { 0.5, 1, 0 }, -- Bitterbrine Slave (chartreuse)
+    [100249] = { 0, 1, 0 }, -- Channeler Varisz (green)
+    [91787] = { 0, 1, 0.5 }, -- Cove Seagull (spring green)
+    [91786] = { 0, 1, 1 }, -- Gritslime Snail (cyan)
+    [97171] = { 0, 0.5, 1 }, -- Hatecoil Arcanist (azure)
+    [91782] = { 0, 0, 1 }, -- Hatecoil Crusher (blue)
+    [95861] = { 0.5, 0, 1 }, -- Hatecoil Oracle (violet)
+    [91783] = { 1, 0, 1 }, -- Hatecoil Stormweaver (magenta)
+    [111637] = { 1, 0, 0.5 }, -- Hatecoil Warrior (rose)
+    [97170] = { 0.5, 0, 0 }, -- Hatecoil Wavebinder (red, dark)
+    [100216] = { 0.5, 0.25, 0 }, -- Hatecoil Wrangler (orange, dark)
+    [91797] = { 0.5, 0.5, 0 }, -- King Deepbeard (yellow, dark)
+    [91789] = { 0.25, 0.5, 0 }, -- Lady Hatecoil (chartreuse, dark)
+    [95947] = { 0, 0.5, 0 }, -- Mak'rana Hardshell (green, dark)
+    [91790] = { 0, 0.5, 0.25 }, -- Mak'rana Siltwalker (spring green, dark)
+    [98173] = { 0, 0.5, 0.5 }, -- Mystic Ssa'veh (cyan, dark)
+    [97173] = { 0, 0.25, 0.5 }, -- Restless Tides (azure, dark)
+    [100248] = { 0, 0, 0.5 }, -- Ritualist Lesha (blue, dark)
+    [91794] = { 0.25, 0, 0.5 }, -- Saltscale Lurker (violet, dark)
+    [101414] = { 0.5, 0, 0.5 }, -- Saltscale Skulker (magenta, dark)
+    [97172] = { 0.5, 0, 0.25 }, -- Saltsea Droplet (rose, dark)
+    [91793] = { 1, 0.55, 0.55 }, -- Seaspray Crab (red, pastel)
+    [91808] = { 1, 0.775, 0.55 }, -- Serpentrix (orange, pastel)
+    [95939] = { 1, 1, 0.55 }, -- Skrog Tidestomper (yellow, pastel)
+    [91796] = { 0.775, 1, 0.55 }, -- Skrog Wavecrasher (chartreuse, pastel)
+    [91792] = { 0.55, 1, 0.55 }, -- Stormwake Hydra (green, pastel)
+    [91785] = { 0.55, 1, 0.775 }, -- Wandering Shellback (spring green, pastel)
+    [91784] = { 0.55, 1, 1 }, -- Warlord Parjesh (cyan, pastel)
+    [96028] = { 0.55, 0.775, 1 }, -- Wrath of Azshara (azure, pastel)
 
-    -- Neltharion's Lair (additions) - the user's list repeats 90997
-    -- ("Stoneclaw Grubmaster") which is already the ID for "Mightstone
-    -- Breaker" above under a different name - kept the existing name
-    -- rather than overwrite it, since 90997 can only mean one thing.
-    [91008]  = { 1, 0.4, 0.7 },         -- Rockbound Pelter
+    -- Halls of Valor
+    [96611] = { 1, 0, 0 }, -- Angerhoof Bull (red)
+    [96608] = { 1, 0.5, 0 }, -- Ebonclaw Worg (orange)
+    [99868] = { 1, 1, 0 }, -- Fenryr (yellow)
+    [95674] = { 0.5, 1, 0 }, -- Fenryr (chartreuse)
+    [96609] = { 0, 1, 0 }, -- Gildedfur Stag (green)
+    [95675] = { 0, 1, 0.5 }, -- God-King Skovald (spring green)
+    [94960] = { 0, 1, 1 }, -- Hymdall (cyan)
+    [95833] = { 0, 0.5, 1 }, -- Hyrja (azure)
+    [97081] = { 0, 0, 1 }, -- King Bjorn (blue)
+    [95843] = { 0.5, 0, 1 }, -- King Haldor (violet)
+    [97083] = { 1, 0, 1 }, -- King Ranulf (magenta)
+    [97084] = { 1, 0, 0.5 }, -- King Tor (rose)
+    [95676] = { 0.5, 0, 0 }, -- Odyn (red, dark)
+    [97202] = { 0.5, 0.25, 0 }, -- Olmyr the Enlightened (orange, dark)
+    [97219] = { 0.5, 0.5, 0 }, -- Solsten (yellow, dark)
+    [96677] = { 0.25, 0.5, 0 }, -- Steeljaw Grizzly (chartreuse, dark)
+    [97068] = { 0, 0.5, 0 }, -- Storm Drake (green, dark)
+    [96574] = { 0, 0.5, 0.25 }, -- Stormforged Sentinel (spring green, dark)
+    [101637] = { 0, 0.5, 0.5 }, -- Valarjar Aspirant (cyan, dark)
+    [97087] = { 0, 0.25, 0.5 }, -- Valarjar Champion (azure, dark)
+    [99804] = { 0, 0, 0.5 }, -- Valarjar Falconer (blue, dark)
+    [96640] = { 0.25, 0, 0.5 }, -- Valarjar Marksman (violet, dark)
+    [95834] = { 0.5, 0, 0.5 }, -- Valarjar Mystic (magenta, dark)
+    [97197] = { 0.5, 0, 0.25 }, -- Valarjar Purifier (rose, dark)
+    [96664] = { 1, 0.55, 0.55 }, -- Valarjar Runecarver (red, pastel)
+    [95832] = { 1, 0.775, 0.55 }, -- Valarjar Shieldmaiden (orange, pastel)
+    [101639] = { 1, 1, 0.55 }, -- Valarjar Shieldmaiden (No Count) (yellow, pastel)
+    [95842] = { 0.775, 1, 0.55 }, -- Valarjar Thundercaller (chartreuse, pastel)
+    [96934] = { 0.55, 1, 0.55 }, -- Valarjar Trapper (green, pastel)
+
+    -- Maw of Souls
+    [97163] = { 1, 0, 0 }, -- Cursed Falke (red)
+    [102104] = { 1, 0.5, 0 }, -- Enslaved Shieldmaiden (orange)
+    [96754] = { 1, 1, 0 }, -- Harbaron (yellow)
+    [97097] = { 0.5, 1, 0 }, -- Helarjar Champion (chartreuse)
+    [99033] = { 0, 1, 0 }, -- Helarjar Mistcaller (green)
+    [96759] = { 0, 1, 0.5 }, -- Helya (spring green)
+    [97182] = { 0, 1, 1 }, -- Night Watch Mariner (cyan)
+    [102375] = { 0, 0.5, 1 }, -- Runecarver Slave (azure)
+    [114712] = { 0, 0, 1 }, -- Runecarver Slave (blue)
+    [97365] = { 0.5, 0, 1 }, -- Seacursed Mistmender (violet)
+    [97043] = { 1, 0, 1 }, -- Seacursed Slaver (magenta)
+    [97200] = { 1, 0, 0.5 }, -- Seacursed Soulkeeper (rose)
+    [98919] = { 0.5, 0, 0 }, -- Seacursed Swiftblade (red, dark)
+    [97119] = { 0.5, 0.25, 0 }, -- Shroud Hound (orange, dark)
+    [98973] = { 0.5, 0.5, 0 }, -- Skeletal Warrior (yellow, dark)
+    [99307] = { 0.25, 0.5, 0 }, -- Skjal (chartreuse, dark)
+    [97185] = { 0, 0.5, 0 }, -- The Grimewalker (green, dark)
+    [99188] = { 0, 0.5, 0.25 }, -- Waterlogged Soul Guard (spring green, dark)
+    [96756] = { 0, 0.5, 0.5 }, -- Ymiron, the Fallen King (cyan, dark)
+
+    -- Neltharion's Lair
+    [90998] = { 1, 0, 0 }, -- Blightshard Shaper (red)
+    [101437] = { 1, 0.5, 0 }, -- Burning Geode (orange)
+    [91007] = { 1, 1, 0 }, -- Dargrul (yellow)
+    [92387] = { 0.5, 1, 0 }, -- Drums of War (chartreuse)
+    [113537] = { 0, 1, 0 }, -- Emberhusk Dominator (green)
+    [98406] = { 0, 1, 0.5 }, -- Embershard Scorpion (spring green)
+    [92612] = { 0, 1, 1 }, -- Mightstone Breaker (cyan)
+    [90997] = { 0, 0.5, 1 }, -- Mightstone Breaker (azure)
+    [91006] = { 0, 0, 1 }, -- Rockback Gnasher (blue)
+    [103459] = { 0.5, 0, 1 }, -- Rockback Snapper (violet)
+    [91008] = { 1, 0, 1 }, -- Rockbound Pelter (magenta)
+    [102232] = { 1, 0, 0.5 }, -- Rockbound Trapper (rose)
+    [91003] = { 0.5, 0, 0 }, -- Rokmora (red, dark)
+    [102404] = { 0.5, 0.25, 0 }, -- Stoneclaw Grubmaster (orange, dark)
+    [91332] = { 0.5, 0.5, 0 }, -- Stoneclaw Hunter (yellow, dark)
+    [91001] = { 0.25, 0.5, 0 }, -- Tarspitter Lurker (chartreuse, dark)
+    [102430] = { 0, 0.5, 0 }, -- Tarspitter Slug (green, dark)
+    [91004] = { 0, 0.5, 0.25 }, -- Ularogg Cragshaper (spring green, dark)
+    [102253] = { 0, 0.5, 0.5 }, -- Understone Demolisher (cyan, dark)
+    [105636] = { 0, 0.25, 0.5 }, -- Understone Drudge (azure, dark)
+    [92610] = { 0, 0, 0.5 }, -- Understone Drummer (blue, dark)
+    [101438] = { 0.25, 0, 0.5 }, -- Vileshard Chunk (violet, dark)
+    [96247] = { 0.5, 0, 0.5 }, -- Vileshard Crawler (magenta, dark)
+    [91000] = { 0.5, 0, 0.25 }, -- Vileshard Hulk (rose, dark)
+
+    -- Return to Karazhan
+    [115765] = { 1, 0, 0 }, -- Abstract Nullifier (red)
+    [115419] = { 1, 0.5, 0 }, -- Ancient Tome (orange)
+    [114624] = { 1, 1, 0 }, -- Arcane Warden (yellow)
+    [115020] = { 0.5, 1, 0 }, -- Arcanid (chartreuse)
+    [114264] = { 0, 1, 0 }, -- Attumen the Huntsman (green)
+    [116549] = { 0, 1, 0.5 }, -- Backup Singer (spring green)
+    [115115] = { 0, 1, 1 }, -- Coldmist Stalker (cyan)
+    [115019] = { 0, 0.5, 1 }, -- Coldmist Widow (azure)
+    [114334] = { 0, 0, 1 }, -- Damaged Golem (blue)
+    [115486] = { 0.5, 0, 1 }, -- Erudite Slayer (violet)
+    [115484] = { 1, 0, 1 }, -- Fel Bat (magenta)
+    [114626] = { 1, 0, 0.5 }, -- Forlorn Spirit (rose)
+    [114716] = { 0.5, 0, 0 }, -- Ghostly Baker (red, dark)
+    [114715] = { 0.5, 0.25, 0 }, -- Ghostly Chef (orange, dark)
+    [114542] = { 0.5, 0.5, 0 }, -- Ghostly Philanthropist (yellow, dark)
+    [114714] = { 0.25, 0.5, 0 }, -- Ghostly Steward (chartreuse, dark)
+    [114526] = { 0, 0.5, 0 }, -- Ghostly Understudy (green, dark)
+    [115488] = { 0, 0.5, 0.25 }, -- Infused Pyromancer (spring green, dark)
+    [115388] = { 0, 0.5, 0.5 }, -- King (cyan, dark)
+    [113971] = { 0, 0.25, 0.5 }, -- Maiden of Virtue (azure, dark)
+    [114338] = { 0, 0, 0.5 }, -- Mana Confluence (blue, dark)
+    [114252] = { 0.25, 0, 0.5 }, -- Mana Devourer (violet, dark)
+    [115831] = { 0.5, 0, 0.5 }, -- Mana Devourer (magenta, dark)
+    [114364] = { 0.5, 0, 0.25 }, -- Mana-Gorged Wyrm (rose, dark)
+    [114312] = { 1, 0.55, 0.55 }, -- Moroes (red, pastel)
+    [114284] = { 1, 0.775, 0.55 }, -- Opera Hall: Wikket (orange, pastel)
+    [114584] = { 1, 1, 0.55 }, -- Phantom Crew (yellow, pastel)
+    [114636] = { 0.775, 1, 0.55 }, -- Phantom Guardsman (chartreuse, pastel)
+    [114625] = { 0.55, 1, 0.55 }, -- Phantom Guest (green, pastel)
+    [115417] = { 0.55, 1, 0.775 }, -- Rat (spring green, pastel)
+    [114783] = { 0.55, 1, 1 }, -- Reformed Maiden (cyan, pastel)
+    [114350] = { 0.55, 0.775, 1 }, -- Shade of Medivh (azure, pastel)
+    [114627] = { 0.55, 0.55, 1 }, -- Shrieking Terror (blue, pastel)
+    [114794] = { 0.775, 0.55, 1 }, -- Skeletal Hound (violet, pastel)
+    [114544] = { 1, 0.55, 1 }, -- Skeletal Usher (magenta, pastel)
+    [114628] = { 1, 0.55, 0.775 }, -- Skeletal Waiter (rose, pastel)
+    [114801] = { 0.75, 0.188, 0.188 }, -- Spectral Apprentice (red, muted)
+    [114632] = { 0.75, 0.469, 0.188 }, -- Spectral Attendant (orange, muted)
+    [114804] = { 0.75, 0.75, 0.188 }, -- Spectral Charger (yellow, muted)
+    [114802] = { 0.469, 0.75, 0.188 }, -- Spectral Journeyman (chartreuse, muted)
+    [114541] = { 0.188, 0.75, 0.188 }, -- Spectral Patron (green, muted)
+    [116550] = { 0.188, 0.75, 0.469 }, -- Spectral Patron (spring green, muted)
+    [114629] = { 0.188, 0.75, 0.75 }, -- Spectral Retainer (cyan, muted)
+    [114637] = { 0.188, 0.469, 0.75 }, -- Spectral Sentry (azure, muted)
+    [114803] = { 0.188, 0.188, 0.75 }, -- Spectral Stable Hand (blue, muted)
+    [114633] = { 0.469, 0.188, 0.75 }, -- Spectral Valet (violet, muted)
+    [115418] = { 0.75, 0.188, 0.75 }, -- Spider (magenta, muted)
+    [114247] = { 0.75, 0.188, 0.469 }, -- The Curator (rose, muted)
+    [114634] = { 0.75, 0.188, 0.188 }, -- Undying Servant (red, muted)
+    [114792] = { 0.75, 0.469, 0.188 }, -- Virtuous Lady (orange, muted)
+    [114790] = { 0.75, 0.75, 0.188 }, -- Viz'aduum the Watcher (yellow, muted)
+    [114796] = { 0.469, 0.75, 0.188 }, -- Wholesome Hostess (chartreuse, muted)
+    [115757] = { 0.188, 0.75, 0.188 }, -- Wrathguard Flamebringer (green, muted)
+
+    -- Seat of the Triumvirate
+    [122412] = { 1, 0, 0 }, -- Bound Voidlord (red)
+    [122322] = { 1, 0.5, 0 }, -- Famished Broken (orange)
+    [122423] = { 1, 1, 0 }, -- Grand Shadow-Weaver (yellow)
+    [124729] = { 0.5, 1, 0 }, -- L'ura (chartreuse)
+    [125857] = { 0, 1, 0 }, -- Lashing Voidling (green)
+    [122571] = { 0, 1, 0.5 }, -- Rift Warden (spring green)
+    [125860] = { 0, 1, 1 }, -- Rift Warden (cyan)
+    [122398] = { 0, 0.5, 1 }, -- Sapped Voidlord (azure)
+    [122316] = { 0, 0, 1 }, -- Saprish (blue)
+    [122560] = { 0.5, 0, 1 }, -- Shadow Stalker (violet)
+    [122408] = { 1, 0, 1 }, -- Shadow Stalker (magenta)
+    [122403] = { 1, 0, 0.5 }, -- Shadowguard Champion (rose)
+    [122405] = { 0.5, 0, 0 }, -- Shadowguard Conjurer (red, dark)
+    [122413] = { 0.5, 0.25, 0 }, -- Shadowguard Riftstalker (orange, dark)
+    [124171] = { 0.5, 0.5, 0 }, -- Shadowguard Subjugator (yellow, dark)
+    [122401] = { 0.25, 0.5, 0 }, -- Shadowguard Trickster (chartreuse, dark)
+    [122404] = { 0, 0.5, 0 }, -- Shadowguard Voidbender (green, dark)
+    [122421] = { 0, 0.5, 0.25 }, -- Umbral War-Adept (spring green, dark)
+    [122056] = { 0, 0.5, 0.5 }, -- Viceroy Nezhar (cyan, dark)
+    [122478] = { 0, 0.25, 0.5 }, -- Void Discharge (azure, dark)
+    [124947] = { 0, 0, 0.5 }, -- Void Flayer (blue, dark)
+    [122407] = { 0.25, 0, 0.5 }, -- Warp Stalker (violet, dark)
+    [122313] = { 0.5, 0, 0.5 }, -- Zuraal the Ascended (magenta, dark)
+
+    -- The Arcway
+    [98728] = { 1, 0, 0 }, -- Acidic Bile (red)
+    [98756] = { 1, 0.5, 0 }, -- Arcane Anomaly (orange)
+    [98205] = { 1, 1, 0 }, -- Corstilax (yellow)
+    [105651] = { 0.5, 1, 0 }, -- Dreadborne Seer (chartreuse)
+    [105876] = { 0, 1, 0 }, -- Enchanted Broodling (green)
+    [105617] = { 0, 1, 0.5 }, -- Eredar Chaosbringer (spring green)
+    [105682] = { 0, 1, 1 }, -- Felguard Destroyer (cyan)
+    [113699] = { 0, 0.5, 1 }, -- Forgotten Spirit (azure)
+    [98206] = { 0, 0, 1 }, -- General Xakal (blue)
+    [98203] = { 0.5, 0, 1 }, -- Ivanyr (violet)
+    [102351] = { 1, 0, 1 }, -- Mana Wyrm (magenta)
+    [98207] = { 1, 0, 0.5 }, -- Nal'tira (rose)
+    [105915] = { 0.5, 0, 0 }, -- Nightborne Reclaimer (red, dark)
+    [105921] = { 0.5, 0.25, 0 }, -- Nightborne Spellsword (orange, dark)
+    [98732] = { 0.5, 0.5, 0 }, -- Plagued Rat (yellow, dark)
+    [105706] = { 0.25, 0.5, 0 }, -- Priestess of Misery (chartreuse, dark)
+    [98425] = { 0, 0.5, 0 }, -- Unstable Amalgamation (green, dark)
+    [98759] = { 0, 0.5, 0.25 }, -- Vicious Manafang (spring green, dark)
+    [106059] = { 0, 0.5, 0.5 }, -- Warp Shade (cyan, dark)
+    [98733] = { 0, 0.25, 0.5 }, -- Withered Fiend (azure, dark)
+    [105952] = { 0, 0, 0.5 }, -- Withered Manawraith (blue, dark)
+    [98770] = { 0.25, 0, 0.5 }, -- Wrathguard Felblade (violet, dark)
+    [105629] = { 0.5, 0, 0.5 }, -- Wyrmtongue Scavenger (magenta, dark)
+
+    -- Vault of the Wardens
+    [97678] = { 1, 0, 0 }, -- Aranasi Broodmother (red)
+    [95886] = { 1, 0.5, 0 }, -- Ash'Golm (orange)
+    [97677] = { 1, 1, 0 }, -- Barbed Spiderling (yellow)
+    [96657] = { 0.5, 1, 0 }, -- Blade Dancer Illianna (chartreuse)
+    [98963] = { 0, 1, 0 }, -- Blazing Imp (green)
+    [95888] = { 0, 1, 0.5 }, -- Cordana Felsong (spring green)
+    [99649] = { 0, 1, 1 }, -- Dreadlord Mendacius (cyan)
+    [102583] = { 0, 0.5, 1 }, -- Fel Scorcher (azure)
+    [99956] = { 0, 0, 1 }, -- Fel-Infused Fury (blue)
+    [96587] = { 0.5, 0, 1 }, -- Felsworn Infester (violet)
+    [98954] = { 1, 0, 1 }, -- Felsworn Myrmidon (magenta)
+    [98533] = { 1, 0, 0.5 }, -- Foul Mother (rose)
+    [98177] = { 0.5, 0, 0 }, -- Glayvianna Soulrender (red, dark)
+    [95887] = { 0.5, 0.25, 0 }, -- Glazer (orange, dark)
+    [102566] = { 0.5, 0.5, 0 }, -- Grimhorn the Enslaver (yellow, dark)
+    [96584] = { 0.25, 0.5, 0 }, -- Immoliant Fury (chartreuse, dark)
+    [96015] = { 0, 0.5, 0 }, -- Inquisitor Tormentorum (green, dark)
+    [102584] = { 0, 0.5, 0.25 }, -- Malignant Defiler (spring green, dark)
+    [98926] = { 0, 0.5, 0.5 }, -- Shadow Hunter (cyan, dark)
+    [100364] = { 0, 0.25, 0.5 }, -- Spirit of Vengeance (azure, dark)
+    [95885] = { 0, 0, 0.5 }, -- Tirathon Saltheril (blue, dark)
+    [96480] = { 0.25, 0, 0.5 }, -- Viletongue Belcher (violet, dark)
 }
