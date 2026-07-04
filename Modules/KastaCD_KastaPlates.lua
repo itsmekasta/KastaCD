@@ -434,6 +434,7 @@ local optionsRebuiltOnce = false
 watcher:SetScript("OnEvent", function(_, event, unitToken)
     if event == "PLAYER_ENTERING_WORLD" then
         EnsureHealthColorHook()
+        EnsurePlaterHook()
         EnsureColorReassertTicker()
         SeedKastaPlatesPresets()
         RefreshKastaPlates()
@@ -465,6 +466,7 @@ watcher:SetScript("OnEvent", function(_, event, unitToken)
 end)
 
 EnsureHealthColorHook()
+EnsurePlaterHook()
 EnsureColorReassertTicker()
 
 -- -------------------------------------------------------------
