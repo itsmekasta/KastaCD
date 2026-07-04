@@ -102,7 +102,7 @@ function BroadcastProfileToChat(profile)
     if not SendAddonMessage then return false, "This client doesn't support addon messages." end
 
     local chatType, target = lastChatType, lastChatTarget
-    local addonChannel, addonTarget, isFallback = ResolveAddonChannel(chatType, target)
+    local addonChannel, addonTarget = ResolveAddonChannel(chatType, target)
 
     local data = SerializeProfile(profile)
     local total = math.ceil(#data / CHUNK_SIZE)
@@ -142,11 +142,12 @@ function BroadcastProfileToChat(profile)
         return true, tostring(chatType) .. " can't carry the profile data itself, and you're not in a " ..
             "group or guild to fall back to - clicking the link won't import anything unless you " ..
             "share the profile another way too."
-    elseif isFallback then
-        return true, "Posted to " .. tostring(chatType) .. " - " .. tostring(chatType) ..
-            " can't carry the profile data itself, so it was also sent via " .. addonChannel ..
-            " for anyone there to pick up."
     end
+    -- isFallback (e.g. Say/Yell with a group/guild to fall back to) used
+    -- to also print "Posted to X - X can't carry the profile data itself,
+    -- so it was also sent via Y..." here - dropped per request, since the
+    -- addon data silently rides along on the fallback channel regardless
+    -- and didn't need its own extra confirmation line.
     return true
 end
 

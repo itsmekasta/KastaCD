@@ -1361,7 +1361,7 @@ local function FeedOptions(appName, options,container,rootframe,path,group,inlin
 				elseif v.type == "description" then
 					control = gui:Create("Label")
 					control:SetText(name)
-					
+
 					local fontSize = GetOptionsMemberValue("fontSize",v, options, path, appName)
 					if fontSize == "medium" then
 						control:SetFontObject(GameFontHighlight)

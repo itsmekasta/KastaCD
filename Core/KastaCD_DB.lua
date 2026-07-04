@@ -26,6 +26,12 @@ function NewProfileData()
             ["Open World"]=true, ["Dungeon"]=true,
             ["Arena"]=true,      ["Battleground"]=true
         },
+        -- Interrupt/CC tracker bar settings (position, size, font, per-spell
+        -- toggles, etc.) - GetIntDB()/GetCCDB() in their respective modules
+        -- lazily fill in every field the first time each is touched, so an
+        -- empty table here is a complete, valid starting point.
+        intAnchor = {},
+        ccAnchor  = {},
     }
 end
 
@@ -106,9 +112,27 @@ function KastaCDInitDB()
     if KastaCDDB.showIconBorders       == nil then KastaCDDB.showIconBorders       = false end
     if KastaCDDB.medallionOutsidePvP   == nil then KastaCDDB.medallionOutsidePvP   = false end
 
-    -- Interrupt anchor settings
-    if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
-    local ia = KastaCDDB.intAnchor
+    -- ── One-time migration: Interrupt/CC tracker bar settings used to
+    -- live directly on KastaCDDB.intAnchor/.ccAnchor, shared globally
+    -- across every profile - switching or importing a profile never
+    -- touched them, only Party Cooldowns' own fields did. Move whatever's
+    -- there into the currently-active profile (the one it was actually
+    -- being used for) so each profile can carry its own tracker setup
+    -- from here on. Runs once ever per account; a profile created after
+    -- this point starts from GetIntDB()/GetCCDB()'s own lazy defaults.
+    if not KastaCDDB._trackerAnchorsMigrated then
+        KastaCDDB._trackerAnchorsMigrated = true
+        if type(KastaCDDB.intAnchor) == "table" and type(p.intAnchor) ~= "table" then
+            p.intAnchor = KastaCDDB.intAnchor
+        end
+        if type(KastaCDDB.ccAnchor) == "table" and type(p.ccAnchor) ~= "table" then
+            p.ccAnchor = KastaCDDB.ccAnchor
+        end
+    end
+
+    -- Interrupt anchor settings (per-profile - see migration above)
+    if type(p.intAnchor) ~= "table" then p.intAnchor = {} end
+    local ia = p.intAnchor
     if ia.barWidth  == nil then ia.barWidth  = 200                    end
     if ia.barHeight == nil then ia.barHeight = 20                     end
     if ia.enabled   == nil then ia.enabled   = true                   end
@@ -125,9 +149,9 @@ function KastaCDInitDB()
         }
     end
 
-    -- Crowd-control anchor settings
-    if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
-    local ca = KastaCDDB.ccAnchor
+    -- Crowd-control anchor settings (per-profile - see migration above)
+    if type(p.ccAnchor) ~= "table" then p.ccAnchor = {} end
+    local ca = p.ccAnchor
     if ca.barWidth  == nil then ca.barWidth  = 200                    end
     if ca.barHeight == nil then ca.barHeight = 20                     end
     if ca.enabled   == nil then ca.enabled   = true                   end
@@ -162,6 +186,24 @@ ApplyActiveProfile = function()
     KastaCDDB.iconSize     = p.iconSize
     KastaCDDB.iconsPerRow  = p.iconsPerRow
     KastaCDDB.contentTypes = p.contentTypes
+    if type(p.intAnchor) ~= "table" then p.intAnchor = {} end
+    if type(p.ccAnchor)  ~= "table" then p.ccAnchor  = {} end
+    KastaCDDB.intAnchor = p.intAnchor
+    KastaCDDB.ccAnchor  = p.ccAnchor
+
+    -- Force the already-created anchor frames to jump to this profile's
+    -- own saved position right away. EnsureIntAnchor/EnsureCCAnchor only
+    -- ever apply savedX/savedY once, at first-ever creation - without
+    -- this, switching to a profile with a different saved position
+    -- wouldn't visibly move a tracker bar that's already on screen until
+    -- the next /reload. Skipped when the profile's anchor was never
+    -- manually positioned (still nil, sitting at its default).
+    if p.intAnchor.savedX and p.intAnchor.savedY and type(SetIntAnchorPos) == "function" then
+        SetIntAnchorPos(p.intAnchor.savedX, p.intAnchor.savedY)
+    end
+    if p.ccAnchor.savedX and p.ccAnchor.savedY and type(SetCCAnchorPos) == "function" then
+        SetCCAnchorPos(p.ccAnchor.savedX, p.ccAnchor.savedY)
+    end
 end
 
 -- Write the current top-level aliases back into the stored profile
@@ -178,6 +220,8 @@ PersistActiveProfile = function()
     p.iconSize     = KastaCDDB.iconSize     or p.iconSize
     p.iconsPerRow  = KastaCDDB.iconsPerRow  or p.iconsPerRow
     p.contentTypes = KastaCDDB.contentTypes or p.contentTypes
+    p.intAnchor    = KastaCDDB.intAnchor    or p.intAnchor
+    p.ccAnchor     = KastaCDDB.ccAnchor     or p.ccAnchor
 end
 
 -- -------------------------------------------------------------

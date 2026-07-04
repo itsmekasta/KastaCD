@@ -98,6 +98,8 @@ SPELL_DB[118038] = { name="Die by the Sword",      class="WARRIOR", icon=132338,
 SPELL_DB[12975]  = { name="Last Stand",            class="WARRIOR", icon=135871, duration=15, cooldown=180, category="DEFENSIVE", specs={73},        minLevel=10 }
 SPELL_DB[198304] = { name="Intercept",             class="WARRIOR", icon=132938, duration=3,  cooldown=30,  category="UTILITY",   specs={72},        minLevel=10 }
 SPELL_DB[156287] = { name="Ravager",               class="WARRIOR", icon=970854, duration=10, cooldown=90,  category="OFFENSIVE", specs={71},        isTalent=true }
+SPELL_DB[236320] = { name="War Banner",            class="WARRIOR",             duration=15, cooldown=180, category="OFFENSIVE", specs={71},        isTalent=true }
+SPELL_DB[213915] = { name="Mass Spell Reflection", class="WARRIOR",             duration=3,  cooldown=120, category="DEFENSIVE", specs={73},        isTalent=true }
 
 -- ── PALADIN ───────────────────────────────────────────────────
 SPELL_DB[498]    = { name="Divine Protection",      class="PALADIN", icon=524353, duration=8,  cooldown=60,  category="DEFENSIVE",              minLevel=10 }
@@ -111,6 +113,17 @@ SPELL_DB[31821]  = { name="Aura Mastery",           class="PALADIN", icon=135872
 SPELL_DB[31884]  = { name="Avenging Wrath",         class="PALADIN", icon=135875, duration=20, cooldown=120, category="OFFENSIVE", specs={65,70}, minLevel=10 }
 SPELL_DB[31850]  = { name="Ardent Defender",        class="PALADIN", icon=236264, duration=8,  cooldown=90,  category="DEFENSIVE", specs={66},  minLevel=10 }
 SPELL_DB[184662] = { name="Shield of Vengeance",    class="PALADIN", icon=614521, duration=15, cooldown=120, category="DEFENSIVE", specs={70},  minLevel=10 }
+SPELL_DB[210256] = { name="Blessing of Sanctuary",  class="PALADIN",             duration=10, cooldown=120, category="DEFENSIVE", isTalent=true }
+SPELL_DB[204018] = { name="Blessing of Spellwarding", class="PALADIN",           duration=10, cooldown=180, category="DEFENSIVE", isTalent=true }
+SPELL_DB[86659]  = { name="Guardian of Ancient Kings", class="PALADIN",          duration=8,  cooldown=300, category="DEFENSIVE", specs={65},  minLevel=10 }
+SPELL_DB[105809] = { name="Holy Avenger",           class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={70},  isTalent=true }
+SPELL_DB[210294] = { name="Divine Favor",           class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={65},  isTalent=true }
+SPELL_DB[216331] = { name="Avenging Crusader",      class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={70},  isTalent=true }
+-- Guardian of the Forgotten Queen - unverified: not confident this is a
+-- real baseline/talent ability in this server's Legion 7.3.5 Paladin kit
+-- (may be an artifact trait or custom addition). Placeholder data -
+-- please confirm in-game (tooltip cooldown/duration) before relying on it.
+SPELL_DB[228049] = { name="Guardian of the Forgotten Queen", class="PALADIN",    duration=20, cooldown=180, category="OFFENSIVE", isTalent=true }
 
 -- ── HUNTER ───────────────────────────────────────────────────
 SPELL_DB[109304] = { name="Exhilaration",           class="HUNTER", icon=132121,  duration=0,  cooldown=120, category="DEFENSIVE",                  minLevel=22 }
@@ -122,7 +135,9 @@ SPELL_DB[187707] = { name="Muzzle",                 class="HUNTER", icon=132312,
 SPELL_DB[109248] = { name="Binding Shot",           class="HUNTER", icon=463285,  duration=3,  cooldown=45,  category="UTILITY",   specs={253,254}, isTalent=true }
 SPELL_DB[19574]  = { name="Bestial Wrath",          class="HUNTER", icon=132127,  duration=15, cooldown=90,  category="OFFENSIVE", specs={253},     minLevel=10 }
 SPELL_DB[193526] = { name="Trueshot",               class="HUNTER", icon=613345,  duration=15, cooldown=180, category="OFFENSIVE", specs={254},     minLevel=10 }
-SPELL_DB[202800] = { name="Flanking Strike",        class="HUNTER", icon=1380856, duration=0,  cooldown=30,  category="OFFENSIVE", specs={255},     minLevel=10 }
+SPELL_DB[186289] = { name="Aspect of the Eagle",    class="HUNTER",               duration=0,  cooldown=90,  category="UTILITY",   isTalent=true }
+SPELL_DB[205691] = { name="Dire Beast: Basilisk",   class="HUNTER",               duration=0,  cooldown=30,  category="OFFENSIVE", specs={253}, isTalent=true }
+SPELL_DB[193530] = { name="Aspect of the Wild",     class="HUNTER",               duration=20, cooldown=120, category="OFFENSIVE", specs={253} }
 
 -- ── ROGUE ─────────────────────────────────────────────────────
 SPELL_DB[5277]   = { name="Evasion",                class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE",              minLevel=22 }
@@ -135,6 +150,13 @@ SPELL_DB[13750]  = { name="Adrenaline Rush",        class="ROGUE", icon=136206, 
 SPELL_DB[13877]  = { name="Blade Flurry",           class="ROGUE", icon=132298, duration=12, cooldown=30,  category="OFFENSIVE", specs={260}, minLevel=10 }
 SPELL_DB[121471] = { name="Shadow Blades",          class="ROGUE", icon=606542, duration=20, cooldown=180, category="OFFENSIVE", specs={261}, minLevel=10 }
 SPELL_DB[185313] = { name="Shadow Dance",           class="ROGUE", icon=458726, duration=8,  cooldown=60,  category="OFFENSIVE", specs={261}, minLevel=10 }
+SPELL_DB[198529] = { name="Plunder Armor",          class="ROGUE",             duration=0,  cooldown=90,  category="OFFENSIVE", specs={260}, isTalent=true }
+SPELL_DB[114018] = { name="Shroud of Concealment",  class="ROGUE",             duration=15, cooldown=360, category="UTILITY" }
+SPELL_DB[213981] = { name="Cold Blood",             class="ROGUE",             duration=0,  cooldown=60,  category="OFFENSIVE", specs={259} }
+-- Riposte - unverified: not confident this is a real baseline/talent
+-- ability in this server's Legion 7.3.5 Rogue kit. Placeholder data -
+-- please confirm in-game (tooltip cooldown/duration) before relying on it.
+SPELL_DB[199754] = { name="Riposte",                class="ROGUE",             duration=0,  cooldown=60,  category="OFFENSIVE", isTalent=true }
 
 -- ── PRIEST ────────────────────────────────────────────────────
 SPELL_DB[8122]   = { name="Psychic Scream",         class="PRIEST", icon=136184, duration=8,  cooldown=45,  category="UTILITY",               minLevel=14 }
@@ -147,6 +169,12 @@ SPELL_DB[62618]  = { name="Power Word: Barrier",    class="PRIEST", icon=253400,
 SPELL_DB[47788]  = { name="Guardian Spirit",        class="PRIEST", icon=135940, duration=10, cooldown=180, category="DEFENSIVE", specs={257}, minLevel=10 }
 SPELL_DB[15487]  = { name="Silence",                class="PRIEST", icon=136207, duration=0,  cooldown=45,  category="INTERRUPT", specs={258}, minLevel=10 }
 SPELL_DB[47585]  = { name="Dispersion",             class="PRIEST", icon=237563, duration=6,  cooldown=120, category="IMMUNITY",  specs={258}, minLevel=83 }
+SPELL_DB[193223] = { name="Surrender to Madness",   class="PRIEST",             duration=0,  cooldown=270, category="OFFENSIVE", specs={258}, isTalent=true }
+SPELL_DB[10060]  = { name="Power Infusion",         class="PRIEST",             duration=15, cooldown=120, category="OFFENSIVE" }
+SPELL_DB[15286]  = { name="Vampiric Embrace",       class="PRIEST",             duration=15, cooldown=90,  category="UTILITY",   specs={258} }
+SPELL_DB[108968] = { name="Void Shift",             class="PRIEST",             duration=0,  cooldown=300, category="DEFENSIVE", specs={258}, isTalent=true }
+SPELL_DB[200183] = { name="Apotheosis",             class="PRIEST",             duration=20, cooldown=120, category="OFFENSIVE", specs={257}, isTalent=true }
+SPELL_DB[64901]  = { name="Symbol of Hope",         class="PRIEST",             duration=0,  cooldown=180, category="UTILITY",   specs={257} }
 
 -- ── DEATH KNIGHT ──────────────────────────────────────────────
 SPELL_DB[47476]  = { name="Strangulate",            class="DEATHKNIGHT", icon=136214, duration=0,  cooldown=60,  category="INTERRUPT",              minLevel=55 }
@@ -160,6 +188,13 @@ SPELL_DB[51052]  = { name="Anti-Magic Zone",        class="DEATHKNIGHT", icon=13
 SPELL_DB[207289] = { name="Unholy Frenzy",          class="DEATHKNIGHT", icon=136224, duration=30, cooldown=75,  category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[42650]  = { name="Army of the Dead",       class="DEATHKNIGHT", icon=237511, duration=0,  cooldown=480, category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[49206]  = { name="Summon Gargoyle",        class="DEATHKNIGHT", icon=458967, duration=30, cooldown=180, category="OFFENSIVE", specs={252}, minLevel=55 }
+SPELL_DB[77606]  = { name="Dark Simulacrum",        class="DEATHKNIGHT",             duration=0,  cooldown=20,  category="UTILITY",                minLevel=55 }
+SPELL_DB[51271]  = { name="Pillar of Frost",        class="DEATHKNIGHT",             duration=12, cooldown=60,  category="OFFENSIVE", specs={251}, minLevel=55 }
+-- Dark Arbiter - unverified: not confident this is a real baseline/talent
+-- ability in this server's Legion 7.3.5 kit (may be an artifact trait or
+-- custom addition) - cooldown/duration below are placeholders, correct
+-- via the in-game tooltip if this shows up wrong.
+SPELL_DB[207349] = { name="Dark Arbiter",           class="DEATHKNIGHT",             duration=20, cooldown=120, category="OFFENSIVE", specs={251}, isTalent=true }
 
 -- ── SHAMAN ────────────────────────────────────────────────────
 SPELL_DB[57994]  = { name="Wind Shear",                 class="SHAMAN", icon=136018, duration=0,  cooldown=12,  category="INTERRUPT",              minLevel=18 }
@@ -170,6 +205,19 @@ SPELL_DB[114050] = { name="Ascendance",                 class="SHAMAN", icon=571
 SPELL_DB[51533]  = { name="Feral Spirit",               class="SHAMAN", icon=237577, duration=30, cooldown=120, category="OFFENSIVE", specs={263}, minLevel=10 }
 SPELL_DB[192077] = { name="Wind Rush Totem",            class="SHAMAN", icon=538568, duration=15, cooldown=120, category="UTILITY",  isTalent=true }
 SPELL_DB[207399] = { name="Ancestral Protection Totem", class="SHAMAN", icon=839977, duration=30, cooldown=300, category="DEFENSIVE", specs={264}, isTalent=true }
+-- Grounding/Windfury/Counterstrike/Skyfury Totem are Legion PvP (Honor)
+-- talents - only active while flagged/in a PvP instance, never in PvE
+-- dungeons. Cooldowns below are placeholders (not yet confirmed against
+-- this server) - correct via in-game tooltip.
+SPELL_DB[204336] = { name="Grounding Totem",            class="SHAMAN",             duration=15, cooldown=30,  category="UTILITY",   isTalent=true }
+SPELL_DB[204332] = { name="Windfury Totem",              class="SHAMAN",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
+SPELL_DB[204331] = { name="Counterstrike Totem",         class="SHAMAN",             duration=15, cooldown=60,  category="DEFENSIVE", isTalent=true }
+SPELL_DB[204330] = { name="Skyfury Totem",               class="SHAMAN",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
+-- Ethereal Form / Voodoo Totem - unverified: not confident these exist as
+-- described in this server's Shaman kit. Placeholder data - please
+-- confirm in-game (tooltip cooldown/duration) before relying on these.
+SPELL_DB[210918] = { name="Ethereal Form",               class="SHAMAN",             duration=0,  cooldown=90,  category="DEFENSIVE", isTalent=true }
+SPELL_DB[196932] = { name="Voodoo Totem",                class="SHAMAN",             duration=15, cooldown=180, category="UTILITY",   isTalent=true }
 
 -- ── MAGE ──────────────────────────────────────────────────────
 SPELL_DB[2139]   = { name="Counterspell",           class="MAGE", icon=135856, duration=0,  cooldown=24,  category="INTERRUPT",             minLevel=22 }
@@ -180,6 +228,13 @@ SPELL_DB[190319] = { name="Combustion",             class="MAGE", icon=135824, d
 SPELL_DB[12472]  = { name="Icy Veins",              class="MAGE", icon=135838, duration=20, cooldown=180, category="OFFENSIVE", specs={64}, minLevel=10 }
 SPELL_DB[113724] = { name="Ring of Frost",          class="MAGE", icon=464484, duration=10, cooldown=45,  category="UTILITY",  isTalent=true }
 SPELL_DB[235219] = { name="Cold Snap",              class="MAGE", icon=135865, duration=0,  cooldown=300, category="DEFENSIVE", specs={64}, isTalent=true }
+-- Temporal Shield / Mass Invisibility are Legion PvP (Honor) talents -
+-- only active while flagged/in a PvP instance. "Mass Invincility" in the
+-- request is almost certainly a typo for "Mass Invisibility" (198158 is
+-- that spell's real ID) - named accordingly here; correct if wrong.
+-- Cooldowns are placeholders - please confirm in-game.
+SPELL_DB[198111] = { name="Temporal Shield",        class="MAGE",             duration=4,  cooldown=45,  category="DEFENSIVE", isTalent=true }
+SPELL_DB[198158] = { name="Mass Invisibility",      class="MAGE",             duration=3,  cooldown=120, category="UTILITY",   isTalent=true }
 
 -- ── WARLOCK ───────────────────────────────────────────────────
 SPELL_DB[104773] = { name="Unending Resolve",       class="WARLOCK", icon=136150, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=10  }
@@ -187,6 +242,15 @@ SPELL_DB[5484]   = { name="Howl of Terror",         class="WARLOCK", icon=136175
 SPELL_DB[111898] = { name="Grimoire of Sacrifice",  class="WARLOCK", icon=538443, duration=0,  cooldown=30,  category="UTILITY",  isTalent=true }
 SPELL_DB[152108] = { name="Cataclysm",              class="WARLOCK", icon=452693, duration=0,  cooldown=30,  category="OFFENSIVE", isTalent=true }
 SPELL_DB[108416] = { name="Dark Pact",              class="WARLOCK", icon=538569, duration=20, cooldown=60,  category="DEFENSIVE", isTalent=true }
+SPELL_DB[196098] = { name="Soul Harvest",           class="WARLOCK",             duration=15, cooldown=90,  category="OFFENSIVE"                }
+SPELL_DB[212295] = { name="Nether Ward",            class="WARLOCK",             duration=3,  cooldown=45,  category="DEFENSIVE", specs={267}, isTalent=true }
+-- Summon Doomguard/Summon Infernal are the same talent row (pick one) -
+-- both listed since either could be the one a given player has chosen;
+-- there's no mutual-exclusion enforcement for the main Party Cooldowns
+-- tracker the way CC_SPELLS' talentGroup does, so both may show as
+-- "available" until one is actually cast.
+SPELL_DB[18540]  = { name="Summon Doomguard",       class="WARLOCK",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
+SPELL_DB[1122]   = { name="Summon Infernal",        class="WARLOCK",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
 
 -- ── MONK ──────────────────────────────────────────────────────
 SPELL_DB[116705] = { name="Spear Hand Strike",             class="MONK", icon=608939, duration=0,  cooldown=15,  category="INTERRUPT",                      minLevel=14 }
@@ -197,6 +261,9 @@ SPELL_DB[115203] = { name="Fortifying Brew",               class="MONK", icon=62
 SPELL_DB[115176] = { name="Zen Meditation",                class="MONK", icon=642417, duration=8,  cooldown=300, category="IMMUNITY",  specs={270},         minLevel=10 }
 SPELL_DB[137639] = { name="Storm, Earth, and Fire",        class="MONK", icon=642418, duration=15, cooldown=90,  category="OFFENSIVE", specs={269},         minLevel=10 }
 SPELL_DB[123904] = { name="Invoke Xuen, the White Tiger",  class="MONK", icon=620832, duration=20, cooldown=120, category="OFFENSIVE", specs={269},         minLevel=10 }
+SPELL_DB[152173] = { name="Serenity",                      class="MONK",               duration=12, cooldown=90,  category="OFFENSIVE", specs={269},         isTalent=true }
+SPELL_DB[115080] = { name="Touch of Death",                class="MONK",               duration=0,  cooldown=180, category="OFFENSIVE", specs={269},         minLevel=10 }
+SPELL_DB[122470] = { name="Touch of Karma",                class="MONK",               duration=10, cooldown=90,  category="DEFENSIVE", specs={269},         minLevel=10 }
 
 -- ── DRUID ─────────────────────────────────────────────────────
 SPELL_DB[106839] = { name="Skull Bash",             class="DRUID", icon=236946,  duration=0,  cooldown=15,  category="INTERRUPT", specs={103,104},  minLevel=10 }
@@ -209,6 +276,11 @@ SPELL_DB[102342] = { name="Ironbark",               class="DRUID", icon=572025, 
 SPELL_DB[29166]  = { name="Innervate",              class="DRUID", icon=136048,  duration=10, cooldown=180, category="UTILITY",   specs={102,105},  minLevel=10 }
 SPELL_DB[106951] = { name="Berserk",                class="DRUID", icon=236149,  duration=15, cooldown=180, category="OFFENSIVE", specs={103,104},  minLevel=10 }
 SPELL_DB[194223] = { name="Celestial Alignment",    class="DRUID", icon=1396760, duration=20, cooldown=180, category="OFFENSIVE", specs={102},      minLevel=10 }
+SPELL_DB[102543] = { name="Incarnation: King of the Jungle",   class="DRUID",    duration=30, cooldown=180, category="OFFENSIVE", specs={103}, isTalent=true }
+SPELL_DB[102560] = { name="Incarnation: Chosen of Elune",      class="DRUID",    duration=30, cooldown=180, category="OFFENSIVE", specs={102}, isTalent=true }
+SPELL_DB[102558] = { name="Incarnation: Guardian of Ursoc",    class="DRUID",    duration=30, cooldown=180, category="DEFENSIVE", specs={104}, isTalent=true }
+SPELL_DB[33891]  = { name="Incarnation: Tree of Life",         class="DRUID",    duration=30, cooldown=180, category="DEFENSIVE", specs={105}, isTalent=true }
+SPELL_DB[77761]  = { name="Stampeding Roar",                   class="DRUID",    duration=8,  cooldown=120, category="UTILITY",   specs={103,104} }
 
 -- ── DEMON HUNTER ─────────────────────────────────────────────
 -- 183752 was previously mislabeled "Consume Magic" (a Battle for Azeroth
@@ -226,3 +298,5 @@ SPELL_DB[196555] = { name="Netherwalk",             class="DEMONHUNTER", icon=12
 SPELL_DB[187827] = { name="Metamorphosis",          class="DEMONHUNTER", icon=1247262, duration=30, cooldown=300, category="OFFENSIVE", specs={577}, minLevel=98 }
 SPELL_DB[203720] = { name="Demon Spikes",           class="DEMONHUNTER", icon=1305154, duration=6,  cooldown=20,  category="DEFENSIVE", specs={581}, minLevel=98 }
 SPELL_DB[204021] = { name="Fiery Brand",            class="DEMONHUNTER", icon=1305156, duration=8,  cooldown=60,  category="DEFENSIVE", specs={581}, minLevel=98 }
+SPELL_DB[247038] = { name="Chaos Blades",           class="DEMONHUNTER",               duration=20, cooldown=120, category="OFFENSIVE", specs={577}, isTalent=true }
+SPELL_DB[206491] = { name="Nemesis",                class="DEMONHUNTER",               duration=60, cooldown=120, category="OFFENSIVE", isTalent=true }

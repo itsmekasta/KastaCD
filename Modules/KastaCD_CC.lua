@@ -62,15 +62,19 @@ CC_SPELLS = {
     -- ClearCompetingCCTalents below.
     [46968]  = { class="WARRIOR",     cooldown=40,  isTalent=true,  talentGroup="warr_stormrow" },  -- Shockwave
     [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true,  talentGroup="warr_stormrow" },  -- Storm Bolt
+    [5246]   = { class="WARRIOR",     cooldown=90                   },                    -- Intimidating Shout (baseline, approx CD)
+    [236077] = { class="WARRIOR",     cooldown=60                   },                    -- Disarm (baseline, approx CD)
 
     -- PALADIN
     [853]    = { class="PALADIN",     cooldown=60                   },                    -- Hammer of Justice
     [20066]  = { class="PALADIN",     cooldown=15,  specs={65,70},  isTalent=true },       -- Repentance (Holy/Ret talent)
+    [115750] = { class="PALADIN",     cooldown=90                   },                    -- Blinding Light (baseline, approx CD)
 
     -- HUNTER
     [109248] = { class="HUNTER",      cooldown=45,  specs={253,254},isTalent=true },       -- Binding Shot (BM/MM talent)
     [24394]  = { class="HUNTER",      cooldown=60,  specs={253}     },                    -- Intimidation (BM pet, baseline)
     [19386]  = { class="HUNTER",      cooldown=45,  specs={254},    isTalent=true },       -- Wyvern Sting (MM talent)
+    [202914] = { class="HUNTER",      cooldown=30,  specs={255},    isTalent=true },       -- Spider Sting (Survival talent, approx CD)
 
     -- ROGUE
     [2094]   = { class="ROGUE",       cooldown=120                  },                    -- Blind
@@ -81,10 +85,13 @@ CC_SPELLS = {
     -- PickGuessCC below) so it never shows as someone's *default* bar -
     -- only after an actual witnessed cast.
     [408]    = { class="ROGUE",       cooldown=20,  isTalent=true   },                    -- Kidney Shot
+    [207777] = { class="ROGUE",       cooldown=60,  isTalent=true   },                    -- Dismantle (approx CD)
+    [207736] = { class="ROGUE",       cooldown=60,  specs={261},    isTalent=true },       -- Shadowy Duel (Subtlety talent, approx CD)
 
     -- DEATHKNIGHT
     [108194] = { class="DEATHKNIGHT", cooldown=45,  specs={252}     },                    -- Asphyxiate (Unholy, baseline)
     [221562] = { class="DEATHKNIGHT", cooldown=45,  specs={250}     },                    -- Asphyxiate (Blood, baseline)
+    [207167] = { class="DEATHKNIGHT", cooldown=60,  specs={251},    isTalent=true },       -- Blinding Sleet (Frost talent, approx CD)
 
     -- SHAMAN
     [51514]  = { class="SHAMAN",      cooldown=30                   },                    -- Hex
@@ -98,13 +105,18 @@ CC_SPELLS = {
 
     -- PRIEST
     [88625]  = { class="PRIEST",      cooldown=30,  specs={257}     },                    -- Holy Word: Chastise (Holy, baseline)
+    [205369] = { class="PRIEST",      cooldown=45,  isTalent=true   },                    -- Mind Bomb (PvP talent, approx CD)
 
     -- WARLOCK
     [30283]  = { class="WARLOCK",     cooldown=60                   },                    -- Shadowfury
+    [6789]   = { class="WARLOCK",     cooldown=45,  isTalent=true   },                    -- Mortal Coil (talent, approx CD)
+    [212459] = { class="WARLOCK",     cooldown=45,  specs={266},    isTalent=true },       -- Call Fel Lord (Demonology talent, approx CD)
 
     -- MONK
     [119381] = { class="MONK",        cooldown=45                   },                    -- Leg Sweep
     [115078] = { class="MONK",        cooldown=45,  isTalent=true   },                    -- Paralysis (talent)
+    [116844] = { class="MONK",        cooldown=45                   },                    -- Ring of Peace (baseline, approx CD)
+    [233759] = { class="MONK",        cooldown=60,  specs={268},    isTalent=true },       -- Grapple Weapon (Brewmaster PvP talent, approx CD)
 
     -- DRUID
     -- Cooldowns below marked "approx" are the author's best-known Legion
@@ -118,6 +130,8 @@ CC_SPELLS = {
     -- DEMONHUNTER
     [179057] = { class="DEMONHUNTER", cooldown=45,  specs={577},    isTalent=true },       -- Chaos Nova (Havoc talent)
     [217832] = { class="DEMONHUNTER", cooldown=90                   },                    -- Imprison
+    [205630] = { class="DEMONHUNTER", cooldown=30,  specs={581},    isTalent=true },       -- Illidan's Grasp (Vengeance talent, approx CD)
+    [206649] = { class="DEMONHUNTER", cooldown=60,  specs={577},    isTalent=true },       -- Eye of Leotheras (Havoc talent, approx CD)
 
     -- Arcane Torrent (Blood Elf racial) moved to the Interrupt tracker's
     -- INT_SPELLS - see KastaCD_Interrupts.lua. `race`/class="ALL" support

@@ -92,6 +92,8 @@ local function EnsureOptionsRegistered()
     AceConfig:RegisterOptionsTable("KastaCD", BuildKastaCDOptions())
     AceConfigDialog:SetDefaultSize("KastaCD", 860, 620)
     AceConfigDialog:AddToBlizOptions("KastaCD", "KastaCD")
+    -- No forced default-tab selection - the sidebar naturally lands on
+    -- whichever entry sorts first by `order`, which is "Info" (order=5).
 end
 
 -- =============================================================
@@ -116,6 +118,13 @@ function CreateKastaCDMenu()
     -- :IsShown()/:Hide()/:Show() on it, so this swap is transparent.
     kcdMenu = {
         IsShown = function() return AceConfigDialog.OpenFrames["KastaCD"] ~= nil end,
+        -- Reverted: passing "settings" as a path here made AceConfigDialog
+        -- drop straight into that sub-page instead of opening the full
+        -- app (with its sidebar tree of Info/Party Cooldowns/Tracker
+        -- Bars/Misc/Profiles) - a completely different, broken-looking
+        -- window compared to the normal /kcd experience. Back to the
+        -- plain call; the sidebar's first entry by order (now "Info")
+        -- is selected on open, same as it's always worked.
         Show    = function() AceConfigDialog:Open("KastaCD") end,
         Hide    = function() AceConfigDialog:Close("KastaCD") end,
     }

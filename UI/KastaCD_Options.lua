@@ -87,17 +87,33 @@ end
 
 local function B(v) return v and 1 or 0 end
 
+-- Recursive plain-table copy - used wherever a profile (or one of its
+-- nested settings tables like intAnchor/ccAnchor) needs to be duplicated
+-- into a NEW profile without the two ending up sharing the same nested
+-- table by reference (which would make editing one silently edit the
+-- other). Values are assumed to be plain data (numbers/strings/booleans/
+-- tables) - KastaCDDB never stores functions or other non-serializable
+-- values, so a naive recursive copy is safe here.
+local function DeepCopyTable(t)
+    if type(t) ~= "table" then return t end
+    local copy = {}
+    for k, v in pairs(t) do
+        copy[k] = DeepCopyTable(v)
+    end
+    return copy
+end
+
 -- KCD5 bundles the full settings picture, not just the per-profile spell
 -- list: Party Cooldowns' own global toggles (growLeft, medallion,
 -- borders, master enable) plus BOTH trackers' settings (enabled, test
 -- mode, bar size, font size, border, READY text, "Active in:", and their
--- anchor's saved screen position) - all of it, since intAnchor/ccAnchor
--- are global (not part of the switchable profile object `p`) in this
--- addon's data model, they're read/written straight to/from KastaCDDB
--- here rather than through `p`. This is what makes /kcdimport (and the
--- plain paste-import box) actually change something beyond the spell
--- list - previously KCD3 only ever touched
--- offsets/iconSize/iconsPerRow/enabled/contentTypes.
+-- anchor's saved screen position) - all of it. intAnchor/ccAnchor are
+-- themselves per-profile fields on `p` (see KastaCD_DB.lua's
+-- NewProfileData/ApplyActiveProfile), so SerializeProfile/
+-- DeserializeProfile read/write them straight off `p` like every other
+-- profile field. This is what makes /kcdimport (and the plain paste-import
+-- box) actually change something beyond the spell list - previously KCD3
+-- only ever touched offsets/iconSize/iconsPerRow/enabled/contentTypes.
 --
 -- Font/texture *choice* is deliberately NOT included - safely encoding
 -- arbitrary SharedMedia-registered names in this delimited format risks
@@ -115,11 +131,15 @@ function SerializeProfile(p)
     for ct, v in pairs(p.contentTypes or {}) do
         if v then table.insert(parts, "c" .. ct:gsub(" ", "_")) end
     end
-    local ia = KastaCDDB.intAnchor or {}
+    -- intAnchor/ccAnchor are per-profile fields on p itself (not global
+    -- KastaCDDB fields) - see KastaCD_DB.lua's NewProfileData/
+    -- ApplyActiveProfile for why. Reading straight off p keeps this
+    -- correct even if p isn't the currently-active profile.
+    local ia = p.intAnchor or {}
     for ct, v in pairs(ia.contentTypes or {}) do
         if v then table.insert(parts, "i" .. ct:gsub(" ", "_")) end
     end
-    local ca = KastaCDDB.ccAnchor or {}
+    local ca = p.ccAnchor or {}
     for ct, v in pairs(ca.contentTypes or {}) do
         if v then table.insert(parts, "x" .. ct:gsub(" ", "_")) end
     end
@@ -149,19 +169,26 @@ end
 
 -- Deserialise — KCD5 is current (full settings + tracker anchor position,
 -- see SerializeProfile); KCD4 is legacy (full settings, no position);
--- KCD1/2/3 are legacy (spell list + offsets only, tracker/global settings
--- left untouched). Global for the same reason as SerializeProfile above.
+-- KCD1/2/3 are legacy (spell list + offsets only, tracker settings left
+-- untouched). Global for the same reason as SerializeProfile above.
 --
--- NOTE: for KCD4/KCD5 this has a side effect beyond building the returned
--- profile table `p` - it writes directly into KastaCDDB.growLeft/
--- medallionOutsidePvP/showIconBorders/iconsEnabled/intAnchor/ccAnchor,
--- since those are global settings the imported data is meant to replace,
--- not profile-scoped ones. Every caller should follow up with
--- RebuildInterruptBars()/RebuildCCBars() (not just RebuildIcons()) so the
--- live trackers pick up the change immediately.
+-- For KCD4/KCD5 this also still writes KastaCDDB.growLeft/
+-- medallionOutsidePvP/showIconBorders/iconsEnabled directly, since those
+-- ARE global (not profile-scoped) settings the imported data is meant to
+-- replace outright. Interrupt/CC tracker settings, by contrast, are
+-- profile-scoped (see KastaCD_DB.lua's NewProfileData/ApplyActiveProfile)
+-- so they're written onto the returned profile table `p` (p.intAnchor/
+-- p.ccAnchor) instead of the live KastaCDDB globals - the caller installs
+-- `p` as a new/updated profile and switches to it, at which point
+-- ApplyActiveProfile() copies p.intAnchor/p.ccAnchor down into
+-- KastaCDDB.intAnchor/.ccAnchor for the live trackers to pick up. Writing
+-- them straight to KastaCDDB here (as this used to) would instead mutate
+-- whichever OTHER profile happened to be active at import time.
 function DeserializeProfile(str)
     local p = type(NewProfileData) == "function" and NewProfileData() or {}
-    p.enabled = p.enabled or {}
+    p.enabled   = p.enabled   or {}
+    p.intAnchor = p.intAnchor or {}
+    p.ccAnchor  = p.ccAnchor  or {}
     local ox, oy, isz, ipr, rest
 
     if str:sub(1, 5) == "KCD5:" then
@@ -184,31 +211,21 @@ function DeserializeProfile(str)
         KastaCDDB.showIconBorders     = N(7) == 1
         KastaCDDB.iconsEnabled        = N(8) == 1
 
-        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
-        local ia = KastaCDDB.intAnchor
+        local ia = p.intAnchor
         ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
         ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
         ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
         ia.contentTypes = {}
-        local iaX, iaY = NOpt(16), NOpt(17)
+        ia.savedX, ia.savedY = NOpt(16), NOpt(17)
 
-        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
-        local ca = KastaCDDB.ccAnchor
+        local ca = p.ccAnchor
         ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
         ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
         ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
         ca.contentTypes = {}
-        local caX, caY = NOpt(25), NOpt(26)
+        ca.savedX, ca.savedY = NOpt(25), NOpt(26)
 
         rest = f[27] or ""
-
-        -- SetIntAnchorPos/SetCCAnchorPos (not a raw db.savedX/savedY write)
-        -- so the live frame actually jumps to the new position immediately
-        -- instead of only taking effect after the next reload.
-        if iaX and iaY and type(SetIntAnchorPos) == "function" then SetIntAnchorPos(iaX, iaY) end
-        if caX and caY and type(SetCCAnchorPos) == "function" then SetCCAnchorPos(caX, caY) end
-        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
-        if type(RebuildCCBars) == "function" then RebuildCCBars() end
     end
 
     if not ox and str:sub(1, 5) == "KCD4:" then
@@ -222,23 +239,19 @@ function DeserializeProfile(str)
         KastaCDDB.showIconBorders     = N(7) == 1
         KastaCDDB.iconsEnabled        = N(8) == 1
 
-        if type(KastaCDDB.intAnchor) ~= "table" then KastaCDDB.intAnchor = {} end
-        local ia = KastaCDDB.intAnchor
+        local ia = p.intAnchor
         ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
         ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
         ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
         ia.contentTypes = {}
 
-        if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
-        local ca = KastaCDDB.ccAnchor
+        local ca = p.ccAnchor
         ca.enabled, ca.testMode = N(16) == 1, N(17) == 1
         ca.barWidth, ca.barHeight, ca.fontSize = N(18), N(19), N(20)
         ca.hideBorder, ca.showReady = N(21) == 1, N(22) == 1
         ca.contentTypes = {}
 
         rest = f[23] or ""
-        if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
-        if type(RebuildCCBars) == "function" then RebuildCCBars() end
     end
 
     if not ox then
@@ -261,8 +274,8 @@ function DeserializeProfile(str)
     p.iconSize    = tonumber(isz) or 22
     p.iconsPerRow = tonumber(ipr) or 5
     p.contentTypes = {}
-    local ia2 = KastaCDDB.intAnchor
-    local ca2 = KastaCDDB.ccAnchor
+    local ia2 = p.intAnchor
+    local ca2 = p.ccAnchor
     for tok in ((rest or "") .. ","):gmatch("([^,]*),") do
         if tok ~= "" then
             local k, v = tok:sub(1, 1), tok:sub(2)
@@ -271,10 +284,10 @@ function DeserializeProfile(str)
                 if sid then p.enabled[sid] = true end
             elseif k == "c" then
                 p.contentTypes[v:gsub("_", " ")] = true
-            elseif k == "i" and ia2 then
+            elseif k == "i" then
                 ia2.contentTypes = ia2.contentTypes or {}
                 ia2.contentTypes[v:gsub("_", " ")] = true
-            elseif k == "x" and ca2 then
+            elseif k == "x" then
                 ca2.contentTypes = ca2.contentTypes or {}
                 ca2.contentTypes[v:gsub("_", " ")] = true
             end
@@ -641,6 +654,40 @@ local function BuildLeaderboardGroup()
 end
 
 -- =============================================================
+-- Info tab - top-level page above Party Cooldowns in the sidebar.
+-- Same logo + greeting/Twitch/Discord layout as KastaUI's own Info panel
+-- (media/kastalogo.tga copied into KastaCD/media rather than referencing
+-- KastaUI's copy directly, so this doesn't silently break for anyone who
+-- has KastaCD without also having KastaUI installed).
+-- =============================================================
+local function BuildInfoGroup()
+    -- Plain left-aligned stock AceConfig descriptions - no image (the
+    -- logo texture rendered green through AceConfig's "image" field even
+    -- with a confirmed-good file/format) and no custom widget for text
+    -- centering (rendered as real, truncated edit boxes instead of plain
+    -- text - worse than what it was trying to fix). Just simple spacers
+    -- between the three text blocks.
+    local args = {
+        topGap = { type = "description", order = 1, name = "\n\n\n\n\n\n", fontSize = "large" },
+        greeting = {
+            type = "description", order = 20, fontSize = "large",
+            name = "Hey champ, thanks for using Kasta|cffff7f00CD|r.",
+        },
+        socialGap = Spacer(25),
+        social = {
+            type = "description", order = 30, fontSize = "large",
+            name = "|cffffffffTwitch:|r |cff9b59b6twitch.tv/kastaqt|r\n|cffffffffDiscord:|r |cff7289dakastaqt|r",
+        },
+        creditsGap = Spacer(35),
+        credits = {
+            type = "description", order = 40, fontSize = "large",
+            name = "\nCredits to |cffffd200Ruuku|r and |cffffd200Legendary <Defiance>|r for helping with the Spell DB.",
+        },
+    }
+    return { type = "group", name = "Info", order = 5, args = args }
+end
+
+-- =============================================================
 -- Interrupt Tracker / Crowd Control Tracker groups
 -- Both share identical shape - anchor field name ("intAnchor"/
 -- "ccAnchor") and the tracker's own accessor functions are the only
@@ -894,6 +941,8 @@ local function BuildProfilesGroup()
                 KastaCDDB.activeProfile = "Default"
                 if type(ApplyActiveProfile) == "function" then ApplyActiveProfile() end
                 if type(RebuildIcons) == "function" then RebuildIcons() end
+                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                if type(RebuildCCBars) == "function" then RebuildCCBars() end
                 NotifyRefresh()
                 print("KastaCD: Deleted '" .. name .. "'.")
             end,
@@ -915,6 +964,8 @@ local function BuildProfilesGroup()
                 KastaCDDB.activeProfile = nm
                 if type(ApplyActiveProfile) == "function" then ApplyActiveProfile() end
                 if type(RebuildIcons) == "function" then RebuildIcons() end
+                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                if type(RebuildCCBars) == "function" then RebuildCCBars() end
                 NotifyRefresh()
                 print("KastaCD: Created '" .. nm .. "'.")
             end,
@@ -940,10 +991,18 @@ local function BuildProfilesGroup()
                 copy.iconSize    = cur.iconSize    or 22
                 copy.iconsPerRow = cur.iconsPerRow or 5
                 for ct, v in pairs(cur.contentTypes or {}) do copy.contentTypes[ct] = v end
+                -- Deep-copy (not reference-share) both trackers' settings
+                -- too, so the new profile gets its own independent bar
+                -- position/size/font/toggles instead of the two profiles
+                -- silently editing the same table.
+                copy.intAnchor = DeepCopyTable(cur.intAnchor) or {}
+                copy.ccAnchor  = DeepCopyTable(cur.ccAnchor)  or {}
                 KastaCDDB.profiles[nm] = copy
                 KastaCDDB.activeProfile = nm
                 if type(ApplyActiveProfile) == "function" then ApplyActiveProfile() end
                 if type(RebuildIcons) == "function" then RebuildIcons() end
+                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                if type(RebuildCCBars) == "function" then RebuildCCBars() end
                 NotifyRefresh()
                 print("KastaCD: Copied to '" .. nm .. "'.")
             end,
@@ -1108,6 +1167,32 @@ local function BuildClassGroup(ci, order)
     }
 end
 
+-- Dialog-local (not saved) - which class's spells the "Tracked Spells"
+-- cell row is currently filtered to. nil = show every class.
+local ccSpellClassFilter = nil
+
+local function RGBHex(ci)
+    return string.format("%02x%02x%02x", (ci.r or 1) * 255, (ci.g or 1) * 255, (ci.b or 1) * 255)
+end
+
+-- Tracked Spells is the LAST section on the Crowd Control page (order=50,
+-- highest of that page's args), sitting right below the class button row.
+-- Snapping the scroll to the very bottom after a class toggle - instead of
+-- the top - is what actually lands the newly shown/hidden spell box in
+-- view without the user having to scroll down themselves. offset is an
+-- oversized pixel value on purpose: AceGUIContainer-ScrollFrame's FixScroll
+-- clamps whatever's stored here to the real max on next layout pass, so
+-- this doesn't need to know the page's actual (variable) height.
+local function ScrollCCToBottom()
+    local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
+    if not AceConfigDialog then return end
+    local status = AceConfigDialog:GetStatusTable("KastaCD", { "trackerbars", "crowdcontrol" })
+    if status.scroll then
+        status.scroll.offset = 999999
+        status.scroll.scrollvalue = 1000
+    end
+end
+
 -- =============================================================
 -- CC Tracker: per-spell enable/disable ("Tracked Spells" sub-tab)
 --
@@ -1115,11 +1200,22 @@ end
 -- behavior) - unchecking one here explicitly excludes it via
 -- KastaCDDB.ccAnchor.disabledSpells (KastaCD_CC.lua's IsCCSpellEnabled),
 -- regardless of what PickGuessCC's guessing or a real witnessed cast
--- would otherwise show. Grouped by class, one inline box per class with
--- at least one CC_SPELLS entry - CC_SPELLS entries don't carry a `.name`
--- field the way SPELL_DB's do, so the label comes from GetSpellInfo(sid)
--- instead.
--- =============================================================
+-- would otherwise show. CC_SPELLS entries don't carry a `.name` field the
+-- way SPELL_DB's do, so the label comes from GetSpellInfo(sid) instead.
+--
+-- Class navigation: a real AceConfig `type="group"` child would normally
+-- become a tab/tree node - but that requires this whole box to stop being
+-- inline, and per AceConfigDialog-3.0's own documented rule ("When a group
+-- is displayed inline, all descendants will also be inline members of the
+-- group"), everything under an inline parent is forced flat regardless of
+-- what the child itself sets. This exact box being non-inline was also
+-- the earlier "Tracked Spells doesn't show at all" bug (nested 4 levels
+-- deep with no working tab/tree owner above it). So instead of fighting
+-- AceConfig's nesting rules again, class selection here is a manual
+-- filter: a row of small class-colored buttons ("cells") sets
+-- ccSpellClassFilter and each class's own (still inline, still
+-- proven-safe) box hides itself unless it matches - same net effect
+-- (click a class, see only its spells) without touching group nesting.
 local function BuildCCSpellToggleGroup()
     local function GetCCAnchorDB()
         if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
@@ -1143,8 +1239,64 @@ local function BuildCCSpellToggleGroup()
         end)
     end
 
+    -- Reset the filter if it points at a class that (no longer) has any
+    -- CC_SPELLS entries, so the list can't get stuck permanently hidden.
+    if ccSpellClassFilter and not (byClass[ccSpellClassFilter] and #byClass[ccSpellClassFilter] > 0) then
+        ccSpellClassFilter = nil
+    end
+
     local args = {}
-    local classOrder = 10
+
+    -- Class cell row - one small button per class with at least one
+    -- CC_SPELLS entry. Every class box defaults to hidden
+    -- (ccSpellClassFilter starts nil) so the page opens collapsed instead
+    -- of dumping every class's spells at once - click a class to show
+    -- just it, click it again to collapse back down.
+    --
+    -- No "All"/"Close All" button - that toggle never actually collapsed
+    -- the list back down once every class was shown (AceConfigDialog
+    -- quirk that wasn't worth continuing to chase), so it's been dropped
+    -- in favor of just the single-class cells below.
+    --
+    -- order=1..~12 (well under classOrder's 100+ below) so this row can
+    -- never collide with - and get sorted in among - the class boxes
+    -- themselves, regardless of how many classes end up listed.
+    local cellOrder = 1
+    for _, ci in ipairs(CLASS_INFO or {}) do
+        local spells = byClass[ci.key]
+        if spells and #spells > 0 then
+            -- Death Knight's class color (dark red) is nearly invisible
+            -- against these buttons' own red background - white reads
+            -- clearly there instead, same as every other class's color
+            -- already does against it.
+            local hex = (ci.key == "DEATHKNIGHT") and "ffffff" or RGBHex(ci)
+            local label = "|cff" .. hex .. ci.label .. "|r"
+            args["filter" .. ci.key] = {
+                -- "half" (~85px), not a raw number - AceConfig's width
+                -- field only ever accepts "half"/"double"/"full"/nil (a
+                -- plain number like 0.8 fails AceConfigRegistry's own
+                -- validation outright, AND AceConfigDialog's renderer
+                -- silently ignores anything that isn't one of those three
+                -- keywords anyway, falling back to a default single-column
+                -- width - so a raw number was never actually doing
+                -- anything useful here even before it started erroring).
+                type = "execute", order = cellOrder, width = "half",
+                name = function()
+                    return (ccSpellClassFilter == ci.key) and ("[" .. label .. "]") or label
+                end,
+                func = function()
+                    ccSpellClassFilter = (ccSpellClassFilter == ci.key) and nil or ci.key
+                    ScrollCCToBottom()
+                    NotifyRefresh()
+                end,
+            }
+            cellOrder = cellOrder + 1
+        end
+    end
+
+    -- Starts well above the cell row's order range (see above) so a class
+    -- box can never sort in between two button cells.
+    local classOrder = 100
     for _, ci in ipairs(CLASS_INFO or {}) do
         local spells = byClass[ci.key]
         if spells and #spells > 0 then
@@ -1169,6 +1321,7 @@ local function BuildCCSpellToggleGroup()
             end
             args[ci.key] = {
                 type = "group", inline = true, order = classOrder, name = ci.label,
+                hidden = function() return ccSpellClassFilter ~= ci.key end,
                 args = classArgs,
             }
             classOrder = classOrder + 10
@@ -1254,6 +1407,7 @@ function BuildKastaCDOptions()
     }
 
     local args = {
+        info = BuildInfoGroup(),
         settings = partyCooldowns,
         trackerbars = trackerBars,
         misc = misc,
