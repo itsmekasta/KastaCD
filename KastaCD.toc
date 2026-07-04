@@ -19,6 +19,10 @@ Core\KastaCD_SpellDB.lua
 
 # 3. Class spell definitions are now appended directly to KastaCD_SpellDB.lua above.
 
+# 3b. KastaPlates' static per-dungeon NPC name/ID database (dropdown
+#     pickers) - no dependencies, pure data like SpellDB above.
+Core\KastaCD_KastaPlatesData.lua
+
 # 4. SavedVariables / profile management + spec-detection/gating
 #    (depends on SpellDB + Classes for SPELL_DB contents)
 Core\KastaCD_DB.lua
@@ -74,6 +78,16 @@ Modules\KastaCD_AffixCallouts.lua
 # 6i. Personal Mythic+ leaderboard - records your own best completion
 #     time per dungeon. No dependencies beyond DB.
 Modules\KastaCD_Leaderboard.lua
+
+# 6k. KastaPlates - recolors nameplates for user-flagged priority NPCs
+#     per dungeon, plus an optional generic "unit is casting" highlight.
+#     No dependencies beyond DB.
+Modules\KastaCD_KastaPlates.lua
+
+# 6l. Custom AceGUI widget (NPC 3D model preview) used by KastaPlates'
+#     NPC picker - must load before KastaCD_Options.lua references its
+#     type name.
+UI\KastaCD_ModelWidget.lua
 
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 UI\KastaCD_Options.lua

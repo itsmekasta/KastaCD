@@ -71,6 +71,12 @@ local CATEGORY_NAMES = {
 -- ── Profile export/import scratch state (dialog-local, not saved) ──
 local newProfileNameVal = ""
 
+-- ── KastaPlates "Add a Priority NPC" dropdown scratch state (dialog-
+-- local, not saved) - which dungeon/NPC is currently picked in the two
+-- Add-a-Priority-NPC dropdowns, before the Add button commits it.
+local kpSelectedDungeon = nil
+local kpSelectedNPC = nil
+
 local function SplitColon(str)
     local t, pos = {}, 1
     while true do
@@ -651,6 +657,247 @@ local function BuildLeaderboardGroup()
         },
     }
     return { type = "group", name = "Personal Leaderboard", order = 50, inline = true, args = args }
+end
+
+-- =============================================================
+-- KastaPlates - recolors nameplates for user-flagged priority NPCs, per
+-- dungeon (see KastaCD_KastaPlates.lua). The per-dungeon/per-NPC list
+-- grows and shrinks at runtime (Add Target/Mouseover, Remove), which
+-- AceConfig's static `args` tables can't reflect just by re-evaluating
+-- get/set/hidden closures - every add/remove calls
+-- RefreshKastaCDOptionsTable() (KastaCD_UI.lua) to rebuild the whole
+-- options table fresh instead.
+-- =============================================================
+local function BuildKastaPlatesGroup()
+    local function GetKPDB() return GetKastaPlatesDB() end
+
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Recolors a nameplate's health bar for enemies you've flagged as priority targets in the current dungeon.",
+            get = function() return GetKPDB().enabled == true end,
+            set = function(_, v)
+                GetKPDB().enabled = v and true or false
+                if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+            end,
+        },
+        pickHeader = { type = "header", order = 20, name = "Customize an NPC" },
+        pickDesc = {
+            type = "description", order = 21,
+            name = "Pick a dungeon and an NPC - every NPC in it is already known from Mythic Dungeon " ..
+                "Tools' data, nothing to add first. Color/mark controls appear below once you've picked one.",
+        },
+        -- No explicit width on either - both default to the same ~170px
+        -- column width, which is what keeps them on the same row instead
+        -- of each claiming the full width and wrapping to its own line.
+        pickDungeon = {
+            type = "select", order = 22, name = "Dungeon",
+            values = function() return KASTAPLATES_DUNGEONS or {} end,
+            get = function() return kpSelectedDungeon end,
+            set = function(_, v)
+                kpSelectedDungeon = v
+                kpSelectedNPC = nil
+            end,
+        },
+        pickNPC = {
+            type = "select", order = 23, name = "NPC",
+            disabled = function() return kpSelectedDungeon == nil end,
+            values = function()
+                return (kpSelectedDungeon and KASTAPLATES_DUNGEON_NPCS[kpSelectedDungeon]) or {}
+            end,
+            get = function() return kpSelectedNPC end,
+            set = function(_, v) kpSelectedNPC = v end,
+        },
+        -- 3D model preview of the selected NPC, with its name/NPC ID as
+        -- text to the model's right - both live inside ONE custom widget
+        -- (KastaCD_ModelWidget.lua) that positions them itself, rather
+        -- than two separate option entries relying on AceGUI's Flow
+        -- layout to land side by side (tried first, didn't reliably keep
+        -- them on the same row). `name` (-> the widget's SetLabel) carries
+        -- the info text; `get` (-> SetText) carries the stringified
+        -- displayID. KASTAPLATES_NPC_DISPLAYID is a flat npcID -> creature
+        -- displayID lookup (KastaCD_KastaPlatesData.lua).
+        pickModel = {
+            type = "input", dialogControl = "KastaCDModel",
+            order = 24, width = "full",
+            hidden = function() return kpSelectedDungeon == nil or kpSelectedNPC == nil end,
+            name = function()
+                local roster = kpSelectedDungeon and KASTAPLATES_DUNGEON_NPCS[kpSelectedDungeon]
+                local name = roster and roster[kpSelectedNPC] or "Unknown"
+                return "|cffffd200" .. name .. "|r\n\nNPC ID " .. tostring(kpSelectedNPC)
+            end,
+            get = function()
+                local displayID = KASTAPLATES_NPC_DISPLAYID and KASTAPLATES_NPC_DISPLAYID[kpSelectedNPC]
+                return displayID and tostring(displayID) or ""
+            end,
+        },
+        -- Reading never creates a saved entry (avoids cluttering the list
+        -- below with every NPC someone merely glanced at) - only writing
+        -- a color/mark actually different from the default does, via
+        -- GetOrCreateKastaPlatesEntry (KastaCD_KastaPlates.lua).
+        pickColor = {
+            type = "color", order = 26, name = "Color",
+            hidden = function() return kpSelectedDungeon == nil or kpSelectedNPC == nil end,
+            get = function()
+                local bucket = GetKPDB().dungeons[kpSelectedDungeon]
+                local entry = bucket and bucket.npcs[kpSelectedNPC]
+                local c = (entry and entry.color) or DefaultKastaPlatesColor(kpSelectedNPC)
+                return c[1], c[2], c[3]
+            end,
+            set = function(_, r, g, b)
+                local entry = GetOrCreateKastaPlatesEntry(kpSelectedDungeon, kpSelectedNPC)
+                if entry then
+                    entry.color = { r, g, b }
+                    if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+                    if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+                end
+            end,
+        },
+        pickMark = {
+            type = "select", order = 27, name = "Mark",
+            hidden = function() return kpSelectedDungeon == nil or kpSelectedNPC == nil end,
+            values = function() return KASTAPLATES_MARKS or {} end,
+            get = function()
+                local bucket = GetKPDB().dungeons[kpSelectedDungeon]
+                local entry = bucket and bucket.npcs[kpSelectedNPC]
+                return (entry and entry.mark) or 0
+            end,
+            set = function(_, v)
+                local entry = GetOrCreateKastaPlatesEntry(kpSelectedDungeon, kpSelectedNPC)
+                if entry then
+                    entry.mark = v
+                    -- Missing before - meant a picked mark never actually
+                    -- got applied to a currently-visible plate until
+                    -- something else happened to re-trigger it.
+                    if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+                    if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+                end
+            end,
+        },
+    }
+
+    -- One TAB per dungeon that has at least one tracked NPC (not inline -
+    -- childGroups="tab" on the returned group below turns these into
+    -- actual browsable tabs, same non-inline + childGroups="tab" pattern
+    -- BuildClassGroup already uses successfully for Party Cooldowns' own
+    -- per-class category tabs, at the same nesting depth: Misc >
+    -- Kastaplates > [this tab strip], matching Party Cooldowns > [class]
+    -- > [category tabs]). Each NPC is its own row: name label, color
+    -- picker, raid-mark dropdown, remove button.
+    local dungeonOrder = 100
+    local db = GetKPDB()
+    local instanceIDs = {}
+    for instanceID in pairs(db.dungeons) do table.insert(instanceIDs, instanceID) end
+    table.sort(instanceIDs, function(a, b)
+        return (db.dungeons[a].name or "") < (db.dungeons[b].name or "")
+    end)
+
+    for _, instanceID in ipairs(instanceIDs) do
+        local bucket = db.dungeons[instanceID]
+        local npcArgs = {}
+        local npcOrder = 10
+
+        local npcIDs = {}
+        for npcID in pairs(bucket.npcs) do table.insert(npcIDs, npcID) end
+        table.sort(npcIDs, function(a, b)
+            return (bucket.npcs[a].name or "") < (bucket.npcs[b].name or "")
+        end)
+
+        for _, npcID in ipairs(npcIDs) do
+            local entry = bucket.npcs[npcID]
+            -- width here is a plain string keyword only ("half"/"double"/
+            -- "full"/nil) - AceConfigRegistry's validator rejects a raw
+            -- number outright (hit and fixed once already this session).
+            npcArgs["name" .. npcID] = {
+                type = "description", order = npcOrder, width = "double",
+                name = entry.name or ("NPC " .. npcID),
+            }
+            npcArgs["color" .. npcID] = {
+                type = "color", order = npcOrder + 1, name = "Color", width = "half",
+                get = function()
+                    local c = entry.color or DefaultKastaPlatesColor(npcID)
+                    return c[1], c[2], c[3]
+                end,
+                set = function(_, r, g, b)
+                    entry.color = { r, g, b }
+                    if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+                end,
+            }
+            npcArgs["mark" .. npcID] = {
+                type = "select", order = npcOrder + 2, name = "Mark", width = "half",
+                values = function() return KASTAPLATES_MARKS or {} end,
+                get = function() return entry.mark or 0 end,
+                set = function(_, v)
+                    entry.mark = v
+                    -- Missing before - see the matching fix on pickMark
+                    -- above for why this is what made mark changes not
+                    -- actually take effect on an already-visible plate.
+                    if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+                end,
+            }
+            npcArgs["remove" .. npcID] = {
+                type = "execute", order = npcOrder + 3, name = "Remove", width = "half",
+                confirm = true, confirmText = "Remove " .. tostring(entry.name) .. " from this list?",
+                func = function()
+                    RemoveKastaPlatesNPC(instanceID, npcID)
+                    if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+                    if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+                end,
+            }
+            npcOrder = npcOrder + 10
+        end
+
+        args["dungeon" .. instanceID] = {
+            type = "group", order = dungeonOrder, name = bucket.name or ("Instance " .. instanceID),
+            args = npcArgs,
+        }
+        dungeonOrder = dungeonOrder + 10
+    end
+
+    -- Cast Highlight - generic "this unit is casting something" tint,
+    -- independent of the per-NPC list above (works on any nameplate, not
+    -- just tracked ones) since it reads UnitCastingInfo/UnitChannelInfo
+    -- directly rather than needing a curated spell database.
+    local chArgs = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Tints any nameplate whose unit is currently casting or channeling a spell - color depends on whether it can be interrupted.",
+            get = function() return GetKPDB().castHighlight.enabled == true end,
+            set = function(_, v)
+                GetKPDB().castHighlight.enabled = v and true or false
+                if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
+            end,
+        },
+        interruptibleColor = {
+            type = "color", order = 20, name = "Interruptible Cast Color",
+            desc = "Color while the unit is casting something that CAN be interrupted.",
+            get = function()
+                local c = GetKPDB().castHighlight.interruptibleColor
+                return c[1], c[2], c[3]
+            end,
+            set = function(_, r, g, b) GetKPDB().castHighlight.interruptibleColor = { r, g, b } end,
+        },
+        nonInterruptibleColor = {
+            type = "color", order = 30, name = "Non-Interruptible Cast Color",
+            desc = "Color while the unit is casting something that CANNOT be interrupted - usually the more dangerous case.",
+            get = function()
+                local c = GetKPDB().castHighlight.nonInterruptibleColor
+                return c[1], c[2], c[3]
+            end,
+            set = function(_, r, g, b) GetKPDB().castHighlight.nonInterruptibleColor = { r, g, b } end,
+        },
+    }
+    args.castHighlight = {
+        type = "group", inline = true, order = 200, name = "Cast Highlight", args = chArgs,
+    }
+
+    -- childGroups="tab" turns the non-inline "dungeon<id>" groups above
+    -- into a browsable tab strip; the "Cast Highlight" group stays
+    -- inline=true so it's exempt and keeps rendering as a fixed box
+    -- alongside the enable toggle/picker controls above the tab strip,
+    -- per AceConfigDialog's own documented rule (inline groups never
+    -- become tab/tree nodes regardless of childGroups on their parent).
+    return { type = "group", name = "Kastaplates", order = 60, childGroups = "tab", args = args }
 end
 
 -- =============================================================
@@ -1403,6 +1650,7 @@ function BuildKastaCDOptions()
             keystoneHelper = BuildKeystoneGroup(),
             affixCallouts = BuildAffixCalloutGroup(),
             leaderboard = BuildLeaderboardGroup(),
+            kastaplates = BuildKastaPlatesGroup(),
         },
     }
 

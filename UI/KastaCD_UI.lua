@@ -97,6 +97,32 @@ local function EnsureOptionsRegistered()
 end
 
 -- =============================================================
+-- RefreshKastaCDOptionsTable  –  rebuilds the ENTIRE registered options
+-- table from scratch and forces any open dialog to re-render.
+--
+-- AceConfig's `args` on a group must be a plain table, never a function
+-- (AceConfigRegistry's validator enforces this), so a group whose row
+-- count actually changes at runtime - like KastaPlates' per-dungeon,
+-- per-NPC list, which grows/shrinks as the user adds/removes entries -
+-- can't just rely on `hidden`/`get`/`set` closures re-evaluating (that
+-- only updates EXISTING rows, e.g. the CC Tracker's class filter
+-- buttons). The whole table has to be thrown away and rebuilt fresh from
+-- the current SavedVariables, then re-registered under the same name -
+-- AceConfig:RegisterOptionsTable simply replaces whatever was already
+-- registered for that name. Call this after any add/remove to a dynamic
+-- list, not after a plain value change (toggles/sliders/etc. already
+-- update live via their own get/set - this is comparatively expensive
+-- and only needed when the SHAPE of the table changed).
+-- =============================================================
+function RefreshKastaCDOptionsTable()
+    if not optionsRegistered then return end
+    local AceConfig       = LibStub("AceConfig-3.0")
+    local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
+    AceConfig:RegisterOptionsTable("KastaCD", BuildKastaCDOptions())
+    AceConfigRegistry:NotifyChange("KastaCD")
+end
+
+-- =============================================================
 -- CreateKastaCDMenu  –  materialize the /kcd standalone popup (once)
 -- =============================================================
 function CreateKastaCDMenu()
