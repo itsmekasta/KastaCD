@@ -626,9 +626,16 @@ function RebuildIcons()
     end
 
     -- ── Collect active party slots directly (anchor frames, no unit-frame detection) ──
+    -- UnitExists alone stays true for an offline party member - WoW keeps
+    -- their slot occupied (shown as a grayed-out "ghost" frame) instead of
+    -- removing them, so also requiring UnitIsConnected is what actually
+    -- makes their icons disappear while they're offline. "player" is
+    -- unaffected (can't be looking at this UI while your own client is
+    -- offline), and they reappear automatically the moment they log back
+    -- in, since the very next rebuild re-evaluates this same check.
     local activeUnits = {}
     for _, u in ipairs(PARTY_UNITS) do
-        if UnitExists(u) then
+        if UnitExists(u) and UnitIsConnected(u) then
             GetOrMakeAnchor(u)   -- ensure anchor exists
             activeUnits[#activeUnits+1] = u
         end
