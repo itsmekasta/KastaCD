@@ -166,7 +166,6 @@ SPELL_DB[57994]  = { name="Wind Shear",                 class="SHAMAN", icon=136
 SPELL_DB[108271] = { name="Astral Shift",               class="SHAMAN", icon=538565, duration=8,  cooldown=90,  category="DEFENSIVE",              minLevel=22 }
 SPELL_DB[108280] = { name="Healing Tide Totem",         class="SHAMAN", icon=538569, duration=10, cooldown=180, category="DEFENSIVE", specs={264}, minLevel=10 }
 SPELL_DB[98008]  = { name="Spirit Link Totem",          class="SHAMAN", icon=237586, duration=6,  cooldown=180, category="DEFENSIVE", specs={264}, minLevel=10 }
-SPELL_DB[16191]  = { name="Mana Tide Totem",            class="SHAMAN", icon=538573, duration=12, cooldown=180, category="DEFENSIVE", specs={264}, minLevel=10 }
 SPELL_DB[114050] = { name="Ascendance",                 class="SHAMAN", icon=571590, duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
 SPELL_DB[51533]  = { name="Feral Spirit",               class="SHAMAN", icon=237577, duration=30, cooldown=120, category="OFFENSIVE", specs={263}, minLevel=10 }
 SPELL_DB[192077] = { name="Wind Rush Totem",            class="SHAMAN", icon=538568, duration=15, cooldown=120, category="UTILITY",  isTalent=true }
