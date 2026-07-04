@@ -176,6 +176,18 @@ local function GetPlateHealthBar(unitToken)
     local tpBar = plate.extended and plate.extended.visual and plate.extended.visual.healthbar
     if tpBar then return tpBar, "tidyplates" end
 
+    -- ElvUI hides Blizzard's real plate.UnitFrame entirely (hooks its
+    -- OnShow straight to :Hide()) and builds its own parallel frame at
+    -- plate.unitFrame (lowercase u - a different field, not a typo) with
+    -- its own .HealthBar - confirmed by reading ElvUI's nameplates.lua/
+    -- healthBar.lua. That HealthBar IS a real Blizzard StatusBar widget
+    -- (CreateFrame("StatusBar", ...)), unlike TidyPlates' hand-rolled
+    -- object, so it needs no special-cased coloring path below - just
+    -- has to be found before falling through to the (invisible, ElvUI-
+    -- suppressed) plate.UnitFrame.healthBar.
+    local elvBar = plate.unitFrame and plate.unitFrame.HealthBar
+    if elvBar then return elvBar, "elvui" end
+
     local uf = plate.UnitFrame
     return uf and uf.healthBar, "blizzard"
 end
@@ -287,6 +299,40 @@ local function EnsurePlaterHook()
         local c = healthBar and healthBar.kcdForcedColor
         if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
             Plater.ForceChangeHealthBarColor(healthBar, c[1], c[2], c[3])
+        end
+    end)
+end
+
+-- ElvUI hides Blizzard's real nameplate frame and builds its own parallel
+-- one (plate.unitFrame.HealthBar - see GetPlateHealthBar above), but that
+-- HealthBar IS a genuine Blizzard StatusBar, so no special coloring path
+-- is needed once it's found. What IS needed is a hook, since ElvUI
+-- re-asserts its own computed color through one shared module method,
+-- NamePlates:UpdateElement_HealthColor(frame) - called from every
+-- relevant event path (target change, aura, threat, name update, etc. -
+-- confirmed by reading ElvUI's nameplates.lua/healthBar.lua), the same
+-- single-choke-point shape as Plater's ForceChangeHealthBarColor.
+--
+-- ElvUI's engine is exposed as the global _G.ElvUI, an AceAddon table
+-- whose [1] slot is the actual addon object (E) - E:GetModule(name, true)
+-- with the silent flag so this doesn't hard-error if the user has ElvUI
+-- installed but its NamePlates module disabled. The method is called with
+-- a colon (mod:UpdateElement_HealthColor(frame)), so the hook handler
+-- receives (self, frame) - `frame` here is ElvUI's own unitFrame object
+-- (has .HealthBar/.unit/.displayedUnit directly on it, not the Blizzard
+-- plate).
+local elvuiHookInstalled = false
+local function EnsureElvUIHook()
+    if elvuiHookInstalled then return end
+    elvuiHookInstalled = true
+    local E = _G.ElvUI and _G.ElvUI[1]
+    local NP = E and E.GetModule and E:GetModule("NamePlates", true)
+    if not (NP and type(NP.UpdateElement_HealthColor) == "function") then return end
+    hooksecurefunc(NP, "UpdateElement_HealthColor", function(_, frame)
+        local healthBar = frame and frame.HealthBar
+        local c = healthBar and healthBar.kcdForcedColor
+        if c and healthBar:IsShown() then
+            healthBar:SetStatusBarColor(c[1], c[2], c[3])
         end
     end)
 end
@@ -435,6 +481,7 @@ watcher:SetScript("OnEvent", function(_, event, unitToken)
     if event == "PLAYER_ENTERING_WORLD" then
         EnsureHealthColorHook()
         EnsurePlaterHook()
+        EnsureElvUIHook()
         EnsureColorReassertTicker()
         SeedKastaPlatesPresets()
         RefreshKastaPlates()
@@ -467,6 +514,7 @@ end)
 
 EnsureHealthColorHook()
 EnsurePlaterHook()
+EnsureElvUIHook()
 EnsureColorReassertTicker()
 
 -- -------------------------------------------------------------
