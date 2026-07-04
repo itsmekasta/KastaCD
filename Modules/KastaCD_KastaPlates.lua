@@ -159,10 +159,25 @@ end
 -- exactly once below, ever).
 local activeUnits = {}   -- [unitToken] = { npcID, baseColor={r,g,b} or nil, castColor={r,g,b} or nil }
 
+-- TidyPlates (and its skin packages Graphite/Grey/Neon/Quatre) replaces
+-- Blizzard's nameplate visuals but keeps using the SAME frame
+-- C_NamePlate.GetNamePlateForUnit returns - it just bolts extra fields
+-- onto it. Its actual health bar is a hand-rolled pseudo-StatusBar at
+-- plate.extended.visual.healthbar (confirmed by reading TidyPlatesCore.lua/
+-- TidyPlatesStatusbar.lua), not a real Blizzard StatusBar, so it has no
+-- GetStatusBarTexture()/GetParent() the way plate.UnitFrame.healthBar
+-- does - only a plain .Bar texture and a :SetStatusBarColor(r,g,b) method
+-- TidyPlates itself defines. Checking for that field first means both
+-- nameplate systems fall through the exact same coloring code below.
 local function GetPlateHealthBar(unitToken)
     local plate = C_NamePlate.GetNamePlateForUnit(unitToken)
-    local uf = plate and plate.UnitFrame
-    return uf and uf.healthBar, uf
+    if not plate then return nil end
+
+    local tpBar = plate.extended and plate.extended.visual and plate.extended.visual.healthbar
+    if tpBar then return tpBar, "tidyplates" end
+
+    local uf = plate.UnitFrame
+    return uf and uf.healthBar, "blizzard"
 end
 
 -- A priority-NPC color (baseColor) always wins over the generic Cast
@@ -177,22 +192,53 @@ local function EffectiveColor(state)
     return state.baseColor or state.castColor
 end
 
+-- TidyPlates recolors its custom health bar via its own per-instance
+-- :SetStatusBarColor method (TidyPlatesStatusbar.lua), not any single
+-- shared function the way Blizzard's CompactUnitFrame_UpdateHealthColor
+-- is - so there's no one global function to hooksecurefunc once. Instead
+-- this hooks that ONE health bar OBJECT's method, exactly once per
+-- object (tracked via kcdTPHooked on the bar itself, since nameplates -
+-- and their bar objects - get reused across different units over time).
+local function EnsureTidyPlatesHook(healthBar)
+    if healthBar.kcdTPHooked then return end
+    healthBar.kcdTPHooked = true
+    hooksecurefunc(healthBar, "SetStatusBarColor", function(self, r, g, b)
+        local c = self.kcdForcedColor
+        -- Guard against re-triggering our own call to SetStatusBarColor
+        -- just below - hooksecurefunc still fires for calls WE make, not
+        -- just TidyPlates' own.
+        if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
+            self:SetStatusBarColor(c[1], c[2], c[3])
+        end
+    end)
+end
+
 local function ApplyEffectiveColor(unitToken)
     local state = activeUnits[unitToken]
-    local healthBar = GetPlateHealthBar(unitToken)
+    local healthBar, kind = GetPlateHealthBar(unitToken)
     if not healthBar then return end
+
+    if kind == "tidyplates" then
+        EnsureTidyPlatesHook(healthBar)
+    end
 
     local color = EffectiveColor(state)
     if color then
         healthBar.kcdForcedColor = color
         healthBar:SetStatusBarColor(color[1], color[2], color[3])
+        if healthBar.Bar then
+            healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
+        end
     elseif healthBar.kcdForcedColor then
         healthBar.kcdForcedColor = nil
-        -- Let Blizzard recompute its own normal color immediately instead
-        -- of waiting for its next unrelated health-color update.
-        if CompactUnitFrame_UpdateHealthColor and healthBar:GetParent() then
+        if kind == "blizzard" and CompactUnitFrame_UpdateHealthColor and healthBar:GetParent() then
+            -- Let Blizzard recompute its own normal color immediately
+            -- instead of waiting for its next unrelated health-color
+            -- update.
             CompactUnitFrame_UpdateHealthColor(healthBar:GetParent())
         end
+        -- TidyPlates has no equivalent "recompute now" call to make here -
+        -- it repaints this bar on its own next update cycle regardless.
     end
 end
 
@@ -210,6 +256,37 @@ local function EnsureHealthColorHook()
         local c = healthBar and healthBar.kcdForcedColor
         if c then
             healthBar:SetStatusBarColor(c[1], c[2], c[3])
+        end
+    end)
+end
+
+-- Plater (unlike TidyPlates) keeps using Blizzard's own real
+-- plate.UnitFrame.healthBar object - GetPlateHealthBar already finds it
+-- correctly with no changes needed. The problem is Plater aggressively
+-- re-asserts ITS OWN color on that same object through a single choke
+-- point, Plater.ForceChangeHealthBarColor (confirmed by reading its
+-- source - every one of its own threat/quest/class/faction/periodic
+-- recolor paths funnels through this one function, which sets
+-- healthBar.R/G/B and calls healthBar.barTexture:SetVertexColor
+-- directly, bypassing SetStatusBarColor entirely). Hooking
+-- CompactUnitFrame_UpdateHealthColor alone doesn't catch that, since
+-- Plater's own recoloring never calls it.
+--
+-- Safe to call Plater.ForceChangeHealthBarColor again from inside its own
+-- hook without infinite recursion: that function is itself idempotent
+-- (`if r~=healthBar.R or ... then ... end` - a no-op if the color passed
+-- in already matches what's already set), so forcing our color back on
+-- triggers the hook once more, sees our color already matches, and does
+-- nothing further the second time.
+local platerHookInstalled = false
+local function EnsurePlaterHook()
+    if platerHookInstalled then return end
+    platerHookInstalled = true
+    if not (_G.Plater and type(Plater.ForceChangeHealthBarColor) == "function") then return end
+    hooksecurefunc(Plater, "ForceChangeHealthBarColor", function(healthBar, r, g, b)
+        local c = healthBar and healthBar.kcdForcedColor
+        if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
+            Plater.ForceChangeHealthBarColor(healthBar, c[1], c[2], c[3])
         end
     end)
 end
@@ -241,6 +318,11 @@ local function EnsureColorReassertTicker()
                     local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
                     if tex then
                         tex:SetVertexColor(color[1], color[2], color[3])
+                    end
+                    -- TidyPlates' custom health bar object (no real
+                    -- GetStatusBarTexture) exposes its texture directly.
+                    if healthBar.Bar then
+                        healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
                     end
                 end
             end
@@ -415,13 +497,21 @@ SlashCmdList["KASTACDPLATESDEBUG"] = function()
         local unitToken = plate.namePlateUnitToken
         if unitToken then
             local state = activeUnits[unitToken]
-            local healthBar = GetPlateHealthBar(unitToken)
+            local healthBar, kind = GetPlateHealthBar(unitToken)
             local npcID = GUIDToNpcID(UnitGUID(unitToken))
             local forced = healthBar and healthBar.kcdForcedColor
-            print(("    %s npcID=%s tracked=%s forcedColor=%s realColor=%s"):format(
-                tostring(unitToken), tostring(npcID), tostring(state ~= nil),
+            -- TidyPlates' custom health bar object only defines
+            -- SetStatusBarColor, not the getter - guard rather than error.
+            local realColor = "no healthbar"
+            if healthBar and healthBar.GetStatusBarColor then
+                realColor = string.format("%.2f,%.2f,%.2f", healthBar:GetStatusBarColor())
+            elseif healthBar then
+                realColor = "n/a (no getter)"
+            end
+            print(("    %s npcID=%s tracked=%s kind=%s forcedColor=%s realColor=%s"):format(
+                tostring(unitToken), tostring(npcID), tostring(state ~= nil), tostring(kind),
                 forced and string.format("%.2f,%.2f,%.2f", forced[1], forced[2], forced[3]) or "nil",
-                healthBar and string.format("%.2f,%.2f,%.2f", healthBar:GetStatusBarColor()) or "no healthbar"))
+                realColor))
         end
     end
 end
