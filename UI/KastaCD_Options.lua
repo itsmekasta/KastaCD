@@ -528,6 +528,12 @@ local function BuildInterruptAnnounceGroup()
             get = function() return GetAnnounceDB().channel end,
             set = function(_, v) GetAnnounceDB().channel = v end,
         },
+        showBrand = {
+            type = "toggle", order = 25, name = "Show \"- KastaCD\" Tag", width = "full",
+            desc = "Appends \" - KastaCD\" to the end of the announcement. Turn off to send just your customized message text with nothing added.",
+            get = function() return GetAnnounceDB().showBrand ~= false end,
+            set = function(_, v) GetAnnounceDB().showBrand = v and true or false end,
+        },
         messageHeader = { type = "header", order = 30, name = "Message" },
         placeholderDesc = {
             type = "description", order = 40,

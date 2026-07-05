@@ -7,9 +7,11 @@
 -- Depends on: KastaCD_DB.lua (KastaCDDB must exist)
 -- =============================================================
 
--- The "- KastaCD" branding is hardcoded and always appended after
--- placeholder substitution (see FormatAnnounce) - it is NOT part of the
--- editable template, by explicit request, so the player can't remove it.
+-- The "- KastaCD" branding is appended after placeholder substitution
+-- (see FormatAnnounce), kept separate from the editable template itself
+-- so customizing the message text can't accidentally duplicate or
+-- mangle it. Shown by default (db.showBrand), but the player can turn
+-- it off entirely via Settings.
 local BRAND_SUFFIX     = " - KastaCD"
 local DEFAULT_TEMPLATE = "{player} has interrupted {spell}"
 
@@ -21,18 +23,19 @@ local DEFAULT_TEMPLATE = "{player} has interrupted {spell}"
 -- opt in, per an explicit request to make this the default behavior.
 function GetAnnounceDB()
     if type(KastaCDDB) ~= "table" then
-        return { enabled = true, channel = "YELL", template = DEFAULT_TEMPLATE }
+        return { enabled = true, channel = "YELL", template = DEFAULT_TEMPLATE, showBrand = true }
     end
     if type(KastaCDDB.interruptAnnounce) ~= "table" then
         KastaCDDB.interruptAnnounce = {}
     end
     local db = KastaCDDB.interruptAnnounce
-    if db.enabled  == nil then db.enabled  = true end
-    if db.channel  == nil then db.channel  = "YELL" end
-    if db.template == nil then db.template = DEFAULT_TEMPLATE end
+    if db.enabled   == nil then db.enabled   = true end
+    if db.channel   == nil then db.channel   = "YELL" end
+    if db.template  == nil then db.template  = DEFAULT_TEMPLATE end
+    if db.showBrand == nil then db.showBrand = true end
     -- One-time migration: earlier versions saved "- KastaCD" as literal
     -- text inside the editable template. Strip it so it isn't duplicated
-    -- now that the suffix is always appended automatically instead.
+    -- now that the suffix is appended automatically instead.
     if db.template:sub(-#BRAND_SUFFIX) == BRAND_SUFFIX then
         db.template = db.template:sub(1, -#BRAND_SUFFIX - 1)
     end
@@ -45,19 +48,22 @@ end
 
 -- -------------------------------------------------------------
 -- Placeholder substitution - {player}/{spell}/{myspell}/{target} - plus
--- the hardcoded " - KastaCD" brand suffix, always appended last and
--- unconditionally, regardless of what the user's template contains.
--- Plain string replacement (not a format string), so a template that
--- omits a placeholder, repeats one, or is missing entirely from the
--- saved DB (fresh install) all still work without erroring.
+-- the " - KastaCD" brand suffix, appended last, unless the player has
+-- turned it off (db.showBrand). Plain string replacement (not a format
+-- string), so a template that omits a placeholder, repeats one, or is
+-- missing entirely from the saved DB (fresh install) all still work
+-- without erroring.
 -- -------------------------------------------------------------
-local function FormatAnnounce(template, vars)
+local function FormatAnnounce(template, vars, showBrand)
     local msg = template or DEFAULT_TEMPLATE
     msg = msg:gsub("{player}",  vars.player  or "")
     msg = msg:gsub("{spell}",   vars.spell   or "")
     msg = msg:gsub("{myspell}", vars.myspell or "")
     msg = msg:gsub("{target}",  vars.target  or "")
-    return msg .. BRAND_SUFFIX
+    if showBrand then
+        msg = msg .. BRAND_SUFFIX
+    end
+    return msg
 end
 
 -- Real, clickable spell hyperlink (shows the actual spell tooltip on
@@ -90,7 +96,7 @@ function AnnounceInterrupt(mySpellName, interruptedSpellName, targetName, interr
         spell   = SpellLinkOrName(interruptedSpellId, interruptedSpellName),
         myspell = SpellLinkOrName(mySpellId, mySpellName),
         target  = targetName or "",
-    })
+    }, db.showBrand)
     SendChatMessage(msg, db.channel or "SAY")
 end
 
@@ -106,6 +112,6 @@ function TestAnnounceInterrupt()
         spell   = SpellLinkOrName(133, "Test Spell"),      -- Fireball
         myspell = SpellLinkOrName(6552, "Test Interrupt"), -- Pummel
         target  = "Target Dummy",
-    })
+    }, db.showBrand)
     SendChatMessage(msg, db.channel or "SAY")
 end
