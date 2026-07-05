@@ -168,15 +168,25 @@ function SerializeProfile(p)
         B(ca.enabled ~= false), B(ca.testMode), ca.barWidth or 200, ca.barHeight or 20,
         ca.fontSize or 10, B(ca.hideBorder), B(ca.showReady ~= false),
         ca.savedX or "", ca.savedY or "",
+        -- KCD6 additions: raid-group visibility + its own offset/size
+        -- settings (KastaCD_DB.lua's raidOffsetX etc.), and both
+        -- trackers' click-through toggle.
+        B(KastaCDDB.showInRaidGroups),
+        p.raidOffsetX or 0, p.raidOffsetY or 0, p.raidIconSize or 22, p.raidIconsPerRow or 5,
+        B(ia.clickThrough), B(ca.clickThrough),
     }
 
-    return "KCD5:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
+    return "KCD6:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
 end
 
--- Deserialise — KCD5 is current (full settings + tracker anchor position,
--- see SerializeProfile); KCD4 is legacy (full settings, no position);
--- KCD1/2/3 are legacy (spell list + offsets only, tracker settings left
--- untouched). Global for the same reason as SerializeProfile above.
+-- Deserialise — KCD6 is current (adds raid-group settings + click-through
+-- on top of KCD5); KCD5 is legacy (full settings + tracker anchor
+-- position); KCD4 is legacy (full settings, no position); KCD1/2/3 are
+-- legacy (spell list + offsets only, tracker settings left untouched).
+-- Importing an older format simply leaves the newer fields at their
+-- defaults (GetIntDB()/GetCCDB() and KastaCDInitDB's own lazy-fill logic
+-- already handle a missing clickThrough/raidOffsetX/etc. safely) rather
+-- than erroring. Global for the same reason as SerializeProfile above.
 --
 -- For KCD4/KCD5 this also still writes KastaCDDB.growLeft/
 -- medallionOutsidePvP/showIconBorders/iconsEnabled directly, since those
@@ -197,7 +207,49 @@ function DeserializeProfile(str)
     p.ccAnchor  = p.ccAnchor  or {}
     local ox, oy, isz, ipr, rest
 
-    if str:sub(1, 5) == "KCD5:" then
+    if str:sub(1, 5) == "KCD6:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 33 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        -- Empty field ("") means the sender's anchor was never manually
+        -- positioned - see the comment on savedX/savedY in
+        -- SerializeProfile above.
+        local function NOpt(i)
+            local s = f[i]
+            if not s or s == "" then return nil end
+            return tonumber(s)
+        end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        local ia = p.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+        ia.savedX, ia.savedY = NOpt(16), NOpt(17)
+
+        local ca = p.ccAnchor
+        ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
+        ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
+        ca.contentTypes = {}
+        ca.savedX, ca.savedY = NOpt(25), NOpt(26)
+
+        KastaCDDB.showInRaidGroups = N(27) == 1
+        p.raidOffsetX, p.raidOffsetY = N(28), N(29)
+        p.raidIconSize, p.raidIconsPerRow = N(30), N(31)
+        ia.clickThrough = N(32) == 1
+        ca.clickThrough = N(33) == 1
+
+        rest = f[34] or ""
+    end
+
+    if not ox and str:sub(1, 5) == "KCD5:" then
         local f = SplitColon(str:sub(6))
         if #f < 26 then return nil, "Bad format." end
         local function N(i) return tonumber(f[i]) or 0 end
@@ -378,6 +430,15 @@ local function BuildSettingsGroup()
                 NotifyRefresh() -- re-crop the class tree icons to match
             end,
         },
+        showInRaidGroups = {
+            type = "toggle", order = 15, name = "Show in Raid Groups",
+            desc = "Party Cooldown icons are hidden by default once your group grows past a party (there'd normally be too many members to anchor icons to usefully). Turn this on to show them for the whole raid roster instead - see the Raid Groups section below for separate offset/size options.",
+            get = function() return KastaCDDB.showInRaidGroups == true end,
+            set = function(_, v)
+                KastaCDDB.showInRaidGroups = v and true or false
+                if type(RebuildIcons) == "function" then RebuildIcons() end
+            end,
+        },
         contentHeader = { type = "header", order = 20, name = "Active in" },
     }
     local ctOrder = 30
@@ -394,10 +455,41 @@ local function BuildSettingsGroup()
         ctOrder = ctOrder + 10
     end
 
+    -- Separate offset/size/per-row controls for raid1-40 units, only
+    -- relevant (and only shown) once "Show in Raid Groups" above is on -
+    -- a 40-member raid usually wants smaller icons/different placement
+    -- than a 5-person party, so these deliberately don't share the
+    -- Position cell's values (see raidOffsetX etc. in KastaCD_DB.lua).
+    local raidArgs = {
+        raidOffsetX = {
+            type = "range", order = 10, name = "Offset X", min = -200, max = 200, step = 1,
+            get = function() return KastaCDDB.raidOffsetX end,
+            set = function(_, v) KastaCDDB.raidOffsetX = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
+        },
+        raidOffsetY = {
+            type = "range", order = 20, name = "Offset Y", min = -200, max = 200, step = 1,
+            get = function() return KastaCDDB.raidOffsetY end,
+            set = function(_, v) KastaCDDB.raidOffsetY = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
+        },
+        raidIconSize = {
+            type = "range", order = 30, name = "Icon Size", min = 12, max = 48, step = 1,
+            get = function() return KastaCDDB.raidIconSize end,
+            set = function(_, v) KastaCDDB.raidIconSize = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
+        },
+        raidIconsPerRow = {
+            type = "range", order = 40, name = "Icons per Row", min = 1, max = 10, step = 1,
+            get = function() return KastaCDDB.raidIconsPerRow end,
+            set = function(_, v) KastaCDDB.raidIconsPerRow = v; if type(RebuildIcons) == "function" then RebuildIcons() end end,
+        },
+    }
+
     -- Master switch sits above everything else on the page (order 1) and
     -- hides the rest of the page's content when off, same treatment as
     -- the tracker pages' own Enable toggle.
     local isHidden = function() return KastaCDDB.iconsEnabled == false end
+    local isRaidCellHidden = function()
+        return KastaCDDB.iconsEnabled == false or not KastaCDDB.showInRaidGroups
+    end
 
     local args = {
         enabled = {
@@ -412,6 +504,7 @@ local function BuildSettingsGroup()
     args.position   = { type = "group", inline = true, order = 10, name = "Position",   hidden = isHidden, args = positionArgs }
     args.misc       = { type = "group", inline = true, order = 20, name = "Misc",       hidden = isHidden, args = miscArgs }
     args.visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs }
+    args.raidGroups = { type = "group", inline = true, order = 40, name = "Raid Groups", hidden = isRaidCellHidden, args = raidArgs }
 
     return { type = "group", name = "Party Cooldowns", order = 10, args = args }
 end
@@ -1088,6 +1181,15 @@ local function BuildAnchorGroup(opts)
             desc = "Shows green \"READY\" text on the bar when off cooldown. Turn off to leave that side of the bar blank instead.",
             get = function() return GetAnchorDB().showReady ~= false end,
             set = function(_, v) GetAnchorDB().showReady = v and true or false end,
+        },
+        clickThrough = {
+            type = "toggle", order = 60, name = "Click-through",
+            desc = "Lets clicks pass through the bar to whatever's underneath it (nameplates, action bars, etc.) instead of the bar itself catching them. Only applies while locked - unlock the bar to reposition it as usual.",
+            get = function() return GetAnchorDB().clickThrough == true end,
+            set = function(_, v)
+                GetAnchorDB().clickThrough = v and true or false
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
         },
     }
 

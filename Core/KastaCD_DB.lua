@@ -22,6 +22,18 @@ function NewProfileData()
         offsetY      = 0,
         iconSize     = 22,
         iconsPerRow  = 5,
+        -- Separate offset/size/per-row settings used only for raid1-40
+        -- units when Settings > "Show in Raid Groups" is on (see
+        -- KastaCD_DB.lua's global showInRaidGroups + IsRaidUnit in
+        -- KastaCD_Tracking.lua) - a 40-member raid usually wants smaller,
+        -- differently-placed icons than a 5-person party, so this is
+        -- deliberately its own set of values rather than reusing the
+        -- party ones above. Defaults match the party values exactly so
+        -- behavior is identical until a user actually tweaks them.
+        raidOffsetX     = 0,
+        raidOffsetY     = 0,
+        raidIconSize    = 22,
+        raidIconsPerRow = 5,
         contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
             ["Arena"]=true,      ["Battleground"]=true
@@ -99,6 +111,10 @@ function KastaCDInitDB()
     if type(p.offsetY)      ~= "number" then p.offsetY      = 0  end
     if type(p.iconSize)     ~= "number" then p.iconSize     = 22 end
     if type(p.iconsPerRow)  ~= "number" then p.iconsPerRow  = 5  end
+    if type(p.raidOffsetX)     ~= "number" then p.raidOffsetX     = 0  end
+    if type(p.raidOffsetY)     ~= "number" then p.raidOffsetY     = 0  end
+    if type(p.raidIconSize)    ~= "number" then p.raidIconSize    = 22 end
+    if type(p.raidIconsPerRow) ~= "number" then p.raidIconsPerRow = 5  end
     if type(p.contentTypes) ~= "table"  then
         p.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
@@ -111,6 +127,17 @@ function KastaCDInitDB()
     if KastaCDDB.anchorsLocked      == nil     then KastaCDDB.anchorsLocked = true end
     if KastaCDDB.showIconBorders       == nil then KastaCDDB.showIconBorders       = false end
     if KastaCDDB.medallionOutsidePvP   == nil then KastaCDDB.medallionOutsidePvP   = false end
+    -- Off by default: Party Cooldown icons are hidden entirely in raid-sized
+    -- groups (see IsInPartyOnly in KastaCD_Tracking.lua) since there'd
+    -- normally be too many members to anchor icons to usefully. A global
+    -- (non-profile) toggle, same as the other simple on/off flags above -
+    -- deliberately NOT threaded through NewProfileData/ApplyActiveProfile/
+    -- PersistActiveProfile like contentTypes is, because that copy pipeline
+    -- uses `KastaCDDB.x or p.x` and `or` silently discards an explicit
+    -- `false` (0 is truthy in Lua, but false isn't) - fine for the numeric/
+    -- table fields it already handles, but it would quietly undo this
+    -- setting the moment it's turned off.
+    if KastaCDDB.showInRaidGroups      == nil then KastaCDDB.showInRaidGroups      = false end
 
     -- ── One-time migration: Interrupt/CC tracker bar settings used to
     -- live directly on KastaCDDB.intAnchor/.ccAnchor, shared globally
@@ -142,6 +169,7 @@ function KastaCDInitDB()
     if ia.testMode  == nil then ia.testMode  = false                  end
     if ia.texturePath == nil then ia.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
     if ia.hideBorder == nil then ia.hideBorder = false                end
+    if ia.clickThrough == nil then ia.clickThrough = false            end
     if type(ia.contentTypes) ~= "table" then
         ia.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
@@ -161,6 +189,7 @@ function KastaCDInitDB()
     if ca.fontSize  == nil then ca.fontSize  = 10                     end
     if ca.texturePath == nil then ca.texturePath = "Interface\\TargetingFrame\\UI-StatusBar" end
     if ca.hideBorder == nil then ca.hideBorder = false                end
+    if ca.clickThrough == nil then ca.clickThrough = false            end
     if type(ca.contentTypes) ~= "table" then
         ca.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
@@ -185,6 +214,10 @@ ApplyActiveProfile = function()
     KastaCDDB.offsetY      = p.offsetY
     KastaCDDB.iconSize     = p.iconSize
     KastaCDDB.iconsPerRow  = p.iconsPerRow
+    KastaCDDB.raidOffsetX     = p.raidOffsetX
+    KastaCDDB.raidOffsetY     = p.raidOffsetY
+    KastaCDDB.raidIconSize    = p.raidIconSize
+    KastaCDDB.raidIconsPerRow = p.raidIconsPerRow
     KastaCDDB.contentTypes = p.contentTypes
     if type(p.intAnchor) ~= "table" then p.intAnchor = {} end
     if type(p.ccAnchor)  ~= "table" then p.ccAnchor  = {} end
@@ -219,6 +252,10 @@ PersistActiveProfile = function()
     p.offsetY      = KastaCDDB.offsetY      or p.offsetY
     p.iconSize     = KastaCDDB.iconSize     or p.iconSize
     p.iconsPerRow  = KastaCDDB.iconsPerRow  or p.iconsPerRow
+    p.raidOffsetX     = KastaCDDB.raidOffsetX     or p.raidOffsetX
+    p.raidOffsetY     = KastaCDDB.raidOffsetY     or p.raidOffsetY
+    p.raidIconSize    = KastaCDDB.raidIconSize    or p.raidIconSize
+    p.raidIconsPerRow = KastaCDDB.raidIconsPerRow or p.raidIconsPerRow
     p.contentTypes = KastaCDDB.contentTypes or p.contentTypes
     p.intAnchor    = KastaCDDB.intAnchor    or p.intAnchor
     p.ccAnchor     = KastaCDDB.ccAnchor     or p.ccAnchor

@@ -23,11 +23,53 @@ iconContainers = {}   -- [unit] = { container, icons={} }
 local PARTY_UNITS = { "player", "party1", "party2", "party3", "party4" }
 local kcdAnchors  = {}   -- [unit] = frame
 
+function IsRaidUnit(unit)
+    return unit ~= nil and unit:match("^raid%d+$") ~= nil
+end
+
+-- Returns the unit tokens for the current group shape: the fixed
+-- player/party1-4 list normally, or raid1-N (N = actual roster size)
+-- while genuinely in a raid AND the user has opted in via Settings >
+-- "Show in Raid Groups" (KastaCDDB.showInRaidGroups - off by default,
+-- since a 40-member raid showing full cooldown icon clusters for
+-- everyone is a deliberate, heavier opt-in, not the normal case).
+-- Centralised here so every anchor/relayout/rebuild loop stays in sync
+-- with whichever shape is actually active.
+function GetGroupUnits()
+    if IsInRaid and IsInRaid() and KastaCDDB and KastaCDDB.showInRaidGroups then
+        local units = {}
+        local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+        for i = 1, n do
+            units[#units + 1] = "raid" .. i
+        end
+        return units
+    end
+    return PARTY_UNITS
+end
+
+-- Party members get KastaCDDB's normal offsetX/offsetY/iconSize/
+-- iconsPerRow; raid members (see IsRaidUnit above) get their own
+-- separate raidOffsetX/raidOffsetY/raidIconSize/raidIconsPerRow instead
+-- - a 40-person raid usually wants smaller icons/different placement
+-- than a 5-person party, so these are deliberately not shared.
+function GetIconSettingsFor(unit)
+    if IsRaidUnit(unit) then
+        return KastaCDDB.raidIconSize, KastaCDDB.raidIconsPerRow,
+               KastaCDDB.raidOffsetX,  KastaCDDB.raidOffsetY
+    end
+    return KastaCDDB.iconSize, KastaCDDB.iconsPerRow,
+           KastaCDDB.offsetX,  KastaCDDB.offsetY
+end
+
 local function GetOrMakeAnchor(unit)
     if kcdAnchors[unit] then return kcdAnchors[unit] end
 
-    -- player = slot 0 (above party1 in default stacking)
-    local idx = unit == "player" and 0 or (tonumber(unit:match("party(%d)")) or 1)
+    -- player = slot 0 (above party1 in default stacking); raidN uses the
+    -- same numbering scheme as partyN so the shared idx-based fallback
+    -- layout below (wrapped into columns of 8) still makes sense at
+    -- raid scale instead of just falling back to a single shared slot 1.
+    local idx = unit == "player" and 0
+        or (tonumber(unit:match("party(%d)")) or tonumber(unit:match("raid(%d+)")) or 1)
     local a   = CreateFrame("Frame", nil, UIParent)
     a:SetSize(10, 10)
     a:SetMovable(true)
@@ -73,7 +115,15 @@ local function GetOrMakeAnchor(unit)
         a:ClearAllPoints()
         a:SetPoint("TOPLEFT", UIParent, "TOPLEFT", saved.x / esc, saved.y / esc)
     else
-        a:SetPoint("CENTER", UIParent, "CENTER", -130, (3 - idx) * 55)
+        -- Fallback spread, only used until a real frame is found to snap
+        -- to (TrySnapAnchor) or the user manually drags it. Wraps into a
+        -- new column every 8 rows so up to 40 raid anchors don't shoot
+        -- forty rows off-screen before ever getting a chance to
+        -- auto-snap - for idx 0-4 (the original party-sized case) col is
+        -- always 0, so this produces the exact same positions as before.
+        local col = math.floor(idx / 8)
+        local row = idx % 8
+        a:SetPoint("CENTER", UIParent, "CENTER", -130 + col * 160, (3 - row) * 55)
     end
 
     kcdAnchors[unit] = a
@@ -81,9 +131,11 @@ local function GetOrMakeAnchor(unit)
 end
 
 -- Called by the Settings panel "Unlock Anchors" button.
--- Only shows anchors for party slots that are actually occupied.
+-- Only shows anchors for party/raid slots that are actually occupied.
 function ShowKastaCDAnchors()
-    for _, u in ipairs(PARTY_UNITS) do
+    local wanted = {}
+    for _, u in ipairs(GetGroupUnits()) do
+        wanted[u] = true
         if UnitExists(u) then
             local a = GetOrMakeAnchor(u)
             a.dot:Show(); a.lbl:Show(); a:Show()
@@ -91,6 +143,14 @@ function ShowKastaCDAnchors()
             -- Hide any stale anchor for this empty slot
             local a = kcdAnchors[u]
             if a then a:Hide() end
+        end
+    end
+    -- Hide dot/label left over from a different group shape (e.g.
+    -- switching from raid-mode back to a normal party) - GetGroupUnits()
+    -- above only returns whichever shape is CURRENTLY active.
+    for u, a in pairs(kcdAnchors) do
+        if not wanted[u] then
+            a.dot:Hide(); a.lbl:Hide()
         end
     end
 end
@@ -161,8 +221,11 @@ local function TrySnapAnchor(unit)
         if pf and pf.IsShown and pf:IsShown() and pf.GetRight then mf = pf end
     end
 
-    local ox = (type(KastaCDDB) == "table" and KastaCDDB.offsetX) or 0
-    local oy = (type(KastaCDDB) == "table" and KastaCDDB.offsetY) or 0
+    local ox, oy = 0, 0
+    if type(KastaCDDB) == "table" then
+        local _, _, sox, soy = GetIconSettingsFor(unit)
+        ox, oy = sox or 0, soy or 0
+    end
 
     if mf then
         a:ClearAllPoints()
@@ -195,11 +258,14 @@ function HasGroup()
     return GetNumGroupMembers and GetNumGroupMembers() > 0
 end
 
--- Returns true only when in a party (not a raid).
--- Icons should be hidden in raid groups since they'd be too small
--- to be useful and CompactRaidFrames cover too many units to track.
+-- Icons are hidden in raid groups by default (there'd normally be too
+-- many members to anchor them to usefully), unless the user has
+-- explicitly opted in via Settings > "Show in Raid Groups"
+-- (KastaCDDB.showInRaidGroups, a global toggle - see KastaCD_DB.lua).
 function IsInPartyOnly()
-    if IsInRaid and IsInRaid() then return false end
+    if IsInRaid and IsInRaid() then
+        return KastaCDDB and KastaCDDB.showInRaidGroups == true
+    end
     return HasGroup()
 end
 
@@ -334,13 +400,65 @@ function FindUnitFrames()
         if #found > 0 then return found end
     end
 
-    -- Step 2: Blizzard CompactRaidFrames (raid / raid-style party).
-    for i = 1, 40 do
+    -- Step 1b: VuhDo. Unlike every other addon handled here, VuhDo doesn't
+    -- need any frame-name guessing or child-walking at all - it maintains
+    -- its own genuine global table, VUHDO_UNIT_BUTTONS[unit], that already
+    -- lists every one of ITS OWN button frames currently assigned to that
+    -- real unit token (VuhDoPanel.lua's VUHDO_addUnitButton, fed by
+    -- VuhDoKeySetup.lua's VUHDO_setupAllHealButtonAttributes - the same
+    -- place VuhDo stamps both the secure "unit" attribute AND a plain
+    -- button.raidid field with the unit). The table is wiped and rebuilt
+    -- on every VuhDo redraw/refresh, so reading it always reflects live
+    -- state - confirmed by reading VuhDo's own source, not guessed.
+    if _G.VUHDO_UNIT_BUTTONS then
+        local found = {}
+        for _, unit in ipairs(GetGroupUnits()) do
+            local buttons = _G.VUHDO_UNIT_BUTTONS[unit]
+            if buttons then
+                for _, btn in ipairs(buttons) do
+                    if btn:IsShown() then
+                        table.insert(found, { unit = unit, frame = btn })
+                        break
+                    end
+                end
+            end
+        end
+        if #found > 0 then return found end
+    end
+
+    -- Step 2: Blizzard CompactRaidFrames (raid / raid-style party). Range
+    -- extended to 90 (confirmed against OmniCD's own raid-frame detection
+    -- list, Modules/Party/Position.lua's COMPACT_RAID) - 40 covers a full
+    -- default-layout raid, but there's no reason to cap it lower than
+    -- another cooldown-tracking addon already found necessary.
+    for i = 1, 90 do
         local f = _G["CompactRaidFrame" .. i]
         if not f then break end
         local unit = f.unit or f.displayedUnit
         if unit and f:IsShown() and UnitExists(unit) then
             table.insert(unitFramePairs, { unit = unit, frame = f })
+        end
+    end
+    if #unitFramePairs > 0 then return unitFramePairs end
+
+    -- Step 2b: CompactRaidGroup<N>Member<M> - the OTHER Blizzard raid frame
+    -- naming scheme, used when the raid frame layout is set to "Keep
+    -- Groups Together" instead of the flat sorted list Step 2 above
+    -- checks. Without this, raid members simply have no frame found at
+    -- all under that layout mode - TrySnapAnchor then falls back to a
+    -- static position that never applies offsetX/offsetY, which is why
+    -- only Icon Size (unaffected by anchor-snap success) visibly did
+    -- anything while raid Offset X/Y appeared to do nothing. Confirmed
+    -- naming against OmniCD's own COMPACT_RAID_KGT list, not guessed.
+    for g = 1, 8 do
+        for m = 1, 5 do
+            local f = _G["CompactRaidGroup" .. g .. "Member" .. m]
+            if f then
+                local unit = f.unit or f.displayedUnit
+                if unit and f:IsShown() and UnitExists(unit) then
+                    table.insert(unitFramePairs, { unit = unit, frame = f })
+                end
+            end
         end
     end
     if #unitFramePairs > 0 then return unitFramePairs end
@@ -464,8 +582,8 @@ end
 -- -------------------------------------------------------------
 -- MakeIconFrame  –  create a single spell icon widget
 -- -------------------------------------------------------------
-local function MakeIconFrame(spellId, spellData, parent)
-    local size = KastaCDDB.iconSize
+local function MakeIconFrame(spellId, spellData, parent, size)
+    size = size or KastaCDDB.iconSize
     local f = CreateFrame("Frame", nil, parent or UIParent)
     f:SetSize(size, size)
     f:SetFrameStrata("MEDIUM")
@@ -565,9 +683,9 @@ end
 -- -------------------------------------------------------------
 -- LayoutIconRow  –  arrange icons in a grid inside their container
 -- -------------------------------------------------------------
-function LayoutIconRow(container, icons)
-    local size = KastaCDDB.iconSize
-    local ipr  = KastaCDDB.iconsPerRow
+function LayoutIconRow(container, icons, size, ipr)
+    size = size or KastaCDDB.iconSize
+    ipr  = ipr  or KastaCDDB.iconsPerRow
     local cols = math.min(#icons, ipr)
     local rows = math.ceil(#icons / ipr)
     container:SetSize(cols * size, rows * size)
@@ -634,7 +752,7 @@ function RebuildIcons()
     -- offline), and they reappear automatically the moment they log back
     -- in, since the very next rebuild re-evaluates this same check.
     local activeUnits = {}
-    for _, u in ipairs(PARTY_UNITS) do
+    for _, u in ipairs(GetGroupUnits()) do
         if UnitExists(u) and UnitIsConnected(u) then
             GetOrMakeAnchor(u)   -- ensure anchor exists
             activeUnits[#activeUnits+1] = u
@@ -658,9 +776,15 @@ function RebuildIcons()
 
     -- ── Pass 1: figure out what SHOULD be shown, without touching any frames ──
     local desired = {}   -- [unit] = { spells = { {sid,data}, ... } }
+    -- Includes BOTH party and raid settings (not just whichever shape is
+    -- currently active) so a change to the one NOT currently in use still
+    -- forces a rebuild the moment the group shape switches to it, instead
+    -- of silently rendering with a stale signature match.
     local sigParts = {
         tostring(KastaCDDB.iconSize), tostring(KastaCDDB.iconsPerRow),
         tostring(KastaCDDB.offsetX), tostring(KastaCDDB.offsetY),
+        tostring(KastaCDDB.raidIconSize), tostring(KastaCDDB.raidIconsPerRow),
+        tostring(KastaCDDB.raidOffsetX), tostring(KastaCDDB.raidOffsetY),
     }
 
     for _, unit in ipairs(activeUnits) do
@@ -784,6 +908,10 @@ function RebuildIcons()
                 local iconList = { container=container, icons={} }
                 iconContainers[unit] = iconList
 
+                -- Raid members use their own raidIconSize/raidIconsPerRow
+                -- instead of the party ones - see GetIconSettingsFor.
+                local unitSize, unitIpr = GetIconSettingsFor(unit)
+
                 for _, entry in ipairs(entries) do
                     local reused = reusedFrame[unit] and reusedFrame[unit][entry.sid]
                     local ico
@@ -796,8 +924,7 @@ function RebuildIcons()
                         -- was first created.
                         ico = reused
                         ico:SetParent(container)
-                        local size = KastaCDDB.iconSize
-                        ico:SetSize(size, size)
+                        ico:SetSize(unitSize, unitSize)
                         if KastaCDDB and KastaCDDB.showIconBorders then
                             ico.tex:SetTexCoord(0, 1, 0, 1)
                         else
@@ -805,7 +932,7 @@ function RebuildIcons()
                         end
                         ico:Show()
                     else
-                        ico = MakeIconFrame(entry.sid, entry.data, container)
+                        ico = MakeIconFrame(entry.sid, entry.data, container, unitSize)
                     end
                     local state = { frame=ico, phase=nil, endTime=0 }
 
@@ -864,7 +991,7 @@ function RebuildIcons()
                     table.insert(iconList.icons, ico)
                 end
 
-                LayoutIconRow(container, iconList.icons)
+                LayoutIconRow(container, iconList.icons, unitSize, unitIpr)
                 PositionIconCluster(container, anchorFrame)
                 container:Show()
                 for _, ico in ipairs(iconList.icons) do ico:Show() end
@@ -888,16 +1015,18 @@ end
 -- Called every ~0.5 s in case frames have moved or the window was resized.
 -- -------------------------------------------------------------
 local function RelayoutAllIcons()
+    local groupUnits = GetGroupUnits()
     -- Re-snap anchors to unit frames where discoverable
-    for _, u in ipairs(PARTY_UNITS) do
+    for _, u in ipairs(groupUnits) do
         if kcdAnchors[u] then TrySnapAnchor(u) end
     end
-    for _, u in ipairs(PARTY_UNITS) do
+    for _, u in ipairs(groupUnits) do
         local anchorFrame = kcdAnchors[u]
         if anchorFrame then
             local iconList = iconContainers[u]
             if iconList and iconList.icons and #iconList.icons > 0 then
-                LayoutIconRow(iconList.container, iconList.icons)
+                local unitSize, unitIpr = GetIconSettingsFor(u)
+                LayoutIconRow(iconList.container, iconList.icons, unitSize, unitIpr)
                 PositionIconCluster(iconList.container, anchorFrame)
             end
         end

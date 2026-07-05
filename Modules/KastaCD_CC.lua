@@ -213,6 +213,7 @@ local function GetCCDB()
     if db.texturePath == nil then db.texturePath = DEFAULT_BAR_TEXTURE end
     if db.hideBorder  == nil then db.hideBorder  = false end
     if db.showReady   == nil then db.showReady   = true  end
+    if db.clickThrough == nil then db.clickThrough = false end
     -- Grow direction: false/nil = grow down (bars stack below a fixed top
     -- edge, the original behavior), true = grow up (bars stack above a
     -- fixed bottom edge).
@@ -470,6 +471,30 @@ local function EnsureCCAnchor()
     ApplyCCGrowLayout()
 end
 
+-- Click-through: lets clicks pass to whatever is underneath the bar
+-- (nameplates, action bars, the game world) instead of the bar itself
+-- eating them. Only takes effect while locked - unlocked always keeps
+-- mouse enabled, otherwise the anchor couldn't be dragged at all.
+-- EnableMouse only affects the exact frame it's called on (not
+-- children), so every icon frame under ccBarsParent needs the same
+-- call, not just the anchor itself - walked generically via
+-- GetChildren() rather than tracking a separate icon-frame list, so
+-- this stays correct regardless of how RebuildCCBars builds rows.
+function ApplyCCClickThrough()
+    if not ccAnchorFrame then return end
+    local db = GetCCDB()
+    local through = db.clickThrough and db.locked
+    ccAnchorFrame:EnableMouse(not through)
+    if ccBarsParent then
+        for _, row in ipairs({ ccBarsParent:GetChildren() }) do
+            if row.EnableMouse then row:EnableMouse(not through) end
+            for _, child in ipairs({ row:GetChildren() }) do
+                if child.EnableMouse then child:EnableMouse(not through) end
+            end
+        end
+    end
+end
+
 -- Show/hide the header strip based on lock state.
 -- Size/position adjustments are handled inside RebuildCCBars.
 local function ApplyCCAnchorLockState()
@@ -483,6 +508,7 @@ local function ApplyCCAnchorLockState()
         ccAnchorFrame.hdrLbl:SetTextColor(1, 1, 1)
         ccAnchorFrame.hdrLbl:Show()
     end
+    ApplyCCClickThrough()
 end
 
 -- ─────────────────────────────────────────────────────────────
