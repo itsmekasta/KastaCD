@@ -108,7 +108,7 @@ CC_SPELLS = {
     [205369] = { class="PRIEST",      cooldown=45,  isTalent=true   },                    -- Mind Bomb (PvP talent, approx CD)
 
     -- WARLOCK
-    [30283]  = { class="WARLOCK",     cooldown=60                   },                    -- Shadowfury
+    [30283]  = { class="WARLOCK",     cooldown=60, specs={267}                   },                    -- Shadowfury
     [6789]   = { class="WARLOCK",     cooldown=45,  isTalent=true   },                    -- Mortal Coil (talent, approx CD)
     [212459] = { class="WARLOCK",     cooldown=45,  specs={266},    isTalent=true },       -- Call Fel Lord (Demonology talent, approx CD)
 
