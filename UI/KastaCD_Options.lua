@@ -1197,6 +1197,15 @@ local function BuildAnchorGroup(opts)
                 if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
+        maxNameChars = {
+            type = "range", order = 70, name = "Max Name Characters", min = 0, max = 20, step = 1,
+            desc = "Shortens the displayed name to this many characters. 0 = no limit (show the full name).",
+            get = function() return GetAnchorDB().maxNameChars or 0 end,
+            set = function(_, v)
+                GetAnchorDB().maxNameChars = v
+                if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
+            end,
+        },
     }
 
     -- Master switch sits above everything else on the page (order 1) and

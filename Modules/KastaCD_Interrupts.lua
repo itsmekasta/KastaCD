@@ -130,6 +130,7 @@ local function GetIntDB()
     if db.hideBorder  == nil then db.hideBorder  = false end
     if db.showReady   == nil then db.showReady   = true  end
     if db.clickThrough == nil then db.clickThrough = false end
+    if db.maxNameChars == nil then db.maxNameChars = 0 end
     -- Grow direction: false/nil = grow down (bars stack below a fixed top
     -- edge, the original behavior), true = grow up (bars stack above a
     -- fixed bottom edge).
@@ -755,8 +756,12 @@ function RebuildInterruptBars()
                 bf.cdText:SetFont(fp, fs, "OUTLINE")
                 bf.cdText:SetHeight(BH)
 
-                -- Name
-                bf.nameText:SetText((fakeInfo and fakeInfo.name) or UnitName(baseUnit) or baseUnit)
+                -- Name (shortened to Max Name Characters if set - 0 = no limit)
+                local displayName = (fakeInfo and fakeInfo.name) or UnitName(baseUnit) or baseUnit
+                if db.maxNameChars and db.maxNameChars > 0 then
+                    displayName = displayName:sub(1, db.maxNameChars)
+                end
+                bf.nameText:SetText(displayName)
 
                 -- Initialise state if not yet tracked
                 if not intBarState[unit] then
