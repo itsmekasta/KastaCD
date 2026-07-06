@@ -436,6 +436,34 @@ function RebuildInterruptBars()
             end
         end
 
+        -- Sort by class instead of raid/party slot order, so bars group
+        -- same-class units together (e.g. two Monks always end up
+        -- adjacent) rather than scattering them whenever a different
+        -- class happens to land in a party slot between them - same
+        -- logic as KastaCD_CC.lua's own sort. CLASS_INFO's order matches
+        -- the rest of the addon; unrecognized classes sort last and ties
+        -- keep their original party-slot order. Done before the racial-
+        -- row appending below, so "#racial" rows naturally follow their
+        -- now-sorted base units.
+        do
+            local classOrder = {}
+            for i, ci in ipairs(CLASS_INFO or {}) do classOrder[ci.key] = i end
+            local function UnitClassToken(u)
+                local fakeInfo = TEST_FAKE_LOOKUP[u]
+                if fakeInfo then return fakeInfo.class end
+                local _, c = UnitClass(u)
+                return c
+            end
+            local origIndex = {}
+            for i, u in ipairs(units) do origIndex[u] = i end
+            table.sort(units, function(a, b)
+                local oa = classOrder[UnitClassToken(a)] or math.huge
+                local ob = classOrder[UnitClassToken(b)] or math.huge
+                if oa ~= ob then return oa < ob end
+                return origIndex[a] < origIndex[b]
+            end)
+        end
+
         -- Append a synthetic "<unit>#racial" entry for anyone whose race
         -- has an always-on racial default (e.g. Blood Elf/Arcane Torrent)
         -- - this becomes a *second, additional* bar for that unit rather
