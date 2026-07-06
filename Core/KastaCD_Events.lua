@@ -135,6 +135,17 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
             if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
+        -- The Interrupt Tracker bar was intermittently landing a few
+        -- pixels off its saved position after a reload - most likely
+        -- UIParent's effective scale/size not being fully settled yet at
+        -- the exact moment the first SetPoint call above ran (a known
+        -- class of WoW UI-init timing issue, not a bug in the saved
+        -- value itself). Re-asserting the exact same saved position
+        -- once more, safely later, corrects it without needing to
+        -- guess at a single delay that's "long enough" every time.
+        C_Timer.After(3, function()
+            if type(ReapplyIntAnchorPos) == "function" then ReapplyIntAnchorPos() end
+        end)
         return
     end
 

@@ -268,6 +268,25 @@ local function EnsureIntAnchor()
     ApplyIntGrowLayout()
 end
 
+-- Re-applies the saved position exactly as EnsureIntAnchor's own
+-- restore branch does, without recreating anything. Exposed so
+-- KastaCD_Events.lua can call it again a couple of seconds after the
+-- normal PLAYER_ENTERING_WORLD rebuild - the bar was intermittently
+-- landing a few pixels off after a reload, which points at UIParent's
+-- effective scale/size not having fully settled yet at the moment the
+-- very first SetPoint call ran (a known class of WoW UI-init timing
+-- issue); re-asserting the exact same saved values once more, safely
+-- later, corrects it without needing to guess at a "long enough" single
+-- delay that might still not always be long enough on a slower load.
+function ReapplyIntAnchorPos()
+    if not intAnchorFrame then return end
+    local db = GetIntDB()
+    if not (db.savedX and db.savedY) then return end
+    local esc = intAnchorFrame:GetEffectiveScale()
+    intAnchorFrame:ClearAllPoints()
+    intAnchorFrame:SetPoint(IntAnchorPoint(db), UIParent, "TOPLEFT", db.savedX / esc, db.savedY / esc)
+end
+
 -- Click-through: lets clicks pass to whatever is underneath the bar
 -- (nameplates, action bars, the game world) instead of the bar itself
 -- eating them. Only takes effect while locked - unlocked always keeps
