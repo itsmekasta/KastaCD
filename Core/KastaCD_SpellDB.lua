@@ -184,7 +184,11 @@ SPELL_DB[49039]  = { name="Lichborne",              class="DEATHKNIGHT", icon=13
 SPELL_DB[48707]  = { name="Anti-Magic Shell",       class="DEATHKNIGHT", icon=136120, duration=5,  cooldown=60,  category="IMMUNITY",               minLevel=55 }
 SPELL_DB[55233]  = { name="Vampiric Blood",         class="DEATHKNIGHT", icon=136168, duration=10, cooldown=90,  category="DEFENSIVE", specs={250}, minLevel=55 }
 SPELL_DB[49028]  = { name="Dancing Rune Weapon",    class="DEATHKNIGHT", icon=135277, duration=8,  cooldown=120, category="OFFENSIVE", specs={250}, minLevel=55 }
-SPELL_DB[51052]  = { name="Anti-Magic Zone",        class="DEATHKNIGHT", icon=136176, duration=10, cooldown=120, category="DEFENSIVE", specs={250}, isTalent=true }
+-- Anti-Magic Zone is a Legion PvP (Honor) talent, not a normal
+-- spec-restricted talent - same rule as the Shaman/Mage Honor talents
+-- further down this file (only active while flagged/in a PvP instance,
+-- available regardless of spec, so no specs={} restriction here).
+SPELL_DB[51052]  = { name="Anti-Magic Zone",        class="DEATHKNIGHT", icon=136176, duration=10, cooldown=120, category="DEFENSIVE", isTalent=true }
 SPELL_DB[207289] = { name="Unholy Frenzy",          class="DEATHKNIGHT", icon=136224, duration=30, cooldown=75,  category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[42650]  = { name="Army of the Dead",       class="DEATHKNIGHT", icon=237511, duration=0,  cooldown=480, category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[49206]  = { name="Summon Gargoyle",        class="DEATHKNIGHT", icon=458967, duration=30, cooldown=180, category="OFFENSIVE", specs={252}, minLevel=55 }

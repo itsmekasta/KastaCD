@@ -81,12 +81,19 @@ CC_SPELLS = {
     [1776]   = { class="ROGUE",       cooldown=10,  specs={260},    isTalent=true },       -- Gouge (Outlaw, uncertain baseline/talent)
     -- Kidney Shot has a real 20s cooldown on this server (unlike retail,
     -- where it's an uncapped combo-point finisher) - confirmed by the
-    -- user. isTalent=true keeps it out of the default-guess pool (see
-    -- PickGuessCC below) so it never shows as someone's *default* bar -
-    -- only after an actual witnessed cast.
-    [408]    = { class="ROGUE",       cooldown=20,  isTalent=true   },                    -- Kidney Shot
+    -- user. Assassination/Subtlety only - Outlaw uses Between the Eyes
+    -- instead (see below). isTalent=true keeps it out of the single-slot
+    -- default-guess pool (see PickGuessCC below), but alwaysGuess=true
+    -- makes it show as its own bar the moment a matching-spec Rogue is
+    -- seen in the group, rather than waiting on an actual witnessed cast.
+    [408]    = { class="ROGUE",       cooldown=20,  specs={259,261}, isTalent=true, alwaysGuess=true }, -- Kidney Shot (Assassination/Subtlety)
     [207777] = { class="ROGUE",       cooldown=60,  isTalent=true   },                    -- Dismantle (approx CD)
     [207736] = { class="ROGUE",       cooldown=60,  specs={261},    isTalent=true },       -- Shadowy Duel (Subtlety talent, approx CD)
+    -- Between the Eyes is Outlaw's baseline finisher stun/debuff - cooldown
+    -- is the author's best-known Legion value (approx, not yet confirmed
+    -- against this server). Same alwaysGuess treatment as Kidney Shot: show
+    -- it as soon as an Outlaw Rogue is in the group.
+    [199804] = { class="ROGUE",       cooldown=45,  specs={260},    isTalent=true, alwaysGuess=true }, -- Between the Eyes (Outlaw, approx CD)
 
     -- DEATHKNIGHT
     [108194] = { class="DEATHKNIGHT", cooldown=45,  specs={252}     },                    -- Asphyxiate (Unholy, baseline)
@@ -126,6 +133,14 @@ CC_SPELLS = {
     [102359] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Mass Entanglement (Feral/Guardian talent, approx CD)
     [132469] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Typhoon (Feral/Guardian talent, approx CD)
     [102793] = { class="DRUID",       cooldown=60,  specs={105},    isTalent=true },       -- Ursol's Vortex (Restoration talent, approx CD)
+    -- Maim has a real 10s cooldown on this server (unlike retail, where
+    -- it's an uncapped combo-point finisher) - confirmed by the user,
+    -- same treatment as Rogue's Kidney Shot above. isTalent=true keeps
+    -- it out of the single-slot default-guess pool (see PickGuessCC
+    -- below), but alwaysGuess=true makes it show as its own bar the
+    -- moment a Feral Druid is seen in the group, rather than waiting on
+    -- an actual witnessed cast.
+    [22570]  = { class="DRUID",       cooldown=10,  specs={103},    isTalent=true, alwaysGuess=true }, -- Maim (Feral)
 
     -- DEMONHUNTER
     [179057] = { class="DEMONHUNTER", cooldown=45,  specs={577},    isTalent=true },       -- Chaos Nova (Havoc talent)
@@ -321,12 +336,27 @@ local function PickGuessCC(unit, class, specId, raceToken)
 
     if known then
         for sid, info in pairs(CC_SPELLS) do
-            if info.isTalent and known[sid] and IsCCSpellEnabled(sid) then
+            if info.isTalent and not info.alwaysGuess and known[sid] and IsCCSpellEnabled(sid) then
                 local classOk = info.class == class or info.class == "ALL"
                 local raceOk  = not info.race or info.race == raceToken
                 if classOk and raceOk and SpecInList(info.specs, specId) then
                     table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
                 end
+            end
+        end
+    end
+
+    -- alwaysGuess entries (Kidney Shot, Maim, Between the Eyes) bypass the
+    -- "known"/witnessed-cast gate entirely - they're real baseline finishers
+    -- with a fixed cooldown on this server, so as soon as a unit's class/spec
+    -- matches they get their own guessed bar, independent of the single-slot
+    -- exactMatch/fallback competition below.
+    for sid, info in pairs(CC_SPELLS) do
+        if info.alwaysGuess and IsCCSpellEnabled(sid) then
+            local classOk = info.class == class or info.class == "ALL"
+            local raceOk  = not info.race or info.race == raceToken
+            if classOk and raceOk and SpecInList(info.specs, specId) then
+                table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
             end
         end
     end
