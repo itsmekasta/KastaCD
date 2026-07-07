@@ -522,6 +522,78 @@ function FindUnitFrames()
     return unitFramePairs
 end
 
+-- =============================================================
+-- HideVanillaPartyBuffs
+--
+-- Settings > "Hide Blizzard Buffs on Party Frames" - hides Blizzard's own
+-- native buff icons on party-scoped CompactUnitFrames (the small icons
+-- CompactUnitFrame_UpdateAuras adds as children named e.g.
+-- "CompactRaidFrame2Buff1" - confirmed against this server via
+-- /framestack, same naming Blizzard has used since CompactRaidFrames were
+-- introduced). Only affects Blizzard's OWN frames - ElvUI/other unit-frame
+-- replacement addons build their own separate aura icons unrelated to
+-- this and have their own settings for it.
+--
+-- hooksecurefunc, not a direct replacement - chains onto Blizzard's own
+-- update function instead of overriding it, so this can never taint the
+-- frame (same taint-avoidance approach already used in
+-- KastaCD_KastaPlates.lua's health-color hook). Blizzard re-runs
+-- CompactUnitFrame_UpdateAuras on every UNIT_AURA for that frame, so
+-- hiding here re-fires just as often - no separate ticker needed.
+--
+-- Debuffs are deliberately left alone (frame.debuffFrames untouched) -
+-- only "buffs" was asked for, and hiding dispel-relevant debuff warnings
+-- would be actively unhelpful.
+-- -------------------------------------------------------------
+local function HideVanillaPartyBuffs(frame)
+    if not (KastaCDDB and KastaCDDB.hideVanillaPartyBuffs) then return end
+    if not frame or not frame.unit then return end
+    local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
+    if not isPartyUnit then return end
+    if frame.buffFrames then
+        for _, buffFrame in pairs(frame.buffFrames) do
+            if buffFrame and buffFrame.Hide then buffFrame:Hide() end
+        end
+    end
+end
+
+if type(CompactUnitFrame_UpdateAuras) == "function" then
+    hooksecurefunc("CompactUnitFrame_UpdateAuras", HideVanillaPartyBuffs)
+end
+if type(CompactUnitFrame_UpdateBuffs) == "function" then
+    hooksecurefunc("CompactUnitFrame_UpdateBuffs", HideVanillaPartyBuffs)
+end
+
+-- =============================================================
+-- HideVanillaPartyDebuffs
+--
+-- Debuff Display's own "Hide Blizzard Debuffs on Party Frames" - same
+-- mechanism as HideVanillaPartyBuffs above, mirrored for
+-- frame.debuffFrames instead of frame.buffFrames, gated by its own
+-- separate KastaCDDB.hideVanillaPartyDebuffs toggle. Unlike the buff
+-- version, hiding debuffs here IS opt-in on purpose (the buff version's
+-- comment warns against hiding dispel-relevant debuff warnings by
+-- default) - only takes effect when the user explicitly turns this on.
+-- -------------------------------------------------------------
+local function HideVanillaPartyDebuffs(frame)
+    if not (KastaCDDB and KastaCDDB.hideVanillaPartyDebuffs) then return end
+    if not frame or not frame.unit then return end
+    local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
+    if not isPartyUnit then return end
+    if frame.debuffFrames then
+        for _, debuffFrame in pairs(frame.debuffFrames) do
+            if debuffFrame and debuffFrame.Hide then debuffFrame:Hide() end
+        end
+    end
+end
+
+if type(CompactUnitFrame_UpdateAuras) == "function" then
+    hooksecurefunc("CompactUnitFrame_UpdateAuras", HideVanillaPartyDebuffs)
+end
+if type(CompactUnitFrame_UpdateDebuffs) == "function" then
+    hooksecurefunc("CompactUnitFrame_UpdateDebuffs", HideVanillaPartyDebuffs)
+end
+
 -- -------------------------------------------------------------
 -- ClearIcons  –  destroy all icon frames and reset state
 -- -------------------------------------------------------------
@@ -795,7 +867,24 @@ function RebuildIcons()
             if unitClass then
                 local spells = {}
                 for sid, data in pairs(enabled) do
-                    if (data.class == unitClass or data.class == "ALL") and IsSpellKnownForUnit(unit, sid) then
+                    -- A spell actually mid-uptime/cooldown right now (a real
+                    -- witnessed cast) always counts as "known" here, even if
+                    -- IsSpellKnownForUnit's talent-scan read is transiently
+                    -- false this exact poll - see the SpecPollTicker comment
+                    -- in KastaCD_Events.lua acknowledging those reads are
+                    -- "never trusted for more than ~1 second" and can flip
+                    -- briefly. That's fine for a static idle icon (it just
+                    -- reappears within a second), but for an isTalent spell
+                    -- like Ravager whose whole uptime window is only ~6s, one
+                    -- of the once-a-second RebuildIcons() polls landing on a
+                    -- stale "false" read was enough to tear the live timer
+                    -- down mid-flight (ClearIcons dropping it from the
+                    -- "desired" set, since it never got a chance at
+                    -- keepFrames). An actual witnessed cast is stronger
+                    -- evidence than a polled talent-scan hiccup, so trust it.
+                    local activeState = trackerState[unit] and trackerState[unit][sid]
+                    local isActive = activeState and activeState.phase ~= nil
+                    if (data.class == unitClass or data.class == "ALL") and (IsSpellKnownForUnit(unit, sid) or isActive) then
                         -- Medallion: skip outside Arena/BG unless the "outside PvP" toggle is on
                         if sid == 208683 and not KastaCDDB.medallionOutsidePvP then
                             local ct = GetCurrentContentType()

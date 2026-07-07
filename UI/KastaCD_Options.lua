@@ -149,6 +149,34 @@ function SerializeProfile(p)
     for ct, v in pairs(ca.contentTypes or {}) do
         if v then table.insert(parts, "x" .. ct:gsub(" ", "_")) end
     end
+    -- Buff Display's watched-spell list (KastaCD_BuffDisplay.lua) - a
+    -- single global blob, not profile-scoped like intAnchor/ccAnchor, so
+    -- this always reads the live KastaCDDB.buffDisplay directly (same
+    -- treatment SerializeProfile already gives growLeft/showIconBorders
+    -- below, rather than routing it through `p`). "b" token, underscore-
+    -- separated sub-fields - NOT colon, since SplitColon in
+    -- DeserializeProfile splits the whole string on colons first and only
+    -- the LAST field is this comma-separated token list.
+    local bd = type(GetBuffDisplayDB) == "function" and GetBuffDisplayDB() or nil
+    for spellId, entry in pairs((bd and bd.list) or {}) do
+        table.insert(parts, string.format("b%d_%d%d%d_%d", spellId,
+            B(entry.enabled ~= false), B(entry.glow ~= false), B(entry.showTimer ~= false), entry.iconSize or 30))
+    end
+    -- Debuff Display (KastaCD_DebuffDisplay.lua) - same global-blob
+    -- treatment as Buff Display above. "g" tokens carry its user-created
+    -- categories (id_name, name with spaces as underscores like the "c"/
+    -- "i"/"x" content-type tokens above); "d" tokens carry the
+    -- watched-spell list itself, same shape as "b" plus a trailing
+    -- categoryId so each spell lands back in the right one on import.
+    local dd = type(GetDebuffDisplayDB) == "function" and GetDebuffDisplayDB() or nil
+    for id, catName in pairs((dd and dd.categories) or {}) do
+        table.insert(parts, string.format("g%d_%s", id, catName:gsub(" ", "_")))
+    end
+    for spellId, entry in pairs((dd and dd.list) or {}) do
+        table.insert(parts, string.format("d%d_%d%d%d_%d_%d", spellId,
+            B(entry.enabled ~= false), B(entry.glow ~= false), B(entry.showTimer ~= false),
+            entry.iconSize or 30, entry.categoryId or 0))
+    end
     table.sort(parts)
 
     -- savedX/savedY are left as "" (not 0) when nil - the sender's anchor
@@ -174,32 +202,56 @@ function SerializeProfile(p)
         B(KastaCDDB.showInRaidGroups),
         p.raidOffsetX or 0, p.raidOffsetY or 0, p.raidIconSize or 22, p.raidIconsPerRow or 5,
         B(ia.clickThrough), B(ca.clickThrough),
+        -- KCD7 additions: Buff Display's own settings (its watched-spell
+        -- list itself travels as "b" tokens above, not here).
+        B(bd and bd.enabled), (bd and bd.offsetX) or 0, (bd and bd.offsetY) or 0,
+        (bd and bd.raidOffsetX) or 0, (bd and bd.raidOffsetY) or 0,
+        B(bd and bd.showInRaidGroups), B(bd and bd.showIconBorders),
+        B(KastaCDDB.hideVanillaPartyBuffs),
+        -- KCD8 addition: Buff Display's icon growth direction
+        -- (CENTER/LEFT/RIGHT/UP/DOWN - a plain word, safe as a raw field
+        -- since it can't contain the ":" or "," this format's own
+        -- delimiters use).
+        (bd and bd.growDirection) or "CENTER",
+        -- KCD9 additions: Debuff Display's own settings (its categories
+        -- and watched-spell list itself travel as "g"/"d" tokens above,
+        -- not here).
+        B(dd and dd.enabled), (dd and dd.offsetX) or 0, (dd and dd.offsetY) or 0,
+        (dd and dd.raidOffsetX) or 0, (dd and dd.raidOffsetY) or 0,
+        B(dd and dd.showInRaidGroups), B(dd and dd.showIconBorders),
+        B(KastaCDDB.hideVanillaPartyDebuffs), (dd and dd.growDirection) or "CENTER",
     }
 
-    return "KCD6:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
+    return "KCD9:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
 end
 
--- Deserialise — KCD6 is current (adds raid-group settings + click-through
--- on top of KCD5); KCD5 is legacy (full settings + tracker anchor
--- position); KCD4 is legacy (full settings, no position); KCD1/2/3 are
--- legacy (spell list + offsets only, tracker settings left untouched).
--- Importing an older format simply leaves the newer fields at their
--- defaults (GetIntDB()/GetCCDB() and KastaCDInitDB's own lazy-fill logic
--- already handle a missing clickThrough/raidOffsetX/etc. safely) rather
--- than erroring. Global for the same reason as SerializeProfile above.
+-- Deserialise — KCD9 is current (adds Debuff Display's own settings +
+-- categories + watched-spell list on top of KCD8); KCD8 is legacy (Buff
+-- Display's growth direction on top of KCD7); KCD7 is legacy (Buff
+-- Display's own settings + its watched-spell list on top of KCD6); KCD6
+-- is legacy (raid-group settings + click-through on top of KCD5); KCD5 is
+-- legacy (full settings + tracker anchor position); KCD4 is legacy (full
+-- settings, no position); KCD1/2/3 are legacy (spell list + offsets only,
+-- tracker settings left untouched). Importing an older format simply
+-- leaves the newer fields at their defaults (GetIntDB()/GetCCDB()/
+-- GetBuffDisplayDB()/GetDebuffDisplayDB()'s own lazy-fill logic already
+-- handle a missing clickThrough/raidOffsetX/growDirection/etc. safely)
+-- rather than erroring. Global for the same reason as SerializeProfile above.
 --
 -- For KCD4/KCD5 this also still writes KastaCDDB.growLeft/
 -- medallionOutsidePvP/showIconBorders/iconsEnabled directly, since those
 -- ARE global (not profile-scoped) settings the imported data is meant to
--- replace outright. Interrupt/CC tracker settings, by contrast, are
--- profile-scoped (see KastaCD_DB.lua's NewProfileData/ApplyActiveProfile)
--- so they're written onto the returned profile table `p` (p.intAnchor/
--- p.ccAnchor) instead of the live KastaCDDB globals - the caller installs
--- `p` as a new/updated profile and switches to it, at which point
--- ApplyActiveProfile() copies p.intAnchor/p.ccAnchor down into
--- KastaCDDB.intAnchor/.ccAnchor for the live trackers to pick up. Writing
--- them straight to KastaCDDB here (as this used to) would instead mutate
--- whichever OTHER profile happened to be active at import time.
+-- replace outright. Buff/Debuff Display (KCD7+/KCD9+) get the same global
+-- treatment, written straight to KastaCDDB.buffDisplay/.debuffDisplay via
+-- GetBuffDisplayDB()/GetDebuffDisplayDB(). Interrupt/CC tracker settings,
+-- by contrast, are profile-scoped (see KastaCD_DB.lua's NewProfileData/
+-- ApplyActiveProfile) so they're written onto the returned profile table
+-- `p` (p.intAnchor/p.ccAnchor) instead of the live KastaCDDB globals -
+-- the caller installs `p` as a new/updated profile and switches to it, at
+-- which point ApplyActiveProfile() copies p.intAnchor/p.ccAnchor down
+-- into KastaCDDB.intAnchor/.ccAnchor for the live trackers to pick up.
+-- Writing them straight to KastaCDDB here (as this used to) would instead
+-- mutate whichever OTHER profile happened to be active at import time.
 function DeserializeProfile(str)
     local p = type(NewProfileData) == "function" and NewProfileData() or {}
     p.enabled   = p.enabled   or {}
@@ -207,7 +259,189 @@ function DeserializeProfile(str)
     p.ccAnchor  = p.ccAnchor  or {}
     local ox, oy, isz, ipr, rest
 
-    if str:sub(1, 5) == "KCD6:" then
+    if str:sub(1, 5) == "KCD9:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 51 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        local function NOpt(i)
+            local s = f[i]
+            if not s or s == "" then return nil end
+            return tonumber(s)
+        end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        local ia = p.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+        ia.savedX, ia.savedY = NOpt(16), NOpt(17)
+
+        local ca = p.ccAnchor
+        ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
+        ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
+        ca.contentTypes = {}
+        ca.savedX, ca.savedY = NOpt(25), NOpt(26)
+
+        KastaCDDB.showInRaidGroups = N(27) == 1
+        p.raidOffsetX, p.raidOffsetY = N(28), N(29)
+        p.raidIconSize, p.raidIconsPerRow = N(30), N(31)
+        ia.clickThrough = N(32) == 1
+        ca.clickThrough = N(33) == 1
+
+        if type(GetBuffDisplayDB) == "function" then
+            local bd = GetBuffDisplayDB()
+            bd.enabled              = N(34) == 1
+            bd.offsetX, bd.offsetY  = N(35), N(36)
+            bd.raidOffsetX, bd.raidOffsetY = N(37), N(38)
+            bd.showInRaidGroups     = N(39) == 1
+            bd.showIconBorders      = N(40) == 1
+            bd.list = {}
+            bd.growDirection = (f[42] ~= "" and f[42]) or "CENTER"
+        end
+        KastaCDDB.hideVanillaPartyBuffs = N(41) == 1
+
+        -- Debuff Display (KastaCD_DebuffDisplay.lua) - global blob, same
+        -- treatment as Buff Display above. list AND categories are reset
+        -- first so a re-import cleanly REPLACES both instead of merging -
+        -- the "g"/"d" tokens below then repopulate them.
+        if type(GetDebuffDisplayDB) == "function" then
+            local dd = GetDebuffDisplayDB()
+            dd.enabled              = N(43) == 1
+            dd.offsetX, dd.offsetY  = N(44), N(45)
+            dd.raidOffsetX, dd.raidOffsetY = N(46), N(47)
+            dd.showInRaidGroups     = N(48) == 1
+            dd.showIconBorders      = N(49) == 1
+            dd.growDirection = (f[51] ~= "" and f[51]) or "CENTER"
+            dd.list = {}
+            dd.categories = {}
+            dd.nextCategoryId = 1
+        end
+        KastaCDDB.hideVanillaPartyDebuffs = N(50) == 1
+
+        rest = f[52] or ""
+    end
+
+    if not ox and str:sub(1, 5) == "KCD8:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 42 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        local function NOpt(i)
+            local s = f[i]
+            if not s or s == "" then return nil end
+            return tonumber(s)
+        end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        local ia = p.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+        ia.savedX, ia.savedY = NOpt(16), NOpt(17)
+
+        local ca = p.ccAnchor
+        ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
+        ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
+        ca.contentTypes = {}
+        ca.savedX, ca.savedY = NOpt(25), NOpt(26)
+
+        KastaCDDB.showInRaidGroups = N(27) == 1
+        p.raidOffsetX, p.raidOffsetY = N(28), N(29)
+        p.raidIconSize, p.raidIconsPerRow = N(30), N(31)
+        ia.clickThrough = N(32) == 1
+        ca.clickThrough = N(33) == 1
+
+        -- Buff Display (KastaCD_BuffDisplay.lua) - global blob, written
+        -- straight to KastaCDDB.buffDisplay via GetBuffDisplayDB() (same
+        -- non-profile-scoped treatment as growLeft/showIconBorders above).
+        -- list is reset to {} first so a re-import cleanly REPLACES the
+        -- watched-spell list instead of merging with whatever was already
+        -- there - the "b" tokens below then repopulate it.
+        if type(GetBuffDisplayDB) == "function" then
+            local bd = GetBuffDisplayDB()
+            bd.enabled              = N(34) == 1
+            bd.offsetX, bd.offsetY  = N(35), N(36)
+            bd.raidOffsetX, bd.raidOffsetY = N(37), N(38)
+            bd.showInRaidGroups     = N(39) == 1
+            bd.showIconBorders      = N(40) == 1
+            bd.list = {}
+            bd.growDirection = (f[42] ~= "" and f[42]) or "CENTER"
+        end
+        KastaCDDB.hideVanillaPartyBuffs = N(41) == 1
+
+        rest = f[43] or ""
+    end
+
+    if not ox and str:sub(1, 5) == "KCD7:" then
+        local f = SplitColon(str:sub(6))
+        if #f < 41 then return nil, "Bad format." end
+        local function N(i) return tonumber(f[i]) or 0 end
+        local function NOpt(i)
+            local s = f[i]
+            if not s or s == "" then return nil end
+            return tonumber(s)
+        end
+        ox, oy, isz, ipr = N(1), N(2), N(3), N(4)
+
+        KastaCDDB.growLeft            = N(5) == 1
+        KastaCDDB.medallionOutsidePvP = N(6) == 1
+        KastaCDDB.showIconBorders     = N(7) == 1
+        KastaCDDB.iconsEnabled        = N(8) == 1
+
+        local ia = p.intAnchor
+        ia.enabled, ia.testMode = N(9) == 1, N(10) == 1
+        ia.barWidth, ia.barHeight, ia.fontSize = N(11), N(12), N(13)
+        ia.hideBorder, ia.showReady = N(14) == 1, N(15) == 1
+        ia.contentTypes = {}
+        ia.savedX, ia.savedY = NOpt(16), NOpt(17)
+
+        local ca = p.ccAnchor
+        ca.enabled, ca.testMode = N(18) == 1, N(19) == 1
+        ca.barWidth, ca.barHeight, ca.fontSize = N(20), N(21), N(22)
+        ca.hideBorder, ca.showReady = N(23) == 1, N(24) == 1
+        ca.contentTypes = {}
+        ca.savedX, ca.savedY = NOpt(25), NOpt(26)
+
+        KastaCDDB.showInRaidGroups = N(27) == 1
+        p.raidOffsetX, p.raidOffsetY = N(28), N(29)
+        p.raidIconSize, p.raidIconsPerRow = N(30), N(31)
+        ia.clickThrough = N(32) == 1
+        ca.clickThrough = N(33) == 1
+
+        -- Buff Display (KastaCD_BuffDisplay.lua) - global blob, written
+        -- straight to KastaCDDB.buffDisplay via GetBuffDisplayDB() (same
+        -- non-profile-scoped treatment as growLeft/showIconBorders above).
+        -- list is reset to {} first so a re-import cleanly REPLACES the
+        -- watched-spell list instead of merging with whatever was already
+        -- there - the "b" tokens below then repopulate it.
+        if type(GetBuffDisplayDB) == "function" then
+            local bd = GetBuffDisplayDB()
+            bd.enabled              = N(34) == 1
+            bd.offsetX, bd.offsetY  = N(35), N(36)
+            bd.raidOffsetX, bd.raidOffsetY = N(37), N(38)
+            bd.showInRaidGroups     = N(39) == 1
+            bd.showIconBorders      = N(40) == 1
+            bd.list = {}
+        end
+        KastaCDDB.hideVanillaPartyBuffs = N(41) == 1
+
+        rest = f[42] or ""
+    end
+
+    if not ox and str:sub(1, 5) == "KCD6:" then
         local f = SplitColon(str:sub(6))
         if #f < 33 then return nil, "Bad format." end
         local function N(i) return tonumber(f[i]) or 0 end
@@ -334,6 +568,15 @@ function DeserializeProfile(str)
     p.contentTypes = {}
     local ia2 = p.intAnchor
     local ca2 = p.ccAnchor
+    -- Highest Debuff Display category id seen among "g" tokens below -
+    -- table.sort in SerializeProfile means "d" tokens can be processed
+    -- before the "g" token that creates their category (alphabetical:
+    -- "d" < "g"), so categoryId is trusted as-is rather than validated
+    -- against dd.categories at parse time (see the "d" branch) - by the
+    -- time this whole loop finishes every "g" token has run regardless of
+    -- order. Used afterward to set nextCategoryId so a category the
+    -- receiving user creates later can't collide with an imported id.
+    local maxDebuffCategoryId = 0
     for tok in ((rest or "") .. ","):gmatch("([^,]*),") do
         if tok ~= "" then
             local k, v = tok:sub(1, 1), tok:sub(2)
@@ -348,8 +591,63 @@ function DeserializeProfile(str)
             elseif k == "x" then
                 ca2.contentTypes = ca2.contentTypes or {}
                 ca2.contentTypes[v:gsub("_", " ")] = true
+            elseif k == "b" then
+                -- Buff Display watched spell: "spellId_EGT_size" (E/G/T =
+                -- enabled/glow/showTimer bits). Reuses AddBuffDisplaySpell
+                -- for name/class resolution and dedup instead of building
+                -- the entry table by hand here.
+                local spellIdStr, bits, sizeStr = v:match("^(%d+)_(%d%d%d)_(%d+)$")
+                if spellIdStr and type(AddBuffDisplaySpell) == "function" and type(GetBuffDisplayDB) == "function" then
+                    local ok = AddBuffDisplaySpell(spellIdStr)
+                    if ok then
+                        local entry = GetBuffDisplayDB().list[tonumber(spellIdStr)]
+                        if entry then
+                            entry.enabled   = bits:sub(1, 1) == "1"
+                            entry.glow      = bits:sub(2, 2) == "1"
+                            entry.showTimer = bits:sub(3, 3) == "1"
+                            entry.iconSize  = tonumber(sizeStr) or 30
+                        end
+                    end
+                end
+            elseif k == "g" then
+                -- Debuff Display category: "id_name" (name with spaces as
+                -- underscores, same convention as the "c"/"i"/"x" content-
+                -- type tokens above). Written directly into dd.categories
+                -- rather than through AddDebuffDisplayCategory, which
+                -- would hand out a fresh auto-incremented id instead of
+                -- preserving the sender's - "d" tokens below reference
+                -- these exact ids.
+                local idStr, catName = v:match("^(%d+)_(.*)$")
+                local id = idStr and tonumber(idStr)
+                if id and type(GetDebuffDisplayDB) == "function" then
+                    GetDebuffDisplayDB().categories[id] = catName:gsub("_", " ")
+                    if id > maxDebuffCategoryId then maxDebuffCategoryId = id end
+                end
+            elseif k == "d" then
+                -- Debuff Display watched spell: "spellId_EGT_size_categoryId".
+                -- categoryId is trusted as-is (not validated against
+                -- dd.categories here) - see maxDebuffCategoryId's comment
+                -- above for why "g" tokens can't be relied on to have run
+                -- first.
+                local spellIdStr, bits, sizeStr, catIdStr = v:match("^(%d+)_(%d%d%d)_(%d+)_(%d+)$")
+                if spellIdStr and type(AddDebuffDisplaySpell) == "function" and type(GetDebuffDisplayDB) == "function" then
+                    local ok = AddDebuffDisplaySpell(spellIdStr)
+                    if ok then
+                        local entry = GetDebuffDisplayDB().list[tonumber(spellIdStr)]
+                        if entry then
+                            entry.enabled    = bits:sub(1, 1) == "1"
+                            entry.glow       = bits:sub(2, 2) == "1"
+                            entry.showTimer  = bits:sub(3, 3) == "1"
+                            entry.iconSize   = tonumber(sizeStr) or 30
+                            entry.categoryId = tonumber(catIdStr) or 0
+                        end
+                    end
+                end
             end
         end
+    end
+    if type(GetDebuffDisplayDB) == "function" and maxDebuffCategoryId > 0 then
+        GetDebuffDisplayDB().nextCategoryId = maxDebuffCategoryId + 1
     end
     return p
 end
@@ -996,7 +1294,628 @@ local function BuildKastaPlatesGroup()
     -- alongside the enable toggle/picker controls above the tab strip,
     -- per AceConfigDialog's own documented rule (inline groups never
     -- become tab/tree nodes regardless of childGroups on their parent).
-    return { type = "group", name = "Kastaplates", order = 60, childGroups = "tab", args = args }
+    return { type = "group", name = "Colored Nameplates", order = 60, childGroups = "tab", args = args }
+end
+
+-- =============================================================
+-- Buff Display - user-defined buff/debuff watch list (KastaCD_BuffDisplay.lua).
+-- Add any spell by ID or exact name; each watched spell gets its own
+-- icon centered on a party member's real unit frame while they carry
+-- that aura, with per-spell glow/timer/size/position controls so
+-- several watched spells shown on the same frame at once don't have to
+-- overlap.
+-- =============================================================
+local bdAddInput = ""
+local bdAddMessage = nil
+
+local function BuffDisplayRGBHex(ci)
+    return string.format("%02x%02x%02x", (ci.r or 1) * 255, (ci.g or 1) * 255, (ci.b or 1) * 255)
+end
+
+-- One real Ace3 tab per class with a watched spell (childGroups="tab" on
+-- the group this returns into - same pattern BuildKastaPlatesGroup
+-- already uses successfully for its per-dungeon tabs). Each spell is just
+-- Enable/Glow/Timer/Icon Size/Remove - position is handled once, globally,
+-- on the main Buff Display page, not per spell.
+local function BuildBuffDisplayClassTab(label, spellIds, db)
+    local args = {}
+    local order = 10
+    for _, spellId in ipairs(spellIds) do
+        local entry = db.list[spellId]
+        local name = (GetSpellInfo and GetSpellInfo(spellId)) or ("Spell " .. spellId)
+        local icon = GetSpellTexture and GetSpellTexture(spellId)
+
+        args["name" .. spellId] = {
+            type = "description", order = order, width = "full",
+            name = (icon and ("|T" .. icon .. ":18:18:0:0|t ") or "") .. "|cffffd200" .. name .. "|r  |cff808080(" .. spellId .. ")|r",
+        }
+        args["entryEnabled" .. spellId] = {
+            type = "toggle", order = order + 1, name = "Enable", width = "half",
+            get = function() return entry.enabled ~= false end,
+            set = function(_, v)
+                entry.enabled = v and true or false
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        }
+        args["entryGlow" .. spellId] = {
+            type = "toggle", order = order + 2, name = "Glow", width = "half",
+            get = function() return entry.glow ~= false end,
+            set = function(_, v) entry.glow = v and true or false end,
+        }
+        args["entryTimer" .. spellId] = {
+            type = "toggle", order = order + 3, name = "Timer", width = "half",
+            get = function() return entry.showTimer ~= false end,
+            set = function(_, v) entry.showTimer = v and true or false end,
+        }
+        args["entrySize" .. spellId] = {
+            type = "range", order = order + 4, name = "Icon Size", width = "half",
+            min = 12, max = 80, step = 1,
+            get = function() return entry.iconSize or 30 end,
+            set = function(_, v) entry.iconSize = v end,
+        }
+        args["entryRemove" .. spellId] = {
+            type = "execute", order = order + 5, name = "Remove", width = "half",
+            confirm = true, confirmText = "Remove " .. name .. " from the buff display list?",
+            func = function()
+                RemoveBuffDisplaySpell(spellId)
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        }
+        args["entrySpacer" .. spellId] = Spacer(order + 6)
+        order = order + 20
+    end
+    return { type = "group", name = label, args = args }
+end
+
+-- Every arg below except "enabled" itself shares this - hides the whole
+-- rest of the page (settings, Add a Spell, and every class tab) once
+-- Enable is unchecked, since none of it does anything while disabled.
+local function BuffDisplayContentHidden()
+    return GetBuffDisplayDB().enabled ~= true
+end
+
+local function BuildBuffDisplayGroup()
+    local db = GetBuffDisplayDB()
+
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Shows an icon centered on a party member's frame whenever they carry a buff/debuff from the list below.",
+            get = function() return GetBuffDisplayDB().enabled == true end,
+            set = function(_, v)
+                GetBuffDisplayDB().enabled = v and true or false
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        testMode = {
+            type = "toggle", order = 11, name = "Test Mode", width = "full", hidden = BuffDisplayContentHidden,
+            desc = "Forces every enabled watched spell's icon to show on every tracked frame right now, with a fake 30s timer - use this to confirm position/size/glow " ..
+                "look right without needing to reproduce the real buff first.",
+            get = function() return GetBuffDisplayDB().testMode == true end,
+            set = function(_, v)
+                GetBuffDisplayDB().testMode = v and true or false
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        showIconBorders = {
+            type = "toggle", order = 12, name = "Icon Border", width = "full", hidden = BuffDisplayContentHidden,
+            desc = "Shows the icon's natural edge art instead of cropping it away - same as the main tracker's own Icon Borders toggle, applied to every watched spell's icon.",
+            get = function() return GetBuffDisplayDB().showIconBorders == true end,
+            set = function(_, v)
+                GetBuffDisplayDB().showIconBorders = v and true or false
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Buffs", hidden = BuffDisplayContentHidden },
+        hideVanillaPartyBuffs = {
+            type = "toggle", order = 14, name = "Hide Blizzard Buffs on Party Frames", width = "full", hidden = BuffDisplayContentHidden,
+            desc = "Hides Blizzard's own native buff icons on party frames (Blizzard's default/raid-style frames only - ElvUI or other unit-frame " ..
+                "replacement addons build their own separate buff icons with their own settings, unaffected by this).",
+            get = function() return KastaCDDB.hideVanillaPartyBuffs == true end,
+            set = function(_, v)
+                KastaCDDB.hideVanillaPartyBuffs = v and true or false
+                -- Forces Blizzard to redraw every compact frame right now,
+                -- so turning this off immediately restores buff icons
+                -- instead of waiting on their next natural UNIT_AURA update.
+                if type(CompactUnitFrame_UpdateAll) == "function" then CompactUnitFrame_UpdateAll() end
+            end,
+        },
+        positionHeader = { type = "header", order = 15, name = "Position", hidden = BuffDisplayContentHidden },
+        positionDesc = {
+            type = "description", order = 16, hidden = BuffDisplayContentHidden,
+            name = "One shared position for every watched spell's icon - not per-spell.",
+        },
+        offsetX = {
+            type = "range", order = 17, name = "Offset X", width = "half", hidden = BuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetBuffDisplayDB().offsetX or 0 end,
+            set = function(_, v)
+                GetBuffDisplayDB().offsetX = v
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        offsetY = {
+            type = "range", order = 18, name = "Offset Y", width = "half", hidden = BuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetBuffDisplayDB().offsetY or 0 end,
+            set = function(_, v)
+                GetBuffDisplayDB().offsetY = v
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        resetPosition = {
+            type = "execute", order = 19, name = "Reset Position", hidden = BuffDisplayContentHidden,
+            func = function()
+                local bdb = GetBuffDisplayDB()
+                bdb.offsetX, bdb.offsetY = 0, 0
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        growDirection = {
+            type = "select", order = 19.5, name = "Growth Direction", width = "full", hidden = BuffDisplayContentHidden,
+            desc = "Which way icons spread out when 2+ watched spells are active on the same person at once.",
+            values = {
+                CENTER = "Centered Horizontal",
+                LEFT   = "Left",
+                RIGHT  = "Right",
+                UP     = "Up",
+                DOWN   = "Down",
+            },
+            get = function() return GetBuffDisplayDB().growDirection or "CENTER" end,
+            set = function(_, v)
+                GetBuffDisplayDB().growDirection = v
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        raidHeader = { type = "header", order = 20, name = "Raid Groups", hidden = BuffDisplayContentHidden },
+        showInRaidGroups = {
+            type = "toggle", order = 21, name = "Show in Raid Groups", width = "full", hidden = BuffDisplayContentHidden,
+            desc = "Buff Display is party-only by default (player/party1-4). Turn this on to also track the whole raid roster while you're actually in a raid, " ..
+                "using its own separate position below - independent of KastaCD_DB.lua's main tracker toggle of the same name.",
+            get = function() return GetBuffDisplayDB().showInRaidGroups == true end,
+            set = function(_, v)
+                GetBuffDisplayDB().showInRaidGroups = v and true or false
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        raidOffsetX = {
+            type = "range", order = 22, name = "Raid Offset X", width = "half", hidden = BuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetBuffDisplayDB().raidOffsetX or 0 end,
+            set = function(_, v)
+                GetBuffDisplayDB().raidOffsetX = v
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        raidOffsetY = {
+            type = "range", order = 23, name = "Raid Offset Y", width = "half", hidden = BuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetBuffDisplayDB().raidOffsetY or 0 end,
+            set = function(_, v)
+                GetBuffDisplayDB().raidOffsetY = v
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+            end,
+        },
+        raidResetPosition = {
+            type = "execute", order = 24, name = "Reset Raid Position", hidden = BuffDisplayContentHidden,
+            func = function()
+                local bdb = GetBuffDisplayDB()
+                bdb.raidOffsetX, bdb.raidOffsetY = 0, 0
+                if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        addHeader = { type = "header", order = 30, name = "Add a Spell", hidden = BuffDisplayContentHidden },
+        addDesc = {
+            type = "description", order = 31, hidden = BuffDisplayContentHidden,
+            name = "Type an exact spell name (e.g. \"Ironbark\") or a spell ID, then Add. " ..
+                "It'll show on whichever tracked member currently has it, regardless of who cast it.",
+        },
+        addInput = {
+            type = "input", order = 32, name = "Spell ID or Name", width = "double", hidden = BuffDisplayContentHidden,
+            get = function() return bdAddInput end,
+            set = function(_, v) bdAddInput = v end,
+        },
+        addBtn = {
+            type = "execute", order = 33, name = "Add", hidden = BuffDisplayContentHidden,
+            func = function()
+                local ok, msg = AddBuffDisplaySpell(bdAddInput)
+                bdAddMessage = msg
+                if ok then
+                    bdAddInput = ""
+                    if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
+                end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        addMessage = {
+            type = "description", order = 34,
+            name = function()
+                if not bdAddMessage then return "" end
+                return "|cffffd200" .. bdAddMessage .. "|r"
+            end,
+            hidden = function() return BuffDisplayContentHidden() or not bdAddMessage end,
+        },
+    }
+
+    -- Bucket watched spells by class (see GuessSpellClass in
+    -- KastaCD_BuffDisplay.lua) - each class with at least one watched
+    -- spell becomes its own real tab (childGroups="tab" on the group
+    -- returned below), same pattern BuildKastaPlatesGroup already uses
+    -- for its per-dungeon tabs, rather than a plain filtered list.
+    local byClass = {}
+    for spellId, entry in pairs(db.list) do
+        local class = entry.class or "OTHER"
+        byClass[class] = byClass[class] or {}
+        table.insert(byClass[class], spellId)
+    end
+    for _, ids in pairs(byClass) do
+        table.sort(ids, function(a, b)
+            local nameA = (GetSpellInfo and GetSpellInfo(a)) or tostring(a)
+            local nameB = (GetSpellInfo and GetSpellInfo(b)) or tostring(b)
+            return nameA < nameB
+        end)
+    end
+
+    if not next(db.list) then
+        args.emptyDesc = {
+            type = "description", order = 40, hidden = BuffDisplayContentHidden,
+            name = "Nothing added yet - add a spell above.",
+        }
+    else
+        local tabOrder = 100
+        for _, ci in ipairs(CLASS_INFO or {}) do
+            local ids = byClass[ci.key]
+            if ids and #ids > 0 then
+                local hex = (ci.key == "DEATHKNIGHT") and "ffffff" or BuffDisplayRGBHex(ci)
+                local tab = BuildBuffDisplayClassTab("|cff" .. hex .. ci.label .. "|r", ids, db)
+                tab.order = tabOrder
+                tab.hidden = BuffDisplayContentHidden
+                args["class_" .. ci.key] = tab
+                tabOrder = tabOrder + 1
+            end
+        end
+        if byClass.OTHER and #byClass.OTHER > 0 then
+            local tab = BuildBuffDisplayClassTab("Other", byClass.OTHER, db)
+            tab.order = tabOrder
+            tab.hidden = BuffDisplayContentHidden
+            args.class_OTHER = tab
+        end
+    end
+
+    return { type = "group", name = "Buff Display", order = 70, childGroups = "tab", args = args }
+end
+
+-- =============================================================
+-- Debuff Display - same mechanism as Buff Display (KastaCD_DebuffDisplay.lua),
+-- scoped to HARMFUL auras only. Debuffs don't map onto a class the way
+-- buffs mostly do, so instead of auto-sorted class tabs this uses
+-- user-created, freely renamable categories - each spell also gets a
+-- "Category" dropdown to move it between them.
+-- =============================================================
+local ddAddInput = ""
+local ddAddMessage = nil
+local ddNewCategoryInput = ""
+
+local function DebuffDisplayContentHidden()
+    return GetDebuffDisplayDB().enabled ~= true
+end
+
+-- One real Ace3 tab per category (including the always-present
+-- "Uncategorized", id=0) - same childGroups="tab" pattern as Buff
+-- Display's class tabs / Kastaplates' dungeon tabs. categoryId==0 tabs
+-- have no rename/remove controls (Uncategorized is permanent); real
+-- categories get both, right above their spell list.
+local function BuildDebuffDisplayCategoryTab(categoryId, label, spellIds, db)
+    local args = {}
+    local order = 10
+
+    if categoryId ~= 0 then
+        args.renameHint = {
+            type = "description", order = 0,
+            name = "Tip: click this tab again while it's already open to rename it, or use the field below.",
+        }
+        args.renameInput = {
+            type = "input", order = 1, name = "Category Name", width = "double",
+            get = function() return db.categories[categoryId] or "" end,
+            set = function(_, v) RenameDebuffDisplayCategory(categoryId, v); if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end end,
+        }
+        args.removeCategoryBtn = {
+            type = "execute", order = 2, name = "Remove Category", width = "half",
+            confirm = true, confirmText = "Remove this category? Only works while it's empty.",
+            func = function()
+                local ok, reason = RemoveDebuffDisplayCategory(categoryId)
+                ddAddMessage = ok and nil or reason
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        }
+        args.categorySpacer = Spacer(3)
+    end
+
+    -- "Category" values for the per-spell move-dropdown: every real
+    -- category plus Uncategorized itself, built fresh per tab so a
+    -- rename/add/remove elsewhere is always reflected.
+    local categoryValues = { [0] = "Uncategorized" }
+    for id, name in pairs(db.categories) do categoryValues[id] = name end
+
+    for _, spellId in ipairs(spellIds) do
+        local entry = db.list[spellId]
+        local name = (GetSpellInfo and GetSpellInfo(spellId)) or ("Spell " .. spellId)
+        local icon = GetSpellTexture and GetSpellTexture(spellId)
+
+        args["name" .. spellId] = {
+            type = "description", order = order, width = "full",
+            name = (icon and ("|T" .. icon .. ":18:18:0:0|t ") or "") .. "|cffffd200" .. name .. "|r  |cff808080(" .. spellId .. ")|r",
+        }
+        args["entryEnabled" .. spellId] = {
+            type = "toggle", order = order + 1, name = "Enable", width = "half",
+            get = function() return entry.enabled ~= false end,
+            set = function(_, v)
+                entry.enabled = v and true or false
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        }
+        args["entryGlow" .. spellId] = {
+            type = "toggle", order = order + 2, name = "Glow", width = "half",
+            get = function() return entry.glow ~= false end,
+            set = function(_, v) entry.glow = v and true or false end,
+        }
+        args["entryTimer" .. spellId] = {
+            type = "toggle", order = order + 3, name = "Timer", width = "half",
+            get = function() return entry.showTimer ~= false end,
+            set = function(_, v) entry.showTimer = v and true or false end,
+        }
+        args["entrySize" .. spellId] = {
+            type = "range", order = order + 4, name = "Icon Size", width = "half",
+            min = 12, max = 80, step = 1,
+            get = function() return entry.iconSize or 30 end,
+            set = function(_, v) entry.iconSize = v end,
+        }
+        args["entryCategory" .. spellId] = {
+            type = "select", order = order + 5, name = "Category", width = "half",
+            values = categoryValues,
+            get = function() return entry.categoryId or 0 end,
+            set = function(_, v)
+                SetDebuffDisplaySpellCategory(spellId, v)
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        }
+        args["entryRemove" .. spellId] = {
+            type = "execute", order = order + 6, name = "Remove", width = "half",
+            confirm = true, confirmText = "Remove " .. name .. " from the debuff display list?",
+            func = function()
+                RemoveDebuffDisplaySpell(spellId)
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        }
+        args["entrySpacer" .. spellId] = Spacer(order + 7)
+        order = order + 20
+    end
+    return { type = "group", name = label, args = args }
+end
+
+local function BuildDebuffDisplayGroup()
+    local db = GetDebuffDisplayDB()
+
+    local args = {
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            desc = "Shows an icon centered on a party member's frame whenever they carry a debuff from the list below.",
+            get = function() return GetDebuffDisplayDB().enabled == true end,
+            set = function(_, v)
+                GetDebuffDisplayDB().enabled = v and true or false
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        testMode = {
+            type = "toggle", order = 11, name = "Test Mode", width = "full", hidden = DebuffDisplayContentHidden,
+            desc = "Forces every enabled watched spell's icon to show on every tracked frame right now, with a fake 30s timer - use this to confirm position/size/glow " ..
+                "look right without needing to reproduce the real debuff first.",
+            get = function() return GetDebuffDisplayDB().testMode == true end,
+            set = function(_, v)
+                GetDebuffDisplayDB().testMode = v and true or false
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        showIconBorders = {
+            type = "toggle", order = 12, name = "Icon Border", width = "full", hidden = DebuffDisplayContentHidden,
+            desc = "Shows the icon's natural edge art instead of cropping it away - same as the main tracker's own Icon Borders toggle, applied to every watched spell's icon.",
+            get = function() return GetDebuffDisplayDB().showIconBorders == true end,
+            set = function(_, v)
+                GetDebuffDisplayDB().showIconBorders = v and true or false
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Debuffs", hidden = DebuffDisplayContentHidden },
+        hideVanillaPartyDebuffs = {
+            type = "toggle", order = 14, name = "Hide Blizzard Debuffs on Party Frames", width = "full", hidden = DebuffDisplayContentHidden,
+            desc = "Hides Blizzard's own native debuff icons on party frames (Blizzard's default/raid-style frames only). Off by default - unlike Buff Display's " ..
+                "equivalent, this can hide genuinely useful dispel warnings, so it's your call.",
+            get = function() return KastaCDDB.hideVanillaPartyDebuffs == true end,
+            set = function(_, v)
+                KastaCDDB.hideVanillaPartyDebuffs = v and true or false
+                if type(CompactUnitFrame_UpdateAll) == "function" then CompactUnitFrame_UpdateAll() end
+            end,
+        },
+        positionHeader = { type = "header", order = 15, name = "Position", hidden = DebuffDisplayContentHidden },
+        positionDesc = {
+            type = "description", order = 16, hidden = DebuffDisplayContentHidden,
+            name = "One shared position for every watched spell's icon - not per-spell.",
+        },
+        offsetX = {
+            type = "range", order = 17, name = "Offset X", width = "half", hidden = DebuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetDebuffDisplayDB().offsetX or 0 end,
+            set = function(_, v)
+                GetDebuffDisplayDB().offsetX = v
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        offsetY = {
+            type = "range", order = 18, name = "Offset Y", width = "half", hidden = DebuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetDebuffDisplayDB().offsetY or 0 end,
+            set = function(_, v)
+                GetDebuffDisplayDB().offsetY = v
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        resetPosition = {
+            type = "execute", order = 19, name = "Reset Position", hidden = DebuffDisplayContentHidden,
+            func = function()
+                local ddb = GetDebuffDisplayDB()
+                ddb.offsetX, ddb.offsetY = 0, 0
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        growDirection = {
+            type = "select", order = 19.5, name = "Growth Direction", width = "full", hidden = DebuffDisplayContentHidden,
+            desc = "Which way icons spread out when 2+ watched spells are active on the same person at once.",
+            values = {
+                CENTER = "Centered Horizontal",
+                LEFT   = "Left",
+                RIGHT  = "Right",
+                UP     = "Up",
+                DOWN   = "Down",
+            },
+            get = function() return GetDebuffDisplayDB().growDirection or "CENTER" end,
+            set = function(_, v)
+                GetDebuffDisplayDB().growDirection = v
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        raidHeader = { type = "header", order = 20, name = "Raid Groups", hidden = DebuffDisplayContentHidden },
+        showInRaidGroups = {
+            type = "toggle", order = 21, name = "Show in Raid Groups", width = "full", hidden = DebuffDisplayContentHidden,
+            desc = "Debuff Display is party-only by default (player/party1-4). Turn this on to also track the whole raid roster while you're actually in a raid, " ..
+                "using its own separate position below - independent of the main tracker's and Buff Display's own toggles of the same name.",
+            get = function() return GetDebuffDisplayDB().showInRaidGroups == true end,
+            set = function(_, v)
+                GetDebuffDisplayDB().showInRaidGroups = v and true or false
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        raidOffsetX = {
+            type = "range", order = 22, name = "Raid Offset X", width = "half", hidden = DebuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetDebuffDisplayDB().raidOffsetX or 0 end,
+            set = function(_, v)
+                GetDebuffDisplayDB().raidOffsetX = v
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        raidOffsetY = {
+            type = "range", order = 23, name = "Raid Offset Y", width = "half", hidden = DebuffDisplayContentHidden,
+            min = -200, max = 200, step = 1,
+            get = function() return GetDebuffDisplayDB().raidOffsetY or 0 end,
+            set = function(_, v)
+                GetDebuffDisplayDB().raidOffsetY = v
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+            end,
+        },
+        raidResetPosition = {
+            type = "execute", order = 24, name = "Reset Raid Position", hidden = DebuffDisplayContentHidden,
+            func = function()
+                local ddb = GetDebuffDisplayDB()
+                ddb.raidOffsetX, ddb.raidOffsetY = 0, 0
+                if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        categoriesHeader = { type = "header", order = 25, name = "Categories", hidden = DebuffDisplayContentHidden },
+        categoriesDesc = {
+            type = "description", order = 26, hidden = DebuffDisplayContentHidden,
+            name = "Debuffs don't sort into classes automatically - create and name your own categories here, then assign each watched spell to one " ..
+                "via its Category dropdown below. Anything not assigned sits in the always-present \"Uncategorized\" tab.",
+        },
+        newCategoryInput = {
+            type = "input", order = 27, name = "New Category Name", width = "double", hidden = DebuffDisplayContentHidden,
+            get = function() return ddNewCategoryInput end,
+            set = function(_, v) ddNewCategoryInput = v end,
+        },
+        addCategoryBtn = {
+            type = "execute", order = 28, name = "Add Category", hidden = DebuffDisplayContentHidden,
+            func = function()
+                if ddNewCategoryInput ~= "" then
+                    AddDebuffDisplayCategory(ddNewCategoryInput)
+                    ddNewCategoryInput = ""
+                    if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+                end
+            end,
+        },
+        addHeader = { type = "header", order = 30, name = "Add a Spell", hidden = DebuffDisplayContentHidden },
+        addDesc = {
+            type = "description", order = 31, hidden = DebuffDisplayContentHidden,
+            name = "Type an exact spell name or a spell ID, then Add. It'll show on whichever tracked member currently has it as a debuff, regardless of who cast it.",
+        },
+        addInput = {
+            type = "input", order = 32, name = "Spell ID or Name", width = "double", hidden = DebuffDisplayContentHidden,
+            get = function() return ddAddInput end,
+            set = function(_, v) ddAddInput = v end,
+        },
+        addBtn = {
+            type = "execute", order = 33, name = "Add", hidden = DebuffDisplayContentHidden,
+            func = function()
+                local ok, msg = AddDebuffDisplaySpell(ddAddInput)
+                ddAddMessage = msg
+                if ok then
+                    ddAddInput = ""
+                    if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
+                end
+                if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            end,
+        },
+        addMessage = {
+            type = "description", order = 34,
+            name = function()
+                if not ddAddMessage then return "" end
+                return "|cffffd200" .. ddAddMessage .. "|r"
+            end,
+            hidden = function() return DebuffDisplayContentHidden() or not ddAddMessage end,
+        },
+    }
+
+    -- Bucket watched spells by category (id 0 = Uncategorized, always
+    -- exists as a tab even when empty, so there's always somewhere for a
+    -- freshly-added spell to land before the user sorts it).
+    local byCategory = { [0] = {} }
+    for id in pairs(db.categories) do byCategory[id] = {} end
+    for spellId, entry in pairs(db.list) do
+        local cid = entry.categoryId or 0
+        byCategory[cid] = byCategory[cid] or {}
+        table.insert(byCategory[cid], spellId)
+    end
+    for _, ids in pairs(byCategory) do
+        table.sort(ids, function(a, b)
+            local nameA = (GetSpellInfo and GetSpellInfo(a)) or tostring(a)
+            local nameB = (GetSpellInfo and GetSpellInfo(b)) or tostring(b)
+            return nameA < nameB
+        end)
+    end
+
+    local tabOrder = 100
+    local uncatTab = BuildDebuffDisplayCategoryTab(0, "Uncategorized", byCategory[0], db)
+    uncatTab.order = tabOrder
+    uncatTab.hidden = DebuffDisplayContentHidden
+    args.category_0 = uncatTab
+    tabOrder = tabOrder + 1
+
+    local ids = {}
+    for id in pairs(db.categories) do table.insert(ids, id) end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        local tab = BuildDebuffDisplayCategoryTab(id, db.categories[id], byCategory[id] or {}, db)
+        tab.order = tabOrder
+        tab.hidden = DebuffDisplayContentHidden
+        args["category_" .. id] = tab
+        tabOrder = tabOrder + 1
+    end
+
+    return { type = "group", name = "Debuff Display", order = 71, childGroups = "tab", args = args }
 end
 
 -- =============================================================
@@ -1756,9 +2675,10 @@ function BuildKastaCDOptions()
 
     -- "Misc" holds Overshield Display and Keystone Helper directly as
     -- inline sub-sections on this same page (not separate sub-tabs) -
-    -- Interrupt Announce is the only child that's still a real, separate
-    -- navigable sub-tab, since its settings page is bigger/template-based
-    -- and reads better on its own. Sits above Profiles in the sidebar.
+    -- Interrupt Announce, Kastaplates, and Buff Display are real, separate
+    -- navigable sub-tabs, since each of their settings pages is bigger/
+    -- template-based and reads better on its own. Sits above Profiles in
+    -- the sidebar.
     local misc = {
         type = "group", name = "Misc", order = 30,
         args = {
@@ -1768,6 +2688,8 @@ function BuildKastaCDOptions()
             affixCallouts = BuildAffixCalloutGroup(),
             leaderboard = BuildLeaderboardGroup(),
             kastaplates = BuildKastaPlatesGroup(),
+            buffDisplay = BuildBuffDisplayGroup(),
+            debuffDisplay = BuildDebuffDisplayGroup(),
         },
     }
 

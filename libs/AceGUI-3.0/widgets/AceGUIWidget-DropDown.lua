@@ -389,7 +389,12 @@ do
 		else
 			self.open = true
 			self.pullout:SetWidth(self.pulloutWidth or self.frame:GetWidth())
-			self.pullout:Open("TOPLEFT", self.frame, "BOTTOMLEFT", 0, self.label:IsShown() and -2 or 0)
+			-- KastaCD-local: anchored TOPRIGHT/BOTTOMRIGHT instead of stock's
+			-- TOPLEFT/BOTTOMLEFT, so the flyout list's RIGHT edge lines up
+			-- with the dropdown's right edge and grows leftward - dropdowns
+			-- near the right side of the settings panel were opening their
+			-- list off past the panel/screen edge under the stock anchor.
+			self.pullout:Open("TOPRIGHT", self.frame, "BOTTOMRIGHT", 0, self.label:IsShown() and -2 or 0)
 			AceGUI:SetFocus(self)
 		end
 	end

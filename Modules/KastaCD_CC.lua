@@ -129,7 +129,7 @@ CC_SPELLS = {
     -- Cooldowns below marked "approx" are the author's best-known Legion
     -- value, not yet confirmed against this specific server - correct via
     -- the in-game tooltip if a bar's countdown looks off.
-    [5211]   = { class="DRUID",       cooldown=50,                  isTalent=true },       -- Mighty Bash
+    [5211]   = { class="DRUID",       cooldown=60,                  isTalent=true },       -- Mighty Bash
     [102359] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Mass Entanglement (Feral/Guardian talent, approx CD)
     [132469] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Typhoon (Feral/Guardian talent, approx CD)
     [102793] = { class="DRUID",       cooldown=60,  specs={105},    isTalent=true },       -- Ursol's Vortex (Restoration talent, approx CD)

@@ -65,6 +65,21 @@ local function Tab_OnClick(frame)
 	if not (frame.selected or frame.disabled) then
 		PlaySound(841) -- SOUNDKIT.IG_CHARACTER_INFO_TAB
 		frame.obj:SelectTab(frame.value)
+	elseif frame.selected and not frame.disabled then
+		-- KastaCD-local: clicking a tab that's ALREADY open/selected does
+		-- nothing in stock AceGUI - repurposed as a generic "left-click an
+		-- active tab" hook so a caller-defined global can react to it
+		-- (currently used by KastaCD_DebuffDisplay.lua to let a category
+		-- tab be renamed by clicking it while already open). Deliberately
+		-- generic here - frame.value (the tab's arg-table key, e.g.
+		-- "category_5") is the only thing passed through, so this file
+		-- doesn't need to know anything KastaCD-specific. A no-op for
+		-- every other tab group in the addon (Kastaplates' dungeon tabs,
+		-- Party Cooldowns' class tabs, etc.) since none of them define
+		-- this hook.
+		if type(_G.KASTACD_TabRenameClick) == "function" then
+			_G.KASTACD_TabRenameClick(frame.value)
+		end
 	end
 end
 

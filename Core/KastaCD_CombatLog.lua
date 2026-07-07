@@ -192,6 +192,24 @@ function HandleCombatLog(...)
         f.chargesText:SetText(tostring(state.charges))
     end
 
+    if state.phase == "uptime" and not state.maxCharges then
+        -- Ignore a duplicate SPELL_CAST_SUCCESS for a spell that's already
+        -- mid-uptime. Ravager's whirling blade logs a fresh CAST_SUCCESS
+        -- for spellId 156287 on this server for every tick of its ground
+        -- effect (not just the initial throw), and re-arming state.endTime
+        -- from "now" on each of those ticks kept pushing the countdown back
+        -- to the full duration - the timer looked frozen at 6s for the
+        -- entire real uptime, then ran on well past when the effect had
+        -- actually ended. The FIRST cast is authoritative; a genuine new
+        -- cast can't happen again until the cooldown clears (phase leaves
+        -- "uptime"), so it's safe to just drop any re-trigger seen while
+        -- still active. Multi-charge spells are excluded - recasting a
+        -- second charge (e.g. Survival Instincts) while the first's uptime
+        -- is still active is a real, intentional recast that should refresh
+        -- the buff, not a duplicate tick.
+        return
+    end
+
     if data.duration and data.duration > 0 then
         -- Spell has an active uptime window. Don't call ShowProcGlow
         -- directly here - the 0.1s ticker in KastaCD_Tracking.lua is the

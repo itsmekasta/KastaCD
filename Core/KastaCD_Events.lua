@@ -129,6 +129,14 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── PLAYER_ENTERING_WORLD ──────────────────────────────────
     if event == "PLAYER_ENTERING_WORLD" then
         KastaCDInitDB()
+        -- Test Mode (Interrupt/CC trackers, Buff/Debuff Display) never
+        -- persists across a reload/relog - always reset to off here, so
+        -- leaving it on by accident doesn't quietly keep faking bars/
+        -- icons in a fresh session.
+        if type(KastaCDDB.intAnchor) == "table" then KastaCDDB.intAnchor.testMode = false end
+        if type(KastaCDDB.ccAnchor)  == "table" then KastaCDDB.ccAnchor.testMode  = false end
+        if type(GetBuffDisplayDB)    == "function" then GetBuffDisplayDB().testMode   = false end
+        if type(GetDebuffDisplayDB)  == "function" then GetDebuffDisplayDB().testMode = false end
         C_Timer.After(1.5, function()
             RefreshMemberGUIDs()
             RebuildIcons()

@@ -90,14 +90,14 @@ SPELL_DB[97462]  = { name="Rallying Cry",          class="WARRIOR", icon=132351,
 SPELL_DB[6552]   = { name="Pummel",                class="WARRIOR", icon=132938, duration=0,  cooldown=15,  category="INTERRUPT",                    minLevel=7  }
 SPELL_DB[3411]   = { name="Intervene",             class="WARRIOR", icon=132365, duration=0,  cooldown=30,  category="UTILITY",                      minLevel=22 }
 SPELL_DB[23920]  = { name="Spell Reflection",      class="WARRIOR", icon=132361, duration=5,  cooldown=25,  category="DEFENSIVE", specs={73},        minLevel=10 }
-SPELL_DB[107570] = { name="Storm Bolt",            class="WARRIOR", icon=613534, duration=3,  cooldown=30,  category="UTILITY",   isTalent=true      }
+SPELL_DB[107570] = { name="Storm Bolt",            class="WARRIOR", icon=613534, duration=4,  cooldown=30,  category="UTILITY",   isTalent=true      }
 SPELL_DB[1719]   = { name="Recklessness",          class="WARRIOR", icon=132109, duration=10, cooldown=90,  category="OFFENSIVE", specs={71,72},     minLevel=10 }
 SPELL_DB[107574] = { name="Avatar",                class="WARRIOR", icon=613534, duration=20, cooldown=90,  category="OFFENSIVE", isTalent=true }
-SPELL_DB[227847] = { name="Bladestorm",            class="WARRIOR", icon=236303, duration=6,  cooldown=60,  category="OFFENSIVE", specs={71},        isTalent=true }
+SPELL_DB[227847] = { name="Bladestorm",            class="WARRIOR", icon=236303, duration=6,  cooldown=90,  category="OFFENSIVE", specs={71},        isTalent=true }
 SPELL_DB[118038] = { name="Die by the Sword",      class="WARRIOR", icon=132338, duration=8,  cooldown=180,  category="DEFENSIVE", specs={71},        minLevel=10 }
 SPELL_DB[12975]  = { name="Last Stand",            class="WARRIOR", icon=135871, duration=15, cooldown=180, category="DEFENSIVE", specs={73},        minLevel=10 }
 SPELL_DB[198304] = { name="Intercept",             class="WARRIOR", icon=132938, duration=3,  cooldown=30,  category="UTILITY",   specs={72},        minLevel=10 }
-SPELL_DB[156287] = { name="Ravager",               class="WARRIOR", icon=970854, duration=10, cooldown=90,  category="OFFENSIVE", specs={71},        isTalent=true }
+SPELL_DB[156287] = { name="Ravager",               class="WARRIOR", icon=970854, duration=6,  cooldown=60,  category="OFFENSIVE", specs={71},        isTalent=true }
 SPELL_DB[236320] = { name="War Banner",            class="WARRIOR",             duration=15, cooldown=180, category="OFFENSIVE", specs={71},        isTalent=true }
 SPELL_DB[213915] = { name="Mass Spell Reflection", class="WARRIOR",             duration=3,  cooldown=120, category="DEFENSIVE", specs={73},        isTalent=true }
 
@@ -242,7 +242,7 @@ SPELL_DB[198158] = { name="Mass Invisibility",      class="MAGE",             du
 
 -- ── WARLOCK ───────────────────────────────────────────────────
 SPELL_DB[104773] = { name="Unending Resolve",       class="WARLOCK", icon=136150, duration=8,  cooldown=180, category="DEFENSIVE", minLevel=10  }
-SPELL_DB[5484]   = { name="Howl of Terror",         class="WARLOCK", icon=136175, duration=20, cooldown=40,  category="UTILITY",  isTalent=true }
+SPELL_DB[5484]   = { name="Howl of Terror",         class="WARLOCK", icon=136175, duration=8,  cooldown=40,  category="UTILITY",  isTalent=true }
 SPELL_DB[111898] = { name="Grimoire of Sacrifice",  class="WARLOCK", icon=538443, duration=0,  cooldown=30,  category="UTILITY",  isTalent=true }
 SPELL_DB[152108] = { name="Cataclysm",              class="WARLOCK", icon=452693, duration=0,  cooldown=30,  category="OFFENSIVE", isTalent=true }
 SPELL_DB[108416] = { name="Dark Pact",              class="WARLOCK", icon=538569, duration=20, cooldown=60,  category="DEFENSIVE", isTalent=true }

@@ -2,7 +2,7 @@
 ## Title: Kasta|cffff7f00CD|r – Cooldown Tracker
 ## Notes: Tracks party/raid cooldowns on raid frames.
 ## Author: Kasta
-## Version: 1.7.2
+## Version: 1.7.3
 ## SavedVariables: KastaCDDB
 ## OptionalDeps: SharedMedia, LibSharedMedia-3.0
 
@@ -88,6 +88,17 @@ Modules\KastaCD_KastaPlates.lua
 #     NPC picker - must load before KastaCD_Options.lua references its
 #     type name.
 UI\KastaCD_ModelWidget.lua
+
+# 6m. Buff Display - user-defined buff/debuff watch list, shown centered
+#     on each party member's real unit frame while they carry the aura.
+#     Depends on DB + Tracking (FindUnitFrames, ShowProcGlow/HideProcGlow,
+#     HasGroup), must load before Options.lua uses GetBuffDisplayDB().
+Modules\KastaCD_BuffDisplay.lua
+
+# 6n. Debuff Display - same mechanism as Buff Display, scoped to HARMFUL
+#     auras only, with user-managed renamable categories instead of
+#     auto-sorted class tabs. Same dependencies as KastaCD_BuffDisplay.lua.
+Modules\KastaCD_DebuffDisplay.lua
 
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 UI\KastaCD_Options.lua

@@ -138,6 +138,14 @@ function KastaCDInitDB()
     -- table fields it already handles, but it would quietly undo this
     -- setting the moment it's turned off.
     if KastaCDDB.showInRaidGroups      == nil then KastaCDDB.showInRaidGroups      = false end
+    -- Off by default - only hides Blizzard's OWN native buff icons on
+    -- party-scoped CompactUnitFrames (see HideVanillaPartyBuffs in
+    -- KastaCD_Tracking.lua), a purely cosmetic opt-in most players won't
+    -- want touched unless they explicitly ask for it.
+    if KastaCDDB.hideVanillaPartyBuffs == nil then KastaCDDB.hideVanillaPartyBuffs = false end
+    -- Same as above, mirrored for Debuff Display's own toggle (see
+    -- HideVanillaPartyDebuffs in KastaCD_Tracking.lua).
+    if KastaCDDB.hideVanillaPartyDebuffs == nil then KastaCDDB.hideVanillaPartyDebuffs = false end
 
     -- ── One-time migration: Interrupt/CC tracker bar settings used to
     -- live directly on KastaCDDB.intAnchor/.ccAnchor, shared globally
@@ -418,11 +426,23 @@ function ScanUnitTalents(unit)
     local confirmed = {}
     for tier = 1, 7 do
         for column = 1, 3 do
-            local _, _, _, selected, _, spellId
+            -- GetTalentInfo returns 7 values: name, icon, tier, column,
+            -- selected, available, spellID. This used to only capture 6
+            -- variables (missing a placeholder for "column"), which silently
+            -- shifted every value after it by one - "selected" below was
+            -- actually reading the real "column" number (always truthy, so
+            -- every talent looked "selected"), and "spellId" was reading the
+            -- real "available" boolean instead of the real spellID, so
+            -- confirmed[spellId] never matched a real spell ID. This made
+            -- isTalent-gated spells (Ravager, Storm Bolt, Mighty Bash, etc.)
+            -- never show as a known/idle icon via inspect - only a real
+            -- witnessed cast (a completely separate code path) ever lit
+            -- them up.
+            local _, _, _, _, selected, _, spellId
             if isInspect then
-                _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, true, unit)
+                _, _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, true, unit)
             else
-                _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, false, "player")
+                _, _, _, _, selected, _, spellId = GetTalentInfo(tier, column, 1, false, "player")
             end
             if selected and spellId and spellId ~= 0 then
                 confirmed[spellId] = true
