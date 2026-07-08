@@ -1438,20 +1438,6 @@ local function BuildBuffDisplayGroup()
             type = "execute", order = 12.6, name = "Reset to Blizzard Gold", hidden = BuffDisplayContentHidden,
             func = function() KastaCDDB.glowColor = nil end,
         },
-        hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Buffs", hidden = BuffDisplayContentHidden },
-        hideVanillaPartyBuffs = {
-            type = "toggle", order = 14, name = "Hide Blizzard Buffs on Party Frames", width = "full", hidden = BuffDisplayContentHidden,
-            desc = "Hides Blizzard's own native buff icons on party frames (Blizzard's default/raid-style frames only - ElvUI or other unit-frame " ..
-                "replacement addons build their own separate buff icons with their own settings, unaffected by this).",
-            get = function() return KastaCDDB.hideVanillaPartyBuffs == true end,
-            set = function(_, v)
-                KastaCDDB.hideVanillaPartyBuffs = v and true or false
-                -- Forces Blizzard to redraw every compact frame right now,
-                -- so turning this off immediately restores buff icons
-                -- instead of waiting on their next natural UNIT_AURA update.
-                if type(CompactUnitFrame_UpdateAll) == "function" then CompactUnitFrame_UpdateAll() end
-            end,
-        },
         positionHeader = { type = "header", order = 15, name = "Position", hidden = BuffDisplayContentHidden },
         positionDesc = {
             type = "description", order = 16, hidden = BuffDisplayContentHidden,
@@ -1778,17 +1764,6 @@ local function BuildDebuffDisplayGroup()
             type = "execute", order = 12.6, name = "Reset to Blizzard Gold", hidden = DebuffDisplayContentHidden,
             func = function() KastaCDDB.glowColor = nil end,
         },
-        hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Debuffs", hidden = DebuffDisplayContentHidden },
-        hideVanillaPartyDebuffs = {
-            type = "toggle", order = 14, name = "Hide Blizzard Debuffs on Party Frames", width = "full", hidden = DebuffDisplayContentHidden,
-            desc = "Hides Blizzard's own native debuff icons on party frames (Blizzard's default/raid-style frames only). Off by default - unlike Buff Display's " ..
-                "equivalent, this can hide genuinely useful dispel warnings, so it's your call.",
-            get = function() return KastaCDDB.hideVanillaPartyDebuffs == true end,
-            set = function(_, v)
-                KastaCDDB.hideVanillaPartyDebuffs = v and true or false
-                if type(CompactUnitFrame_UpdateAll) == "function" then CompactUnitFrame_UpdateAll() end
-            end,
-        },
         positionHeader = { type = "header", order = 15, name = "Position", hidden = DebuffDisplayContentHidden },
         positionDesc = {
             type = "description", order = 16, hidden = DebuffDisplayContentHidden,
@@ -1928,9 +1903,7 @@ local function BuildDebuffDisplayGroup()
         },
     }
 
-    -- Bucket watched spells by category (id 0 = Uncategorized, always
-    -- exists as a tab even when empty, so there's always somewhere for a
-    -- freshly-added spell to land before the user sorts it).
+    -- Bucket watched spells by category (id 0 = Uncategorized).
     local byCategory = { [0] = {} }
     for id in pairs(db.categories) do byCategory[id] = {} end
     for spellId, entry in pairs(db.list) do
@@ -1946,22 +1919,43 @@ local function BuildDebuffDisplayGroup()
         end)
     end
 
-    local tabOrder = 100
-    local uncatTab = BuildDebuffDisplayCategoryTab(0, "Uncategorized", byCategory[0], db)
-    uncatTab.order = tabOrder
-    uncatTab.hidden = DebuffDisplayContentHidden
-    args.category_0 = uncatTab
-    tabOrder = tabOrder + 1
+    -- Only build a tab for a category that actually has watched spells in
+    -- it - mirrors BuildBuffDisplayGroup's per-class "only include if ids
+    -- and #ids > 0" condition exactly, rather than always creating at
+    -- least the Uncategorized tab regardless of content. Confirmed via
+    -- live bisection testing that unconditionally building an empty tab
+    -- here specifically was the cause of a persistent ADDON_ACTION_FORBIDDEN
+    -- taint report (blocking unrelated actions like UseToy/SpellStopCasting)
+    -- that survived many other targeted fixes elsewhere in the addon -
+    -- BuffDisplay's equivalent group, which never builds an empty tab, was
+    -- confirmed clean throughout the same testing.
+    if not next(db.list) then
+        args.emptyDesc = {
+            type = "description", order = 40, hidden = DebuffDisplayContentHidden,
+            name = "Nothing added yet - add a spell above.",
+        }
+    else
+        local tabOrder = 100
+        if byCategory[0] and #byCategory[0] > 0 then
+            local uncatTab = BuildDebuffDisplayCategoryTab(0, "Uncategorized", byCategory[0], db)
+            uncatTab.order = tabOrder
+            uncatTab.hidden = DebuffDisplayContentHidden
+            args.category_0 = uncatTab
+            tabOrder = tabOrder + 1
+        end
 
-    local ids = {}
-    for id in pairs(db.categories) do table.insert(ids, id) end
-    table.sort(ids)
-    for _, id in ipairs(ids) do
-        local tab = BuildDebuffDisplayCategoryTab(id, db.categories[id], byCategory[id] or {}, db)
-        tab.order = tabOrder
-        tab.hidden = DebuffDisplayContentHidden
-        args["category_" .. id] = tab
-        tabOrder = tabOrder + 1
+        local ids = {}
+        for id in pairs(db.categories) do table.insert(ids, id) end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            if byCategory[id] and #byCategory[id] > 0 then
+                local tab = BuildDebuffDisplayCategoryTab(id, db.categories[id], byCategory[id], db)
+                tab.order = tabOrder
+                tab.hidden = DebuffDisplayContentHidden
+                args["category_" .. id] = tab
+                tabOrder = tabOrder + 1
+            end
+        end
     end
 
     return { type = "group", name = "Debuff Display", order = 71, childGroups = "tab", args = args }

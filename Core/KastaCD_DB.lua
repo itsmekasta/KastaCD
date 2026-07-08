@@ -138,14 +138,6 @@ function KastaCDInitDB()
     -- table fields it already handles, but it would quietly undo this
     -- setting the moment it's turned off.
     if KastaCDDB.showInRaidGroups      == nil then KastaCDDB.showInRaidGroups      = false end
-    -- Off by default - only hides Blizzard's OWN native buff icons on
-    -- party-scoped CompactUnitFrames (see HideVanillaPartyBuffs in
-    -- KastaCD_Tracking.lua), a purely cosmetic opt-in most players won't
-    -- want touched unless they explicitly ask for it.
-    if KastaCDDB.hideVanillaPartyBuffs == nil then KastaCDDB.hideVanillaPartyBuffs = false end
-    -- Same as above, mirrored for Debuff Display's own toggle (see
-    -- HideVanillaPartyDebuffs in KastaCD_Tracking.lua).
-    if KastaCDDB.hideVanillaPartyDebuffs == nil then KastaCDDB.hideVanillaPartyDebuffs = false end
     -- Glow color shared by every glow in the addon (see ShowProcGlow/
     -- HideProcGlow in KastaCD_Tracking.lua) - nil means "use stock
     -- Blizzard gold", not stored as a default table so a fresh install

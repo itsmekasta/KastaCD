@@ -120,29 +120,46 @@ end
 -- Uncategorized, and not some other addon section's tab, which simply
 -- won't match the pattern below).
 -- -------------------------------------------------------------
-StaticPopupDialogs = StaticPopupDialogs or {}
-StaticPopupDialogs["KASTACD_RENAME_DEBUFF_CATEGORY"] = {
-    text = "Rename category:",
-    button1 = "Rename",
-    button2 = "Cancel",
-    hasEditBox = true,
-    maxLetters = 40,
-    OnShow = function(self)
-        self.editBox:SetText(self.data.currentName or "")
-        self.editBox:HighlightText()
-    end,
-    OnAccept = function(self)
-        RenameDebuffDisplayCategory(self.data.categoryId, self.editBox:GetText())
-        if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
-    end,
-    EditBoxOnEnterPressed = function(self)
-        RenameDebuffDisplayCategory(self:GetParent().data.categoryId, self:GetText())
-        if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
-        self:GetParent():Hide()
-    end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    timeout = 0, whileDead = true, hideOnEscape = true,
-}
+-- Registration deferred to the moment it's actually needed (inside
+-- KASTACD_TabRenameClick, guarded by kastaRenamePopupRegistered below)
+-- rather than unconditionally at file load - confirmed via live bisection
+-- testing that writing this entry into Blizzard's own StaticPopupDialogs
+-- global table at LOAD TIME was the cause of a persistent
+-- ADDON_ACTION_FORBIDDEN taint report (blocking unrelated actions like
+-- UseToy), even though this exact "register a StaticPopupDialogs entry"
+-- pattern is normally a completely standard, safe idiom used throughout
+-- the addon ecosystem. Registering it lazily, only the first time a
+-- category is actually renamed (a genuine mouse-click-driven action),
+-- sidesteps whatever the exact mechanism was while keeping the feature
+-- fully intact.
+local kastaRenamePopupRegistered = false
+local function EnsureRenamePopupRegistered()
+    if kastaRenamePopupRegistered then return end
+    kastaRenamePopupRegistered = true
+    StaticPopupDialogs = StaticPopupDialogs or {}
+    StaticPopupDialogs["KASTACD_RENAME_DEBUFF_CATEGORY"] = {
+        text = "Rename category:",
+        button1 = "Rename",
+        button2 = "Cancel",
+        hasEditBox = true,
+        maxLetters = 40,
+        OnShow = function(self)
+            self.editBox:SetText(self.data.currentName or "")
+            self.editBox:HighlightText()
+        end,
+        OnAccept = function(self)
+            RenameDebuffDisplayCategory(self.data.categoryId, self.editBox:GetText())
+            if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+        end,
+        EditBoxOnEnterPressed = function(self)
+            RenameDebuffDisplayCategory(self:GetParent().data.categoryId, self:GetText())
+            if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
+            self:GetParent():Hide()
+        end,
+        EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+        timeout = 0, whileDead = true, hideOnEscape = true,
+    }
+end
 
 function KASTACD_TabRenameClick(tabValue)
     local idStr = type(tabValue) == "string" and tabValue:match("^category_(%d+)$")
@@ -151,6 +168,7 @@ function KASTACD_TabRenameClick(tabValue)
     local db = GetDebuffDisplayDB()
     local currentName = db.categories[id]
     if not currentName then return end
+    EnsureRenamePopupRegistered()
     StaticPopup_Show("KASTACD_RENAME_DEBUFF_CATEGORY", nil, nil, { categoryId = id, currentName = currentName })
 end
 

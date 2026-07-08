@@ -25,7 +25,12 @@
 -- re-apply the forced color AFTER Blizzard's own logic runs each time -
 -- hooksecurefunc chains onto a function rather than replacing it, so it
 -- never touches a protected function's execution path and can't taint.
+--
+-- RE-ENABLED (2026-07-08): was force-disabled while chasing a taint
+-- report that turned out to be caused by a Zygor Guides conflict, not
+-- this module.
 -- =============================================================
+local KCD_KASTAPLATES_RUNTIME_DISABLED = false
 
 function GetKastaPlatesDB()
     KastaCDDB = KastaCDDB or {}
@@ -225,6 +230,45 @@ local function EnsureTidyPlatesHook(healthBar)
     end)
 end
 
+-- Real Blizzard StatusBar widgets (kind "blizzard"/"elvui" from
+-- GetPlateHealthBar - TidyPlates' hand-rolled bar is handled separately by
+-- EnsureTidyPlatesHook above, it has no GetStatusBarTexture) - hooks the
+-- bar's OWN :SetStatusBarColor method plus its status-bar texture's own
+-- :SetVertexColor method, the same "hooksecurefunc the specific object,
+-- not a shared global function" shape as EnsureTidyPlatesHook.
+--
+-- This replaces an earlier design (EnsureColorReassertTicker, removed)
+-- that re-asserted the forced color every single OnUpdate frame via a
+-- DIRECT call to healthBar:SetStatusBarColor - removed after a live
+-- ADDON_ACTION_FORBIDDEN taint report that persisted through several
+-- other fixes; a direct write to a real Blizzard CompactUnitFrame's
+-- health bar, repeated 60x/second for as long as any tracked nameplate
+-- was on screen, was the strongest remaining candidate. Hooking the
+-- object's own color-setting methods instead means KastaCD only ever
+-- re-applies its color from INSIDE a safe post-Blizzard-call hook, no
+-- matter which of Blizzard's own update paths (health, threat, aggro
+-- highlight, etc.) actually changed the color.
+local function EnsureHealthBarColorHook(healthBar)
+    if healthBar.kcdColorHooked then return end
+    healthBar.kcdColorHooked = true
+    hooksecurefunc(healthBar, "SetStatusBarColor", function(self, r, g, b)
+        local c = self.kcdForcedColor
+        if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
+            self:SetStatusBarColor(c[1], c[2], c[3])
+        end
+    end)
+    local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
+    if tex and not tex.kcdColorHooked then
+        tex.kcdColorHooked = true
+        hooksecurefunc(tex, "SetVertexColor", function(self, r, g, b)
+            local c = healthBar.kcdForcedColor
+            if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
+                self:SetVertexColor(c[1], c[2], c[3])
+            end
+        end)
+    end
+end
+
 local function ApplyEffectiveColor(unitToken)
     local state = activeUnits[unitToken]
     local healthBar, kind = GetPlateHealthBar(unitToken)
@@ -232,6 +276,8 @@ local function ApplyEffectiveColor(unitToken)
 
     if kind == "tidyplates" then
         EnsureTidyPlatesHook(healthBar)
+    else
+        EnsureHealthBarColorHook(healthBar)
     end
 
     local color = EffectiveColor(state)
@@ -243,14 +289,16 @@ local function ApplyEffectiveColor(unitToken)
         end
     elseif healthBar.kcdForcedColor then
         healthBar.kcdForcedColor = nil
-        if kind == "blizzard" and CompactUnitFrame_UpdateHealthColor and healthBar:GetParent() then
-            -- Let Blizzard recompute its own normal color immediately
-            -- instead of waiting for its next unrelated health-color
-            -- update.
-            CompactUnitFrame_UpdateHealthColor(healthBar:GetParent())
-        end
-        -- TidyPlates has no equivalent "recompute now" call to make here -
-        -- it repaints this bar on its own next update cycle regardless.
+        -- Deliberately NOT calling CompactUnitFrame_UpdateHealthColor(...)
+        -- here directly - confirmed live that a KastaCD taint report
+        -- (ADDON_ACTION_FORBIDDEN on an unrelated later protected action)
+        -- can be traced to code calling INTO a Blizzard function directly
+        -- from insecure code, as opposed to hooksecurefunc'ing it (which
+        -- runs safely after Blizzard's own call, never as a call KastaCD
+        -- itself initiates). Same self-heals-on-its-own-next-cycle
+        -- reasoning as the TidyPlates case below - Blizzard repaints this
+        -- bar's normal color on its own next unrelated health-color
+        -- update regardless, just not necessarily this exact instant.
     end
 end
 
@@ -337,49 +385,28 @@ local function EnsureElvUIHook()
     end)
 end
 
--- Backup for color resets that DON'T go through CompactUnitFrame_
--- UpdateHealthColor at all - threat/aggro state apparently recolors the
--- health bar via a per-frame path of its own (a 0.2s C_Timer ticker tried
--- first still lost the race), so this re-asserts on a real OnUpdate
--- instead - every single frame, the same as Plater's own source, which
--- explicitly re-applies its forced color every OnUpdate tick rather than
--- on a slower timer (confirmed while researching how it recolors
--- nameplates). Also sets the underlying texture's vertex color directly
--- (not just the StatusBar-level SetStatusBarColor call) since Plater's
--- own fix does the same - matches whatever Blizzard's aggro-highlight
--- code is touching more closely than the StatusBar API alone. Only
--- touches nameplates KastaPlates is actually tracking, so this is cheap
--- even running every frame.
-local reassertFrame
-local function EnsureColorReassertTicker()
-    if reassertFrame then return end
-    reassertFrame = CreateFrame("Frame")
-    reassertFrame:SetScript("OnUpdate", function()
-        for unitToken, state in pairs(activeUnits) do
-            local color = EffectiveColor(state)
-            if color then
-                local healthBar = GetPlateHealthBar(unitToken)
-                if healthBar then
-                    healthBar:SetStatusBarColor(color[1], color[2], color[3])
-                    local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
-                    if tex then
-                        tex:SetVertexColor(color[1], color[2], color[3])
-                    end
-                    -- TidyPlates' custom health bar object (no real
-                    -- GetStatusBarTexture) exposes its texture directly.
-                    if healthBar.Bar then
-                        healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
-                    end
-                end
-            end
-        end
-    end)
-end
+-- Threat/aggro state apparently recolors the health bar via a per-frame
+-- path of its own that doesn't go through CompactUnitFrame_
+-- UpdateHealthColor - a 0.2s C_Timer ticker tried first still lost the
+-- race, so this used to re-assert on a real OnUpdate instead (every
+-- single frame, via a DIRECT healthBar:SetStatusBarColor call). Removed -
+-- that direct write, repeated 60x/second for as long as any tracked
+-- nameplate was visible, was identified as the strongest remaining
+-- ADDON_ACTION_FORBIDDEN taint candidate after several other fixes didn't
+-- resolve a live taint report. EnsureHealthBarColorHook above replaces it:
+-- since ANY code path that changes the bar's actual rendered color has to
+-- call healthBar:SetStatusBarColor or its texture's :SetVertexColor
+-- somewhere, hooking those methods directly catches every such path
+-- (health, threat, aggro highlight, whatever) with zero race window -
+-- the hook fires synchronously right after the mismatched call, not on
+-- the next timer/frame tick - while never once writing to the bar except
+-- from inside a safe post-Blizzard-call hook.
 
 -- -------------------------------------------------------------
 -- Per-plate evaluation
 -- -------------------------------------------------------------
 local function EvaluatePlate(unitToken)
+    if KCD_KASTAPLATES_RUNTIME_DISABLED then return end
     if not UnitExists(unitToken) then
         activeUnits[unitToken] = nil
         return
@@ -437,6 +464,7 @@ end
 -- UnitChannelInfo's notInterruptible return value).
 -- -------------------------------------------------------------
 local function UpdateCastHighlight(unitToken)
+    if KCD_KASTAPLATES_RUNTIME_DISABLED then return end
     local state = activeUnits[unitToken]
     if not state then return end
 
@@ -479,12 +507,13 @@ watcher:RegisterEvent("UNIT_SPELLCAST_FAILED")
 local optionsRebuiltOnce = false
 watcher:SetScript("OnEvent", function(_, event, unitToken)
     if event == "PLAYER_ENTERING_WORLD" then
-        EnsureHealthColorHook()
-        EnsurePlaterHook()
-        EnsureElvUIHook()
-        EnsureColorReassertTicker()
+        if not KCD_KASTAPLATES_RUNTIME_DISABLED then
+            EnsureHealthColorHook()
+            EnsurePlaterHook()
+            EnsureElvUIHook()
+            RefreshKastaPlates()
+        end
         SeedKastaPlatesPresets()
-        RefreshKastaPlates()
         -- KastaCD_UI.lua's EnsureOptionsRegistered() builds the whole
         -- options menu once, very early during addon load - possibly
         -- before KastaCDDB has actually been restored from this
@@ -512,10 +541,11 @@ watcher:SetScript("OnEvent", function(_, event, unitToken)
     end
 end)
 
-EnsureHealthColorHook()
-EnsurePlaterHook()
-EnsureElvUIHook()
-EnsureColorReassertTicker()
+if not KCD_KASTAPLATES_RUNTIME_DISABLED then
+    EnsureHealthColorHook()
+    EnsurePlaterHook()
+    EnsureElvUIHook()
+end
 
 -- -------------------------------------------------------------
 -- /kcdplatesdebug - dumps the raw saved state plus what's currently

@@ -53,18 +53,25 @@ end
 -- Sending
 -- -------------------------------------------------------------
 -- Tracks whichever chat type/target the player actually last sent a real
--- message to (SAY, PARTY, WHISPER + target, etc.) by wrapping
+-- message to (SAY, PARTY, WHISPER + target, etc.) by observing
 -- SendChatMessage - this is the only reliable way to know "whatever they
 -- have active", since the chat edit box itself isn't open/focused at the
 -- moment a Settings-panel button is clicked. Defaults to SAY, matching
 -- the game's own default chat type before anything's ever been sent.
+--
+-- Deliberately hooksecurefunc, NOT a reassignment of the global
+-- (SendChatMessage = function(...) ... end) - overwriting a pervasively
+-- called Blizzard global replaces it for every future caller for the rest
+-- of the session, including chat commands issued from secure macros/
+-- protected code paths, which then end up calling KastaCD's insecure
+-- closure from inside a protected call stack. hooksecurefunc runs this
+-- purely as an observer AFTER Blizzard's own real call completes, so it
+-- can never itself be the thing a protected caller is calling.
 local lastChatType, lastChatTarget = "SAY", nil
-local origSendChatMessage = SendChatMessage
-SendChatMessage = function(msg, chatType, language, target)
+hooksecurefunc("SendChatMessage", function(msg, chatType, language, target)
     lastChatType   = chatType or "SAY"
     lastChatTarget = target
-    return origSendChatMessage(msg, chatType, language, target)
-end
+end)
 
 -- Not every chat type has an addon-message equivalent: SAY/YELL/EMOTE are
 -- position-based broadcasts to whoever's nearby, which has no defined

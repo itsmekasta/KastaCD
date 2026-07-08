@@ -111,7 +111,13 @@ local function RaiseKeystoneFrameStrata(f)
     f:SetFrameStrata("TOOLTIP")
 end
 
+-- RE-ENABLED (2026-07-08): was force-disabled while chasing a taint
+-- report that turned out to be caused by a Zygor Guides conflict, not
+-- this module.
+local KCD_KEYSTONE_RUNTIME_DISABLED = false
+
 local function HookKeystoneFrame(frame)
+    if KCD_KEYSTONE_RUNTIME_DISABLED then return end
     RaiseKeystoneFrameStrata(frame)
     CreateKeystoneButtons(frame)
     frame:HookScript("OnShow", function(f)

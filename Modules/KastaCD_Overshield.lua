@@ -45,6 +45,10 @@ function GetOvershieldDB()
     return db
 end
 
+-- RE-ENABLED (2026-07-08): was force-disabled while chasing a taint
+-- report that turned out to be caused by a Zygor Guides conflict, not
+-- this module. The genuine tileSize-nil crash fix (guards further below)
+-- stays regardless.
 local function IsOvershieldEnabled()
     return GetOvershieldDB().enabled == true
 end
@@ -147,6 +151,15 @@ hooksecurefunc("UnitFrameHealPredictionBars_Update",
 				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthbar, "BOTTOMRIGHT", 0, 0)
 			end
 
+			-- tileSize isn't a stock Texture property - it's only ever set
+			-- by Blizzard's own FrameXML template for this exact overlay,
+			-- which some dynamically-generated compact frames apparently
+			-- don't carry (confirmed live: a Lua error here, absorbOverlay.
+			-- tileSize nil, while a raid profile was being applied). Bail
+			-- rather than error - this frame just keeps Blizzard's default
+			-- (clipped-at-max-hp) shield display for this update instead.
+			if not absorbOverlay.tileSize then return end
+
 			local totalWidth, totalHeight = frame.healthbar:GetSize()
 			local barSize = totalAbsorb / maxHealth * totalWidth
 
@@ -191,6 +204,11 @@ hooksecurefunc("CompactUnitFrame_UpdateHealPrediction",
 				absorbOverlay:SetPoint("TOPRIGHT", frame.healthBar, "TOPRIGHT", 0, 0)
 				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthBar, "BOTTOMRIGHT", 0, 0)
 			end
+
+			-- See the matching guard in UnitFrameHealPredictionBars_Update
+			-- above - tileSize is missing on some dynamically-generated
+			-- compact frames and this crashed live.
+			if not absorbOverlay.tileSize then return end
 
 			local totalWidth, totalHeight = frame.healthBar:GetSize()
 			local barSize = totalAbsorb / maxHealth * totalWidth

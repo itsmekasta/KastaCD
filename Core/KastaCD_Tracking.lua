@@ -543,91 +543,20 @@ function FindUnitFrames()
     return unitFramePairs
 end
 
--- =============================================================
--- HideVanillaPartyBuffs
---
--- Settings > "Hide Blizzard Buffs on Party Frames" - hides Blizzard's own
--- native buff icons on party-scoped CompactUnitFrames (the small icons
--- CompactUnitFrame_UpdateAuras adds as children named e.g.
--- "CompactRaidFrame2Buff1" - confirmed against this server via
--- /framestack, same naming Blizzard has used since CompactRaidFrames were
--- introduced). Only affects Blizzard's OWN frames - ElvUI/other unit-frame
--- replacement addons build their own separate aura icons unrelated to
--- this and have their own settings for it.
---
--- hooksecurefunc, not a direct replacement - chains onto Blizzard's own
--- update function instead of overriding it, so this can never taint the
--- frame (same taint-avoidance approach already used in
--- KastaCD_KastaPlates.lua's health-color hook). Blizzard re-runs
--- CompactUnitFrame_UpdateAuras on every UNIT_AURA for that frame, so
--- hiding here re-fires just as often - no separate ticker needed.
---
--- Debuffs are deliberately left alone (frame.debuffFrames untouched) -
--- only "buffs" was asked for, and hiding dispel-relevant debuff warnings
--- would be actively unhelpful.
--- -------------------------------------------------------------
-local function HideVanillaPartyBuffs(frame)
-    if not (KastaCDDB and KastaCDDB.hideVanillaPartyBuffs) then return end
-    -- Never touch a Blizzard frame's Hide state while in combat lockdown -
-    -- CompactUnitFrame_UpdateAuras fires on UNIT_AURA, which happens
-    -- constantly mid-fight, and calling :Hide() on its child aura icons
-    -- from here can taint that frame's hierarchy. Once tainted, the
-    -- ENGINE can blame KastaCD for a totally unrelated protected call
-    -- later (confirmed live: an ADDON_ACTION_FORBIDDEN report blaming
-    -- KastaCD for Blizzard's own UseToy()). Skipping in combat means
-    -- Blizzard's native buff icons can reappear for the duration of a
-    -- fight even with this setting on - a fair trade for not tainting
-    -- unrelated UI actions.
-    if InCombatLockdown and InCombatLockdown() then return end
-    if not frame or not frame.unit then return end
-    local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
-    if not isPartyUnit then return end
-    if frame.buffFrames then
-        for _, buffFrame in pairs(frame.buffFrames) do
-            if buffFrame and buffFrame.Hide then buffFrame:Hide() end
-        end
-    end
-end
-
-if type(CompactUnitFrame_UpdateAuras) == "function" then
-    hooksecurefunc("CompactUnitFrame_UpdateAuras", HideVanillaPartyBuffs)
-end
-if type(CompactUnitFrame_UpdateBuffs) == "function" then
-    hooksecurefunc("CompactUnitFrame_UpdateBuffs", HideVanillaPartyBuffs)
-end
-
--- =============================================================
--- HideVanillaPartyDebuffs
---
--- Debuff Display's own "Hide Blizzard Debuffs on Party Frames" - same
--- mechanism as HideVanillaPartyBuffs above, mirrored for
--- frame.debuffFrames instead of frame.buffFrames, gated by its own
--- separate KastaCDDB.hideVanillaPartyDebuffs toggle. Unlike the buff
--- version, hiding debuffs here IS opt-in on purpose (the buff version's
--- comment warns against hiding dispel-relevant debuff warnings by
--- default) - only takes effect when the user explicitly turns this on.
--- -------------------------------------------------------------
-local function HideVanillaPartyDebuffs(frame)
-    if not (KastaCDDB and KastaCDDB.hideVanillaPartyDebuffs) then return end
-    -- Same combat-lockdown guard as HideVanillaPartyBuffs above, and for
-    -- the exact same taint reason - see its comment.
-    if InCombatLockdown and InCombatLockdown() then return end
-    if not frame or not frame.unit then return end
-    local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
-    if not isPartyUnit then return end
-    if frame.debuffFrames then
-        for _, debuffFrame in pairs(frame.debuffFrames) do
-            if debuffFrame and debuffFrame.Hide then debuffFrame:Hide() end
-        end
-    end
-end
-
-if type(CompactUnitFrame_UpdateAuras) == "function" then
-    hooksecurefunc("CompactUnitFrame_UpdateAuras", HideVanillaPartyDebuffs)
-end
-if type(CompactUnitFrame_UpdateDebuffs) == "function" then
-    hooksecurefunc("CompactUnitFrame_UpdateDebuffs", HideVanillaPartyDebuffs)
-end
+-- NOTE: "Hide Blizzard Buffs/Debuffs on Party Frames" (hooksecurefunc on
+-- CompactUnitFrame_UpdateAuras/UpdateBuffs/UpdateDebuffs, calling :Hide()
+-- on frame.buffFrames/debuffFrames) used to live here. Removed - after a
+-- live ADDON_ACTION_FORBIDDEN taint report (KastaCD blamed for Blizzard's
+-- own UseToy()/SpellStopCasting(), triggered by totally unrelated actions
+-- like using a toy or opening the ESC menu) that persisted even after
+-- fixing two confirmed direct-call taint sources elsewhere in the addon,
+-- this was the last remaining suspect and got removed outright rather
+-- than gated further, matching how the other confirmed sources were
+-- handled (removed, not just guarded - guarding alone didn't fully solve
+-- it for combat lockdown either). If this is revisited, it needs a
+-- taint-free approach that never calls a setter on a Blizzard-owned
+-- frame at all (e.g. an addon-owned overlay drawn on top, never touching
+-- frame.buffFrames/debuffFrames directly).
 
 -- -------------------------------------------------------------
 -- ClearIcons  –  destroy all icon frames and reset state
