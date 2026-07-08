@@ -18,4 +18,13 @@
 	     depends on LibStub (already loaded above). -->
 	<Script file="libs\LibObjectiveProgress-1.0\LibObjectiveProgress-1.0.lua"/>
 	<Script file="libs\LibObjectiveProgress-1.0\ProgressWeightData.lua"/>
+
+	<!-- Recolorable clone of Blizzard's own action-button glow (vendored
+	     from WeakAuras' Libs folder - only the "Action Button Glow"
+	     function is used, not its animated "Proc Glow" style, which was
+	     tried and reverted for looking like it kept restarting). Only
+	     depends on LibStub (already loaded above). Used by ShowProcGlow/
+	     HideProcGlow in KastaCD_Tracking.lua so every glow in the addon
+	     can use Settings > Glow Color instead of the fixed stock gold. -->
+	<Include file="libs\LibCustomGlow-1.0\LibCustomGlow-1.0.xml"/>
 </Ui>

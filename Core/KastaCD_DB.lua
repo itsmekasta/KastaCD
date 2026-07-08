@@ -146,7 +146,10 @@ function KastaCDInitDB()
     -- Same as above, mirrored for Debuff Display's own toggle (see
     -- HideVanillaPartyDebuffs in KastaCD_Tracking.lua).
     if KastaCDDB.hideVanillaPartyDebuffs == nil then KastaCDDB.hideVanillaPartyDebuffs = false end
-
+    -- Glow color shared by every glow in the addon (see ShowProcGlow/
+    -- HideProcGlow in KastaCD_Tracking.lua) - nil means "use stock
+    -- Blizzard gold", not stored as a default table so a fresh install
+    -- and an explicit "reset" both mean the exact same thing.
     -- ── One-time migration: Interrupt/CC tracker bar settings used to
     -- live directly on KastaCDDB.intAnchor/.ccAnchor, shared globally
     -- across every profile - switching or importing a profile never

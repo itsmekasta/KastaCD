@@ -613,6 +613,20 @@ function ClearCCBarState(unit)
     ccBarState[unit] = nil
 end
 
+-- ccBarFrames is keyed [unit][spellId] = barFrame (a unit can have
+-- several simultaneous guessed/witnessed CC bars - see PickGuessCC),
+-- never [unit] = barFrame directly, so hiding every row needs a nested
+-- walk. Shared here since the early-exit guards below and the "hide
+-- everything before re-showing what's active" pass further down both
+-- need it.
+local function HideAllCCBarRows()
+    for _, unitFrames in pairs(ccBarFrames) do
+        for _, bf in pairs(unitFrames) do
+            bf.row:Hide()
+        end
+    end
+end
+
 -- ─────────────────────────────────────────────────────────────
 -- Rebuild all crowd-control bars
 -- ─────────────────────────────────────────────────────────────
@@ -629,7 +643,7 @@ function RebuildCCBars()
     -- anchor visible, otherwise there'd be nothing to drag while solo.
     if db.locked and not IsInGroup() and not db.testMode then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
-        for _, bf in pairs(ccBarFrames) do bf.row:Hide() end
+        HideAllCCBarRows()
         return
     end
 
@@ -638,7 +652,7 @@ function RebuildCCBars()
     local _, instanceType = IsInInstance()
     if db.locked and instanceType == "raid" then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
-        for _, bf in pairs(ccBarFrames) do bf.row:Hide() end
+        HideAllCCBarRows()
         return
     end
 
@@ -649,7 +663,7 @@ function RebuildCCBars()
     -- as above.
     if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
-        for _, bf in pairs(ccBarFrames) do bf.row:Hide() end
+        HideAllCCBarRows()
         return
     end
 
@@ -703,11 +717,7 @@ function RebuildCCBars()
     local ROW = ICO + BW  -- total row width
 
     -- Hide all rows; we re-show only the ones that are active
-    for _, unitFrames in pairs(ccBarFrames) do
-        for _, bf in pairs(unitFrames) do
-            bf.row:Hide()
-        end
-    end
+    HideAllCCBarRows()
 
     local yOff   = 0
     local anyBar = false

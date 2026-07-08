@@ -63,8 +63,17 @@ hooksecurefunc("UnitFrame_Update",
 		local absorbOverlay = frame.totalAbsorbBarOverlay
 		if not absorbOverlay then return end
 
-		absorbOverlay:SetParent(frame.healthbar)
-		absorbOverlay:ClearAllPoints() -- attached on the heal-prediction update below instead
+		-- Deliberately NOT calling absorbOverlay:SetParent(...) here -
+		-- confirmed live that reparenting a Blizzard-owned frame from here
+		-- taints it (and, once tainted, ANY later unrelated protected
+		-- action - e.g. clicking a toy - can get blocked and blamed on
+		-- KastaCD for the rest of the session, not just while in combat).
+		-- SetPoint anchors visually to any frame regardless of literal
+		-- parent-child relationship, so this overlay never actually needed
+		-- to be reparented onto the health bar to begin with - only
+		-- ClearAllPoints (routine, not a taint risk) is needed here;
+		-- positioning itself happens in the heal-prediction hook below.
+		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow
 		if absorbGlow then
@@ -91,7 +100,9 @@ hooksecurefunc("CompactUnitFrame_UpdateAll",
 		local absorbOverlay = frame.totalAbsorbOverlay
 		if not absorbOverlay then return end
 
-		absorbOverlay:SetParent(frame.healthBar)
+		-- See the matching comment in UnitFrame_Update above - no
+		-- SetParent, confirmed live to taint the frame and later block
+		-- unrelated protected actions for the rest of the session.
 		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow

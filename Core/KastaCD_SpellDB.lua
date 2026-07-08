@@ -140,7 +140,7 @@ SPELL_DB[205691] = { name="Dire Beast: Basilisk",   class="HUNTER",             
 SPELL_DB[193530] = { name="Aspect of the Wild",     class="HUNTER",               duration=20, cooldown=120, category="OFFENSIVE", specs={253} }
 
 -- ── ROGUE ─────────────────────────────────────────────────────
-SPELL_DB[5277]   = { name="Evasion",                class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE",              minLevel=22 }
+SPELL_DB[5277]   = { name="Evasion",                class="ROGUE", icon=136205, duration=10, cooldown=120, category="DEFENSIVE", specs={259,261}, minLevel=22 }
 SPELL_DB[31224]  = { name="Cloak of Shadows",       class="ROGUE", icon=136177, duration=5,  cooldown=90,  category="IMMUNITY",               minLevel=66 }
 SPELL_DB[1766]   = { name="Kick",                   class="ROGUE", icon=132219, duration=0,  cooldown=15,  category="INTERRUPT",              minLevel=18 }
 SPELL_DB[2094]   = { name="Blind",                  class="ROGUE", icon=136175, duration=60, cooldown=120, category="UTILITY",                minLevel=14 }
@@ -153,10 +153,11 @@ SPELL_DB[185313] = { name="Shadow Dance",           class="ROGUE", icon=458726, 
 SPELL_DB[198529] = { name="Plunder Armor",          class="ROGUE",             duration=0,  cooldown=90,  category="OFFENSIVE", specs={260}, isTalent=true }
 SPELL_DB[114018] = { name="Shroud of Concealment",  class="ROGUE",             duration=15, cooldown=360, category="UTILITY" }
 SPELL_DB[213981] = { name="Cold Blood",             class="ROGUE",             duration=0,  cooldown=60,  category="OFFENSIVE", specs={259} }
--- Riposte - unverified: not confident this is a real baseline/talent
--- ability in this server's Legion 7.3.5 Rogue kit. Placeholder data -
--- please confirm in-game (tooltip cooldown/duration) before relying on it.
-SPELL_DB[199754] = { name="Riposte",                class="ROGUE",             duration=0,  cooldown=60,  category="OFFENSIVE", isTalent=true }
+-- Riposte is Outlaw's own defensive cooldown - the Evasion equivalent for
+-- that spec (Evasion above is Assassination/Subtlety only, confirmed by
+-- the user). Cooldown/duration below are still unverified placeholders -
+-- please confirm in-game (tooltip) before relying on the exact numbers.
+SPELL_DB[199754] = { name="Riposte",                class="ROGUE",             duration=0,  cooldown=60,  category="DEFENSIVE", specs={260}, isTalent=true }
 
 -- ── PRIEST ────────────────────────────────────────────────────
 SPELL_DB[8122]   = { name="Psychic Scream",         class="PRIEST", icon=136184, duration=8,  cooldown=45,  category="UTILITY",               minLevel=14 }

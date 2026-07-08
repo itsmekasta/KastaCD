@@ -269,11 +269,32 @@ function IsInPartyOnly()
     return HasGroup()
 end
 
--- Glow helpers (ActionButton overlay API)
+-- Glow helpers - shared by every glow in the addon (this tracker's own
+-- icons, Buff Display, Debuff Display), so a single Settings > Glow Color
+-- choice controls all of them.
+--
+-- Uses libs\LibCustomGlow-1.0's "Action Button Glow" - a recolorable
+-- clone of Blizzard's own stock gold ActionButton_ShowOverlayGlow (same
+-- textures/animation), visually IDENTICAL to stock when no custom color
+-- is set. Deliberately NOT using that library's animated "Proc Glow"
+-- style - it was tried first and reverted, since its flipbook loop
+-- visibly restarts on a fixed cycle no matter how that cycle length was
+-- tuned, which read as the glow "constantly refreshing".
 function ShowProcGlow(f)
+    if not f then return end
+    local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if LCG then
+        if f._ButtonGlow then return end -- already glowing, no need to restart it
+        local c = KastaCDDB and KastaCDDB.glowColor
+        LCG.ButtonGlow_Start(f, c and { c[1], c[2], c[3], c[4] or 1 } or nil)
+        return
+    end
     if ActionButton_ShowOverlayGlow then ActionButton_ShowOverlayGlow(f) end
 end
 function HideProcGlow(f)
+    if not f then return end
+    local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if LCG then LCG.ButtonGlow_Stop(f) end
     if ActionButton_HideOverlayGlow then ActionButton_HideOverlayGlow(f) end
 end
 
@@ -547,6 +568,17 @@ end
 -- -------------------------------------------------------------
 local function HideVanillaPartyBuffs(frame)
     if not (KastaCDDB and KastaCDDB.hideVanillaPartyBuffs) then return end
+    -- Never touch a Blizzard frame's Hide state while in combat lockdown -
+    -- CompactUnitFrame_UpdateAuras fires on UNIT_AURA, which happens
+    -- constantly mid-fight, and calling :Hide() on its child aura icons
+    -- from here can taint that frame's hierarchy. Once tainted, the
+    -- ENGINE can blame KastaCD for a totally unrelated protected call
+    -- later (confirmed live: an ADDON_ACTION_FORBIDDEN report blaming
+    -- KastaCD for Blizzard's own UseToy()). Skipping in combat means
+    -- Blizzard's native buff icons can reappear for the duration of a
+    -- fight even with this setting on - a fair trade for not tainting
+    -- unrelated UI actions.
+    if InCombatLockdown and InCombatLockdown() then return end
     if not frame or not frame.unit then return end
     local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
     if not isPartyUnit then return end
@@ -577,6 +609,9 @@ end
 -- -------------------------------------------------------------
 local function HideVanillaPartyDebuffs(frame)
     if not (KastaCDDB and KastaCDDB.hideVanillaPartyDebuffs) then return end
+    -- Same combat-lockdown guard as HideVanillaPartyBuffs above, and for
+    -- the exact same taint reason - see its comment.
+    if InCombatLockdown and InCombatLockdown() then return end
     if not frame or not frame.unit then return end
     local isPartyUnit = frame.unit == "player" or frame.unit:match("^party%d$") ~= nil
     if not isPartyUnit then return end

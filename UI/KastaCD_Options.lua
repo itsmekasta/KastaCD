@@ -716,6 +716,19 @@ local function BuildSettingsGroup()
                 if type(RebuildIcons) == "function" then RebuildIcons() end
             end,
         },
+        glowColor = {
+            type = "color", order = 40, name = "Glow Color", hasAlpha = true,
+            desc = "Recolors every glow in the addon (this tracker's own icons, Buff Display, Debuff Display) - defaults to Blizzard's stock gold.",
+            get = function()
+                local c = KastaCDDB.glowColor or { 1, 0.9, 0.3, 1 }
+                return c[1], c[2], c[3], c[4] or 1
+            end,
+            set = function(_, r, g, b, a) KastaCDDB.glowColor = { r, g, b, a } end,
+        },
+        resetGlowColor = {
+            type = "execute", order = 41, name = "Reset to Blizzard Gold",
+            func = function() KastaCDDB.glowColor = nil end,
+        },
     }
 
     local visibilityArgs = {
@@ -1407,6 +1420,24 @@ local function BuildBuffDisplayGroup()
                 if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
             end,
         },
+        -- Same shared KastaCDDB.glowColor every glow in the addon reads
+        -- (see ShowProcGlow/HideProcGlow in KastaCD_Tracking.lua and
+        -- Party Cooldowns > Settings > Misc, where this same control also
+        -- lives) - duplicated here purely for discoverability, not a
+        -- separate per-feature color.
+        glowColor = {
+            type = "color", order = 12.3, name = "Glow Color", hasAlpha = true, hidden = BuffDisplayContentHidden,
+            desc = "Recolors every glow in the addon, not just Buff Display - same setting as Party Cooldowns > Settings > Misc. Defaults to Blizzard's stock gold.",
+            get = function()
+                local c = KastaCDDB.glowColor or { 1, 0.9, 0.3, 1 }
+                return c[1], c[2], c[3], c[4] or 1
+            end,
+            set = function(_, r, g, b, a) KastaCDDB.glowColor = { r, g, b, a } end,
+        },
+        resetGlowColor = {
+            type = "execute", order = 12.6, name = "Reset to Blizzard Gold", hidden = BuffDisplayContentHidden,
+            func = function() KastaCDDB.glowColor = nil end,
+        },
         hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Buffs", hidden = BuffDisplayContentHidden },
         hideVanillaPartyBuffs = {
             type = "toggle", order = 14, name = "Hide Blizzard Buffs on Party Frames", width = "full", hidden = BuffDisplayContentHidden,
@@ -1728,6 +1759,24 @@ local function BuildDebuffDisplayGroup()
                 GetDebuffDisplayDB().showIconBorders = v and true or false
                 if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
             end,
+        },
+        -- Same shared KastaCDDB.glowColor every glow in the addon reads
+        -- (see ShowProcGlow/HideProcGlow in KastaCD_Tracking.lua and
+        -- Party Cooldowns > Settings > Misc, where this same control also
+        -- lives) - duplicated here purely for discoverability, not a
+        -- separate per-feature color.
+        glowColor = {
+            type = "color", order = 12.3, name = "Glow Color", hasAlpha = true, hidden = DebuffDisplayContentHidden,
+            desc = "Recolors every glow in the addon, not just Debuff Display - same setting as Party Cooldowns > Settings > Misc. Defaults to Blizzard's stock gold.",
+            get = function()
+                local c = KastaCDDB.glowColor or { 1, 0.9, 0.3, 1 }
+                return c[1], c[2], c[3], c[4] or 1
+            end,
+            set = function(_, r, g, b, a) KastaCDDB.glowColor = { r, g, b, a } end,
+        },
+        resetGlowColor = {
+            type = "execute", order = 12.6, name = "Reset to Blizzard Gold", hidden = DebuffDisplayContentHidden,
+            func = function() KastaCDDB.glowColor = nil end,
         },
         hideVanillaHeader = { type = "header", order = 13, name = "Blizzard Debuffs", hidden = DebuffDisplayContentHidden },
         hideVanillaPartyDebuffs = {
