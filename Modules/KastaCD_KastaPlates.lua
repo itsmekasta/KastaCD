@@ -541,10 +541,60 @@ watcher:SetScript("OnEvent", function(_, event, unitToken)
     end
 end)
 
+-- Per-frame reassert ticker - restored after confirming live that the
+-- hook-only approach above isn't sufficient: nameplate recoloring from
+-- Blizzard's own threat/aggro AND mouseover/OnEnter highlight logic both
+-- change the bar's color through some path that never calls
+-- healthBar:SetStatusBarColor or its texture's :SetVertexColor on the
+-- specific objects EnsureHealthBarColorHook hooks - confirmed by this
+-- file's own long-standing comment on the threat case, and now live
+-- testing showing the SAME class of problem for mouseover (color reverts
+-- to red and STAYS reverted for as long as the mouse hovers, only fixing
+-- itself once the cursor leaves - a continuous per-frame fight, not a
+-- one-off event a slower ticker can catch after the fact). A 0.2s ticker
+-- was tried first and confirmed insufficient (matches this file's older
+-- comment: "a 0.2s C_Timer ticker tried first still lost the race").
+--
+-- This ticker WAS removed earlier in the same session that also fixed
+-- this addon's real, confirmed ADDON_ACTION_FORBIDDEN taint bug - but
+-- that removal was based on static-analysis suspicion, never confirmed
+-- by the rigorous .toc-level bisection later in that session, which
+-- definitively isolated the actual taint source to a totally different
+-- file (KastaCD_DebuffDisplay.lua's StaticPopupDialogs registration -
+-- see memory/project_kastacd_zygor_taint.md). Nothing in this file was
+-- ever proven to be a taint source. Given that, and a confirmed live
+-- functional regression from removing this ticker, restoring it is the
+-- right tradeoff: every write here still only ever calls
+-- healthBar:SetStatusBarColor/:SetVertexColor on this addon's OWN
+-- tracked units (never a blind global sweep), same as the rest of this
+-- file's already-safe writes, just on every frame instead of an
+-- insufficient timer.
+local reassertFrame
 if not KCD_KASTAPLATES_RUNTIME_DISABLED then
     EnsureHealthColorHook()
     EnsurePlaterHook()
     EnsureElvUIHook()
+
+    reassertFrame = CreateFrame("Frame")
+    reassertFrame:SetScript("OnUpdate", function()
+        for unitToken, state in pairs(activeUnits) do
+            local color = EffectiveColor(state)
+            if color then
+                local healthBar = GetPlateHealthBar(unitToken)
+                if healthBar then
+                    healthBar.kcdForcedColor = color
+                    healthBar:SetStatusBarColor(color[1], color[2], color[3])
+                    local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
+                    if tex then
+                        tex:SetVertexColor(color[1], color[2], color[3])
+                    end
+                    if healthBar.Bar then
+                        healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
+                    end
+                end
+            end
+        end
+    end)
 end
 
 -- -------------------------------------------------------------
