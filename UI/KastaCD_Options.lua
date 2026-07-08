@@ -1217,7 +1217,7 @@ local function BuildKastaPlatesGroup()
             local entry = bucket.npcs[npcID]
             -- width here is a plain string keyword only ("half"/"double"/
             -- "full"/nil) - AceConfigRegistry's validator rejects a raw
-            -- number outright (hit and fixed once already this session).
+            -- number outright.
             npcArgs["name" .. npcID] = {
                 type = "description", order = npcOrder, width = "double",
                 name = entry.name or ("NPC " .. npcID),
@@ -1921,14 +1921,8 @@ local function BuildDebuffDisplayGroup()
 
     -- Only build a tab for a category that actually has watched spells in
     -- it - mirrors BuildBuffDisplayGroup's per-class "only include if ids
-    -- and #ids > 0" condition exactly, rather than always creating at
-    -- least the Uncategorized tab regardless of content. Confirmed via
-    -- live bisection testing that unconditionally building an empty tab
-    -- here specifically was the cause of a persistent ADDON_ACTION_FORBIDDEN
-    -- taint report (blocking unrelated actions like UseToy/SpellStopCasting)
-    -- that survived many other targeted fixes elsewhere in the addon -
-    -- BuffDisplay's equivalent group, which never builds an empty tab, was
-    -- confirmed clean throughout the same testing.
+    -- and #ids > 0" condition, rather than always creating at least the
+    -- Uncategorized tab regardless of content.
     if not next(db.list) then
         args.emptyDesc = {
             type = "description", order = 40, hidden = DebuffDisplayContentHidden,

@@ -6,31 +6,12 @@
 -- are organized per-dungeon (by instanceID) since the same NPC name/color
 -- choice usually only makes sense within one specific dungeon.
 --
--- Reference: Plater (Addons/Plater/Plater.lua) was studied for HOW to
--- recolor a nameplate health bar without tainting - it doesn't ship any
--- reusable "important NPC" database itself (its only NPC-ID table is for
--- world-map service-NPC classification, unrelated). The actual per-dungeon
--- NPC roster (KASTAPLATES_DUNGEONS/KASTAPLATES_DUNGEON_NPCS) instead comes
--- from Method Dungeon Tools' route-planning data - see
+-- The per-dungeon NPC roster (KASTAPLATES_DUNGEONS/KASTAPLATES_DUNGEON_NPCS)
+-- comes from Method Dungeon Tools' route-planning data - see
 -- KastaCD_KastaPlatesData.lua. Users pick a dungeon + NPC from that
 -- pre-built list in the options UI and customize its color/mark directly;
 -- there's no separate "add" step since every NPC is already known.
---
--- Taint safety: Blizzard's nameplates are CompactUnitFrames, and Blizzard
--- itself resets a frame's health bar color on many of its own events
--- (CompactUnitFrame_UpdateHealthColor). Directly calling
--- healthBar:SetStatusBarColor(...) once would just get overwritten the
--- next time Blizzard's own code runs. Plater's fix (confirmed by reading
--- its source) is to hooksecurefunc CompactUnitFrame_UpdateHealthColor and
--- re-apply the forced color AFTER Blizzard's own logic runs each time -
--- hooksecurefunc chains onto a function rather than replacing it, so it
--- never touches a protected function's execution path and can't taint.
---
--- RE-ENABLED (2026-07-08): was force-disabled while chasing a taint
--- report that turned out to be caused by a Zygor Guides conflict, not
--- this module.
 -- =============================================================
-local KCD_KASTAPLATES_RUNTIME_DISABLED = false
 
 function GetKastaPlatesDB()
     KastaCDDB = KastaCDDB or {}
@@ -44,10 +25,6 @@ function GetKastaPlatesDB()
     if type(db.castHighlight) ~= "table" then db.castHighlight = {} end
     local ch = db.castHighlight
     if ch.enabled == nil then ch.enabled = true end
-    -- Two separate colors instead of one flat color + an "only
-    -- non-interruptible" on/off toggle - the color itself now signals
-    -- which kind of cast it is (kickable vs not) instead of hiding one
-    -- category outright.
     if type(ch.interruptibleColor) ~= "table" then ch.interruptibleColor = { 1, 0.82, 0 } end
     if type(ch.nonInterruptibleColor) ~= "table" then ch.nonInterruptibleColor = { 1, 0, 0 } end
     return db
@@ -66,34 +43,22 @@ local function GUIDToNpcID(guid)
     return tonumber(guid:match("^Creature%-0%-%d+%-%d+%-%d+%-(%d+)%-"))
 end
 
--- Returns (instanceID, instanceName) for whatever zone/instance the
--- player is currently in - used both as the dungeon "bucket" key for new
--- entries and to decide which bucket's entries apply to currently-visible
--- plates.
 local function CurrentInstance()
     local name, _, _, _, _, _, _, instanceID = GetInstanceInfo()
     return instanceID, name
 end
 
-
--- Lazily returns (creating if needed) the customization entry for an NPC
--- picked from the dungeon/NPC dropdowns (KASTAPLATES_DUNGEONS/
--- KASTAPLATES_DUNGEON_NPCS - see KastaCD_KastaPlatesData.lua). The full
--- roster is already known from that static database, so merely picking
--- an NPC to look at doesn't need an explicit "Add" step or clutter the
--- saved list - an entry is only actually created the moment its color or
--- mark is changed away from the default (see BuildKastaPlatesGroup's
--- color/mark get/set).
 -- Plain red unless this npcID has a curated preset (KASTAPLATES_PRESET_
--- COLORS, KastaCD_KastaPlatesData.lua) - shared by the entry-creation
--- default below AND the options UI's color-picker get()s, so a preset
--- shows up immediately even before anyone's actually saved a
--- customization for that NPC.
+-- COLORS, KastaCD_KastaPlatesData.lua).
 function DefaultKastaPlatesColor(npcID)
     local preset = KASTAPLATES_PRESET_COLORS and npcID and KASTAPLATES_PRESET_COLORS[npcID]
     return preset or { 1, 0, 0 }
 end
 
+-- Lazily returns (creating if needed) the customization entry for an NPC.
+-- An entry is only actually created the moment its color or mark is
+-- changed away from the default (see BuildKastaPlatesGroup's color/mark
+-- get/set), not merely by looking at it.
 function GetOrCreateKastaPlatesEntry(instanceID, npcID)
     if not instanceID or not npcID then return nil end
     local roster = KASTAPLATES_DUNGEON_NPCS and KASTAPLATES_DUNGEON_NPCS[instanceID]
@@ -115,18 +80,10 @@ function GetOrCreateKastaPlatesEntry(instanceID, npcID)
     return entry
 end
 
--- Turns every KASTAPLATES_PRESET_COLORS entry into an actual saved,
--- persistent customization (not just a fallback default color for the
--- picker to display) - so preset-colored NPCs show up immediately in the
--- per-dungeon tabs below, the same as anything manually customized,
--- instead of only materializing once someone happens to open the picker
--- and touch that exact NPC.
---
--- Tracked per-npcID (db.seededPresetNPCs), not one blanket flag, so
--- adding MORE presets in a future update still seeds those new ones on
--- next login without re-touching (or fighting) anything already seeded
--- before - including a color you've since changed away from the preset,
--- or an entry you've since removed entirely.
+-- Turns every KASTAPLATES_PRESET_COLORS entry into an actual saved
+-- customization, tracked per-npcID (db.seededPresetNPCs) so adding more
+-- presets later only seeds the new ones without touching anything the
+-- user has already customized or removed.
 function SeedKastaPlatesPresets()
     if not KASTAPLATES_PRESET_COLORS then return end
     local db = GetKastaPlatesDB()
@@ -157,23 +114,17 @@ end
 -- -------------------------------------------------------------
 -- Health bar color enforcement
 -- -------------------------------------------------------------
--- hookedFrames avoids double-hooking the same CompactUnitFrame's health
--- bar reference (nameplates get reused across units, but hooksecurefunc
--- itself is global to the function name, not per-frame, so this is
--- really just bookkeeping for readability - the actual hook is installed
--- exactly once below, ever).
 local activeUnits = {}   -- [unitToken] = { npcID, baseColor={r,g,b} or nil, castColor={r,g,b} or nil }
 
--- TidyPlates (and its skin packages Graphite/Grey/Neon/Quatre) replaces
--- Blizzard's nameplate visuals but keeps using the SAME frame
--- C_NamePlate.GetNamePlateForUnit returns - it just bolts extra fields
--- onto it. Its actual health bar is a hand-rolled pseudo-StatusBar at
--- plate.extended.visual.healthbar (confirmed by reading TidyPlatesCore.lua/
--- TidyPlatesStatusbar.lua), not a real Blizzard StatusBar, so it has no
--- GetStatusBarTexture()/GetParent() the way plate.UnitFrame.healthBar
--- does - only a plain .Bar texture and a :SetStatusBarColor(r,g,b) method
--- TidyPlates itself defines. Checking for that field first means both
--- nameplate systems fall through the exact same coloring code below.
+-- TidyPlates (and its skin packages) replaces Blizzard's nameplate
+-- visuals but keeps using the same frame C_NamePlate.GetNamePlateForUnit
+-- returns. Its health bar is a hand-rolled pseudo-StatusBar at
+-- plate.extended.visual.healthbar, not a real Blizzard StatusBar - only a
+-- .Bar texture and a :SetStatusBarColor(r,g,b) method it defines itself.
+--
+-- ElvUI hides Blizzard's real plate.UnitFrame and builds its own parallel
+-- frame at plate.unitFrame (lowercase u) with its own .HealthBar, which
+-- IS a genuine Blizzard StatusBar.
 local function GetPlateHealthBar(unitToken)
     local plate = C_NamePlate.GetNamePlateForUnit(unitToken)
     if not plate then return nil end
@@ -181,15 +132,6 @@ local function GetPlateHealthBar(unitToken)
     local tpBar = plate.extended and plate.extended.visual and plate.extended.visual.healthbar
     if tpBar then return tpBar, "tidyplates" end
 
-    -- ElvUI hides Blizzard's real plate.UnitFrame entirely (hooks its
-    -- OnShow straight to :Hide()) and builds its own parallel frame at
-    -- plate.unitFrame (lowercase u - a different field, not a typo) with
-    -- its own .HealthBar - confirmed by reading ElvUI's nameplates.lua/
-    -- healthBar.lua. That HealthBar IS a real Blizzard StatusBar widget
-    -- (CreateFrame("StatusBar", ...)), unlike TidyPlates' hand-rolled
-    -- object, so it needs no special-cased coloring path below - just
-    -- has to be found before falling through to the (invisible, ElvUI-
-    -- suppressed) plate.UnitFrame.healthBar.
     local elvBar = plate.unitFrame and plate.unitFrame.HealthBar
     if elvBar then return elvBar, "elvui" end
 
@@ -198,56 +140,28 @@ local function GetPlateHealthBar(unitToken)
 end
 
 -- A priority-NPC color (baseColor) always wins over the generic Cast
--- Highlight tint (castColor) - previously the other way around, which
--- meant any mob you'd colored got silently overridden by the (default
--- yellow) cast highlight the moment it cast/attacked, defeating the
--- whole point of giving it a stable, recognizable color. Cast Highlight
--- now only ever shows on nameplates that DON'T have a priority color
--- assigned at all.
+-- Highlight tint (castColor), so a colored mob doesn't lose its color the
+-- moment it casts/attacks.
 local function EffectiveColor(state)
     if not state then return nil end
     return state.baseColor or state.castColor
 end
 
--- TidyPlates recolors its custom health bar via its own per-instance
--- :SetStatusBarColor method (TidyPlatesStatusbar.lua), not any single
--- shared function the way Blizzard's CompactUnitFrame_UpdateHealthColor
--- is - so there's no one global function to hooksecurefunc once. Instead
--- this hooks that ONE health bar OBJECT's method, exactly once per
--- object (tracked via kcdTPHooked on the bar itself, since nameplates -
--- and their bar objects - get reused across different units over time).
+-- TidyPlates recolors via its own per-instance :SetStatusBarColor method,
+-- not a shared global function, so this hooks that one health bar
+-- object's method (tracked via kcdTPHooked, since nameplate bar objects
+-- get reused across different units over time).
 local function EnsureTidyPlatesHook(healthBar)
     if healthBar.kcdTPHooked then return end
     healthBar.kcdTPHooked = true
     hooksecurefunc(healthBar, "SetStatusBarColor", function(self, r, g, b)
         local c = self.kcdForcedColor
-        -- Guard against re-triggering our own call to SetStatusBarColor
-        -- just below - hooksecurefunc still fires for calls WE make, not
-        -- just TidyPlates' own.
         if c and (r ~= c[1] or g ~= c[2] or b ~= c[3]) then
             self:SetStatusBarColor(c[1], c[2], c[3])
         end
     end)
 end
 
--- Real Blizzard StatusBar widgets (kind "blizzard"/"elvui" from
--- GetPlateHealthBar - TidyPlates' hand-rolled bar is handled separately by
--- EnsureTidyPlatesHook above, it has no GetStatusBarTexture) - hooks the
--- bar's OWN :SetStatusBarColor method plus its status-bar texture's own
--- :SetVertexColor method, the same "hooksecurefunc the specific object,
--- not a shared global function" shape as EnsureTidyPlatesHook.
---
--- This replaces an earlier design (EnsureColorReassertTicker, removed)
--- that re-asserted the forced color every single OnUpdate frame via a
--- DIRECT call to healthBar:SetStatusBarColor - removed after a live
--- ADDON_ACTION_FORBIDDEN taint report that persisted through several
--- other fixes; a direct write to a real Blizzard CompactUnitFrame's
--- health bar, repeated 60x/second for as long as any tracked nameplate
--- was on screen, was the strongest remaining candidate. Hooking the
--- object's own color-setting methods instead means KastaCD only ever
--- re-applies its color from INSIDE a safe post-Blizzard-call hook, no
--- matter which of Blizzard's own update paths (health, threat, aggro
--- highlight, etc.) actually changed the color.
 local function EnsureHealthBarColorHook(healthBar)
     if healthBar.kcdColorHooked then return end
     healthBar.kcdColorHooked = true
@@ -289,23 +203,12 @@ local function ApplyEffectiveColor(unitToken)
         end
     elseif healthBar.kcdForcedColor then
         healthBar.kcdForcedColor = nil
-        -- Deliberately NOT calling CompactUnitFrame_UpdateHealthColor(...)
-        -- here directly - confirmed live that a KastaCD taint report
-        -- (ADDON_ACTION_FORBIDDEN on an unrelated later protected action)
-        -- can be traced to code calling INTO a Blizzard function directly
-        -- from insecure code, as opposed to hooksecurefunc'ing it (which
-        -- runs safely after Blizzard's own call, never as a call KastaCD
-        -- itself initiates). Same self-heals-on-its-own-next-cycle
-        -- reasoning as the TidyPlates case below - Blizzard repaints this
-        -- bar's normal color on its own next unrelated health-color
-        -- update regardless, just not necessarily this exact instant.
     end
 end
 
--- Installed exactly once - re-asserts whatever forced color a health bar
--- is currently marked with, immediately after Blizzard's own color logic
--- runs on it. This is what makes the forced color actually stick instead
--- of being silently overwritten on the next health/threat update.
+-- Re-asserts a health bar's forced color immediately after Blizzard's own
+-- color logic runs on it, so the forced color sticks instead of being
+-- silently overwritten on the next health/threat update.
 local hookInstalled = false
 local function EnsureHealthColorHook()
     if hookInstalled then return end
@@ -320,24 +223,14 @@ local function EnsureHealthColorHook()
     end)
 end
 
--- Plater (unlike TidyPlates) keeps using Blizzard's own real
--- plate.UnitFrame.healthBar object - GetPlateHealthBar already finds it
--- correctly with no changes needed. The problem is Plater aggressively
--- re-asserts ITS OWN color on that same object through a single choke
--- point, Plater.ForceChangeHealthBarColor (confirmed by reading its
--- source - every one of its own threat/quest/class/faction/periodic
--- recolor paths funnels through this one function, which sets
--- healthBar.R/G/B and calls healthBar.barTexture:SetVertexColor
--- directly, bypassing SetStatusBarColor entirely). Hooking
--- CompactUnitFrame_UpdateHealthColor alone doesn't catch that, since
--- Plater's own recoloring never calls it.
---
--- Safe to call Plater.ForceChangeHealthBarColor again from inside its own
--- hook without infinite recursion: that function is itself idempotent
--- (`if r~=healthBar.R or ... then ... end` - a no-op if the color passed
--- in already matches what's already set), so forcing our color back on
--- triggers the hook once more, sees our color already matches, and does
--- nothing further the second time.
+-- Plater keeps using Blizzard's own plate.UnitFrame.healthBar object, but
+-- re-asserts its own color through a single choke point,
+-- Plater.ForceChangeHealthBarColor, which sets healthBar.R/G/B and calls
+-- healthBar.barTexture:SetVertexColor directly, bypassing
+-- SetStatusBarColor entirely - hooking CompactUnitFrame_UpdateHealthColor
+-- alone doesn't catch that. Safe to call
+-- Plater.ForceChangeHealthBarColor again from inside its own hook without
+-- infinite recursion since that function is itself idempotent.
 local platerHookInstalled = false
 local function EnsurePlaterHook()
     if platerHookInstalled then return end
@@ -351,24 +244,12 @@ local function EnsurePlaterHook()
     end)
 end
 
--- ElvUI hides Blizzard's real nameplate frame and builds its own parallel
--- one (plate.unitFrame.HealthBar - see GetPlateHealthBar above), but that
--- HealthBar IS a genuine Blizzard StatusBar, so no special coloring path
--- is needed once it's found. What IS needed is a hook, since ElvUI
--- re-asserts its own computed color through one shared module method,
--- NamePlates:UpdateElement_HealthColor(frame) - called from every
--- relevant event path (target change, aura, threat, name update, etc. -
--- confirmed by reading ElvUI's nameplates.lua/healthBar.lua), the same
--- single-choke-point shape as Plater's ForceChangeHealthBarColor.
---
--- ElvUI's engine is exposed as the global _G.ElvUI, an AceAddon table
--- whose [1] slot is the actual addon object (E) - E:GetModule(name, true)
--- with the silent flag so this doesn't hard-error if the user has ElvUI
--- installed but its NamePlates module disabled. The method is called with
--- a colon (mod:UpdateElement_HealthColor(frame)), so the hook handler
--- receives (self, frame) - `frame` here is ElvUI's own unitFrame object
--- (has .HealthBar/.unit/.displayedUnit directly on it, not the Blizzard
--- plate).
+-- ElvUI's HealthBar is a genuine Blizzard StatusBar, but ElvUI re-asserts
+-- its own computed color through one shared module method,
+-- NamePlates:UpdateElement_HealthColor(frame), called from every relevant
+-- event path - the same single-choke-point shape as Plater's
+-- ForceChangeHealthBarColor. ElvUI's engine is exposed as the global
+-- _G.ElvUI, an AceAddon table whose [1] slot is the actual addon object.
 local elvuiHookInstalled = false
 local function EnsureElvUIHook()
     if elvuiHookInstalled then return end
@@ -385,28 +266,10 @@ local function EnsureElvUIHook()
     end)
 end
 
--- Threat/aggro state apparently recolors the health bar via a per-frame
--- path of its own that doesn't go through CompactUnitFrame_
--- UpdateHealthColor - a 0.2s C_Timer ticker tried first still lost the
--- race, so this used to re-assert on a real OnUpdate instead (every
--- single frame, via a DIRECT healthBar:SetStatusBarColor call). Removed -
--- that direct write, repeated 60x/second for as long as any tracked
--- nameplate was visible, was identified as the strongest remaining
--- ADDON_ACTION_FORBIDDEN taint candidate after several other fixes didn't
--- resolve a live taint report. EnsureHealthBarColorHook above replaces it:
--- since ANY code path that changes the bar's actual rendered color has to
--- call healthBar:SetStatusBarColor or its texture's :SetVertexColor
--- somewhere, hooking those methods directly catches every such path
--- (health, threat, aggro highlight, whatever) with zero race window -
--- the hook fires synchronously right after the mismatched call, not on
--- the next timer/frame tick - while never once writing to the bar except
--- from inside a safe post-Blizzard-call hook.
-
 -- -------------------------------------------------------------
 -- Per-plate evaluation
 -- -------------------------------------------------------------
 local function EvaluatePlate(unitToken)
-    if KCD_KASTAPLATES_RUNTIME_DISABLED then return end
     if not UnitExists(unitToken) then
         activeUnits[unitToken] = nil
         return
@@ -435,13 +298,9 @@ local function EvaluatePlate(unitToken)
 
     ApplyEffectiveColor(unitToken)
 
-    -- Re-applies only when the WANTED mark actually changes (either the
-    -- user picked a different one in settings, or this is the first time
-    -- this plate's been evaluated) - not every refresh, so a raid
-    -- leader/assist manually clearing the marker in-game isn't fought.
-    -- Previously this only ever applied once per plate ever (guarded by
-    -- a plain `not state.marked` flag), so changing the mark after the
-    -- NPC had already spawned silently never took effect.
+    -- Re-applies only when the WANTED mark actually changes, not every
+    -- refresh, so a raid leader/assist manually clearing the marker
+    -- in-game isn't fought.
     local wantMark = (entry and entry.mark) or 0
     if state.appliedMark ~= wantMark then
         state.appliedMark = wantMark
@@ -458,13 +317,10 @@ function RefreshKastaPlates()
 end
 
 -- -------------------------------------------------------------
--- Cast-based highlight - cheap, no spellID database needed: just reads
--- whether the nameplate unit is currently casting anything at all, same
--- building block Plater's own cast bar uses (UnitCastingInfo/
--- UnitChannelInfo's notInterruptible return value).
+-- Cast-based highlight - reads whether the nameplate unit is currently
+-- casting anything at all, no spellID database needed.
 -- -------------------------------------------------------------
 local function UpdateCastHighlight(unitToken)
-    if KCD_KASTAPLATES_RUNTIME_DISABLED then return end
     local state = activeUnits[unitToken]
     if not state then return end
 
@@ -507,25 +363,15 @@ watcher:RegisterEvent("UNIT_SPELLCAST_FAILED")
 local optionsRebuiltOnce = false
 watcher:SetScript("OnEvent", function(_, event, unitToken)
     if event == "PLAYER_ENTERING_WORLD" then
-        if not KCD_KASTAPLATES_RUNTIME_DISABLED then
-            EnsureHealthColorHook()
-            EnsurePlaterHook()
-            EnsureElvUIHook()
-            RefreshKastaPlates()
-        end
+        EnsureHealthColorHook()
+        EnsurePlaterHook()
+        EnsureElvUIHook()
+        RefreshKastaPlates()
         SeedKastaPlatesPresets()
-        -- KastaCD_UI.lua's EnsureOptionsRegistered() builds the whole
-        -- options menu once, very early during addon load - possibly
-        -- before KastaCDDB has actually been restored from this
-        -- session's SavedVariables file yet. Every other dynamic list in
-        -- the menu either reads a hardcoded table (CC_SPELLS/CLASS_INFO,
-        -- unaffected either way) or re-evaluates live on open (Profiles'
-        -- dropdown), so this per-dungeon/per-NPC list is the first thing
-        -- that actually needed real saved data baked in at build time -
-        -- and the first to notice if that data wasn't there yet. Forcing
-        -- one rebuild here, once, after the world has definitely
-        -- finished loading, means the menu reflects whatever's actually
-        -- in KastaCDDB regardless of exactly when the earlier build ran.
+        -- The options menu can build once, very early, before KastaCDDB
+        -- has been restored from SavedVariables - force one rebuild here,
+        -- after the world has finished loading, so the per-dungeon/per-NPC
+        -- list reflects whatever's actually saved regardless of timing.
         if not optionsRebuiltOnce and type(RefreshKastaCDOptionsTable) == "function" then
             optionsRebuiltOnce = true
             RefreshKastaCDOptionsTable()
@@ -541,66 +387,37 @@ watcher:SetScript("OnEvent", function(_, event, unitToken)
     end
 end)
 
--- Per-frame reassert ticker - restored after confirming live that the
--- hook-only approach above isn't sufficient: nameplate recoloring from
--- Blizzard's own threat/aggro AND mouseover/OnEnter highlight logic both
--- change the bar's color through some path that never calls
+-- Blizzard's own threat/aggro and mouseover/OnEnter highlight logic both
+-- recolor the health bar through a path that never calls
 -- healthBar:SetStatusBarColor or its texture's :SetVertexColor on the
--- specific objects EnsureHealthBarColorHook hooks - confirmed by this
--- file's own long-standing comment on the threat case, and now live
--- testing showing the SAME class of problem for mouseover (color reverts
--- to red and STAYS reverted for as long as the mouse hovers, only fixing
--- itself once the cursor leaves - a continuous per-frame fight, not a
--- one-off event a slower ticker can catch after the fact). A 0.2s ticker
--- was tried first and confirmed insufficient (matches this file's older
--- comment: "a 0.2s C_Timer ticker tried first still lost the race").
---
--- This ticker WAS removed earlier in the same session that also fixed
--- this addon's real, confirmed ADDON_ACTION_FORBIDDEN taint bug - but
--- that removal was based on static-analysis suspicion, never confirmed
--- by the rigorous .toc-level bisection later in that session, which
--- definitively isolated the actual taint source to a totally different
--- file (KastaCD_DebuffDisplay.lua's StaticPopupDialogs registration -
--- see memory/project_kastacd_zygor_taint.md). Nothing in this file was
--- ever proven to be a taint source. Given that, and a confirmed live
--- functional regression from removing this ticker, restoring it is the
--- right tradeoff: every write here still only ever calls
--- healthBar:SetStatusBarColor/:SetVertexColor on this addon's OWN
--- tracked units (never a blind global sweep), same as the rest of this
--- file's already-safe writes, just on every frame instead of an
--- insufficient timer.
-local reassertFrame
-if not KCD_KASTAPLATES_RUNTIME_DISABLED then
-    EnsureHealthColorHook()
-    EnsurePlaterHook()
-    EnsureElvUIHook()
-
-    reassertFrame = CreateFrame("Frame")
-    reassertFrame:SetScript("OnUpdate", function()
-        for unitToken, state in pairs(activeUnits) do
-            local color = EffectiveColor(state)
-            if color then
-                local healthBar = GetPlateHealthBar(unitToken)
-                if healthBar then
-                    healthBar.kcdForcedColor = color
-                    healthBar:SetStatusBarColor(color[1], color[2], color[3])
-                    local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
-                    if tex then
-                        tex:SetVertexColor(color[1], color[2], color[3])
-                    end
-                    if healthBar.Bar then
-                        healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
-                    end
+-- hooked objects, so the hooks above alone can't catch it - a slower
+-- ticker (0.2s) still loses the race. Re-asserting every frame is the
+-- only reliable fix; every write here only ever touches this addon's own
+-- tracked units, same as the rest of this file's writes.
+local reassertFrame = CreateFrame("Frame")
+reassertFrame:SetScript("OnUpdate", function()
+    for unitToken, state in pairs(activeUnits) do
+        local color = EffectiveColor(state)
+        if color then
+            local healthBar = GetPlateHealthBar(unitToken)
+            if healthBar then
+                healthBar.kcdForcedColor = color
+                healthBar:SetStatusBarColor(color[1], color[2], color[3])
+                local tex = healthBar.GetStatusBarTexture and healthBar:GetStatusBarTexture()
+                if tex then
+                    tex:SetVertexColor(color[1], color[2], color[3])
+                end
+                if healthBar.Bar then
+                    healthBar.Bar:SetVertexColor(color[1], color[2], color[3])
                 end
             end
         end
-    end)
-end
+    end
+end)
 
 -- -------------------------------------------------------------
 -- /kcdplatesdebug - dumps the raw saved state plus what's currently
--- applied to visible plates, to track down "color doesn't change" /
--- "entry disappears on reload" reports without guessing further.
+-- applied to visible plates.
 -- -------------------------------------------------------------
 SLASH_KASTACDPLATESDEBUG1 = "/kcdplatesdebug"
 SlashCmdList["KASTACDPLATESDEBUG"] = function()
@@ -630,8 +447,6 @@ SlashCmdList["KASTACDPLATESDEBUG"] = function()
             local healthBar, kind = GetPlateHealthBar(unitToken)
             local npcID = GUIDToNpcID(UnitGUID(unitToken))
             local forced = healthBar and healthBar.kcdForcedColor
-            -- TidyPlates' custom health bar object only defines
-            -- SetStatusBarColor, not the getter - guard rather than error.
             local realColor = "no healthbar"
             if healthBar and healthBar.GetStatusBarColor then
                 realColor = string.format("%.2f,%.2f,%.2f", healthBar:GetStatusBarColor())

@@ -15,9 +15,7 @@
 -- Registered under a brand-new, KastaCD-only widget type name
 -- ("KastaCDModel") rather than any existing AceGUI type, so there's no
 -- possibility of colliding with another addon's own bundled copy of a
--- shared library winning LibStub's version race (the same class of
--- problem that broke two earlier attempts at patching AceGUI/AceConfig's
--- own stock files this session).
+-- shared library winning LibStub's version race.
 --
 -- Wired up via `type = "input", dialogControl = "KastaCDModel"` in the
 -- options table (dialogControl is an existing, stock AceConfig field).
@@ -27,10 +25,8 @@
 -- SetText to carry the stringified displayID (the option's `get` field),
 -- so one options-table entry drives both halves of this one widget.
 --
--- IMPORTANT: this is a brand-new file added to the .toc - per the
--- KastaPlates dungeon-dropdown investigation earlier this session, a
--- newly-added .toc entry needs a full client relaunch (not just
--- /reload) to actually be picked up the first time.
+-- IMPORTANT: a newly-added .toc entry needs a full client relaunch (not
+-- just /reload) to actually be picked up the first time.
 -- =============================================================
 
 local Type, Version = "KastaCDModel", 2

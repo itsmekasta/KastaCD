@@ -45,10 +45,6 @@ function GetOvershieldDB()
     return db
 end
 
--- RE-ENABLED (2026-07-08): was force-disabled while chasing a taint
--- report that turned out to be caused by a Zygor Guides conflict, not
--- this module. The genuine tileSize-nil crash fix (guards further below)
--- stays regardless.
 local function IsOvershieldEnabled()
     return GetOvershieldDB().enabled == true
 end
@@ -68,15 +64,12 @@ hooksecurefunc("UnitFrame_Update",
 		if not absorbOverlay then return end
 
 		-- Deliberately NOT calling absorbOverlay:SetParent(...) here -
-		-- confirmed live that reparenting a Blizzard-owned frame from here
-		-- taints it (and, once tainted, ANY later unrelated protected
-		-- action - e.g. clicking a toy - can get blocked and blamed on
-		-- KastaCD for the rest of the session, not just while in combat).
-		-- SetPoint anchors visually to any frame regardless of literal
-		-- parent-child relationship, so this overlay never actually needed
-		-- to be reparented onto the health bar to begin with - only
-		-- ClearAllPoints (routine, not a taint risk) is needed here;
-		-- positioning itself happens in the heal-prediction hook below.
+		-- reparenting a Blizzard-owned frame taints it. SetPoint anchors
+		-- visually to any frame regardless of literal parent-child
+		-- relationship, so this overlay never actually needed to be
+		-- reparented onto the health bar to begin with - only
+		-- ClearAllPoints is needed here; positioning itself happens in
+		-- the heal-prediction hook below.
 		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow
@@ -104,9 +97,7 @@ hooksecurefunc("CompactUnitFrame_UpdateAll",
 		local absorbOverlay = frame.totalAbsorbOverlay
 		if not absorbOverlay then return end
 
-		-- See the matching comment in UnitFrame_Update above - no
-		-- SetParent, confirmed live to taint the frame and later block
-		-- unrelated protected actions for the rest of the session.
+		-- See the matching comment in UnitFrame_Update above - no SetParent.
 		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow
@@ -153,11 +144,9 @@ hooksecurefunc("UnitFrameHealPredictionBars_Update",
 
 			-- tileSize isn't a stock Texture property - it's only ever set
 			-- by Blizzard's own FrameXML template for this exact overlay,
-			-- which some dynamically-generated compact frames apparently
-			-- don't carry (confirmed live: a Lua error here, absorbOverlay.
-			-- tileSize nil, while a raid profile was being applied). Bail
-			-- rather than error - this frame just keeps Blizzard's default
-			-- (clipped-at-max-hp) shield display for this update instead.
+			-- which some dynamically-generated compact frames don't carry.
+			-- Bail rather than error - this frame just keeps Blizzard's
+			-- default (clipped-at-max-hp) shield display for this update.
 			if not absorbOverlay.tileSize then return end
 
 			local totalWidth, totalHeight = frame.healthbar:GetSize()
@@ -207,7 +196,7 @@ hooksecurefunc("CompactUnitFrame_UpdateHealPrediction",
 
 			-- See the matching guard in UnitFrameHealPredictionBars_Update
 			-- above - tileSize is missing on some dynamically-generated
-			-- compact frames and this crashed live.
+			-- compact frames.
 			if not absorbOverlay.tileSize then return end
 
 			local totalWidth, totalHeight = frame.healthBar:GetSize()

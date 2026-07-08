@@ -121,16 +121,11 @@ end
 -- won't match the pattern below).
 -- -------------------------------------------------------------
 -- Registration deferred to the moment it's actually needed (inside
--- KASTACD_TabRenameClick, guarded by kastaRenamePopupRegistered below)
--- rather than unconditionally at file load - confirmed via live bisection
--- testing that writing this entry into Blizzard's own StaticPopupDialogs
--- global table at LOAD TIME was the cause of a persistent
--- ADDON_ACTION_FORBIDDEN taint report (blocking unrelated actions like
--- UseToy), even though this exact "register a StaticPopupDialogs entry"
--- pattern is normally a completely standard, safe idiom used throughout
--- the addon ecosystem. Registering it lazily, only the first time a
--- category is actually renamed (a genuine mouse-click-driven action),
--- sidesteps whatever the exact mechanism was while keeping the feature
+-- KASTACD_TabRenameClick) rather than unconditionally at file load -
+-- writing this entry into Blizzard's own StaticPopupDialogs global table
+-- at load time caused a persistent taint report blocking unrelated
+-- protected actions. Registering it lazily, only the first time a
+-- category is actually renamed, avoids that while keeping the feature
 -- fully intact.
 local kastaRenamePopupRegistered = false
 local function EnsureRenamePopupRegistered()

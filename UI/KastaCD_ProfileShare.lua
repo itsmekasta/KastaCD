@@ -59,14 +59,9 @@ end
 -- moment a Settings-panel button is clicked. Defaults to SAY, matching
 -- the game's own default chat type before anything's ever been sent.
 --
--- Deliberately hooksecurefunc, NOT a reassignment of the global
--- (SendChatMessage = function(...) ... end) - overwriting a pervasively
--- called Blizzard global replaces it for every future caller for the rest
--- of the session, including chat commands issued from secure macros/
--- protected code paths, which then end up calling KastaCD's insecure
--- closure from inside a protected call stack. hooksecurefunc runs this
--- purely as an observer AFTER Blizzard's own real call completes, so it
--- can never itself be the thing a protected caller is calling.
+-- Deliberately hooksecurefunc, not a reassignment of the global -
+-- overwriting SendChatMessage outright would replace it for every future
+-- caller, including chat commands issued from secure macros.
 local lastChatType, lastChatTarget = "SAY", nil
 hooksecurefunc("SendChatMessage", function(msg, chatType, language, target)
     lastChatType   = chatType or "SAY"
