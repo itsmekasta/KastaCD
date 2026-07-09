@@ -904,7 +904,7 @@ local function BuildOvershieldGroup()
             set = function(_, v) GetOvershieldDB().alwaysShowGlow = v and true or false end,
         },
     }
-    return { type = "group", name = "Overshield Display", order = 10, inline = true, args = args }
+    return { type = "group", name = "Overshield Display", order = 10, args = args }
 end
 
 -- =============================================================
@@ -1011,7 +1011,7 @@ local function BuildKeystoneGroup()
         pullTimer = { type = "group", inline = true, order = 20, name = "Pull Timer", args = pullTimerArgs },
         keyAnnouncer = { type = "group", inline = true, order = 30, name = "Key Announcer", args = keyAnnouncerArgs },
     }
-    return { type = "group", name = "Keystone Helper", order = 20, inline = true, args = args }
+    return { type = "group", name = "Keystone Helper", order = 20, args = args }
 end
 
 -- =============================================================
@@ -1045,7 +1045,30 @@ local function BuildAffixCalloutGroup()
             set = function(_, v) GetAffixCalloutDB().sound = v and true or false end,
         },
     }
-    return { type = "group", name = "Affix Call-outs", order = 40, inline = true, args = args }
+    return { type = "group", name = "Affix Call-outs", order = 40, args = args }
+end
+
+-- =============================================================
+-- Debuff Extender - extends Blizzard's own party-frame debuff row past
+-- the frame's own bounds, from 3 up to 12 icons. See
+-- KastaCD_DebuffExtender.lua.
+-- =============================================================
+local function BuildDebuffExtenderGroup()
+    local args = {
+        desc = {
+            type = "description", order = 1,
+            name = "Extends the debuff row on party frames from 3 icons up to 12 (two stacked rows of 6), using Blizzard's own native debuff icons - the extra icons draw past the frame's own bounds rather than shrinking to fit.",
+        },
+        enabled = {
+            type = "toggle", order = 10, name = "Enable", width = "full",
+            get = function() return GetDebuffExtenderDB().enabled == true end,
+            set = function(_, v)
+                GetDebuffExtenderDB().enabled = v and true or false
+                if type(RefreshDebuffExtender) == "function" then RefreshDebuffExtender() end
+            end,
+        },
+    }
+    return { type = "group", name = "Debuff Extender", order = 45, args = args }
 end
 
 -- =============================================================
@@ -2669,12 +2692,11 @@ function BuildKastaCDOptions()
         classOrder = classOrder + 10
     end
 
-    -- "Tracker Bars" is a pure category header - Interrupts and Crowd
-    -- Control are the actual pages, nested as its children.
+    -- "Tracker Bars" is a tab strip (childGroups="tab") - Interrupts and
+    -- Crowd Control are the actual pages, nested as its children.
     local trackerBars = {
-        type = "group", name = "Tracker Bars", order = 20,
+        type = "group", name = "Tracker Bars", order = 20, childGroups = "tab",
         args = {
-            desc = { type = "description", order = 1, name = "Select a tracker below." },
             interrupts = BuildAnchorGroup{
                 name = "Interrupts", order = 10, dbField = "intAnchor",
                 RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
@@ -2710,14 +2732,14 @@ function BuildKastaCDOptions()
         },
     }
 
-    -- "Misc" holds Overshield Display and Keystone Helper directly as
-    -- inline sub-sections on this same page (not separate sub-tabs) -
-    -- Interrupt Announce, Kastaplates, and Buff Display are real, separate
-    -- navigable sub-tabs, since each of their settings pages is bigger/
-    -- template-based and reads better on its own. Sits above Profiles in
+    -- "Misc" is a tab strip (childGroups="tab") - each feature below is
+    -- its own clickable tab rather than a long scroll of stacked boxes.
+    -- Personal Leaderboard stays inline=true (a single toggle doesn't
+    -- need its own tab), which AceConfigDialog always renders as a fixed
+    -- box regardless of the parent's childGroups. Sits above Profiles in
     -- the sidebar.
     local misc = {
-        type = "group", name = "Misc", order = 30,
+        type = "group", name = "Misc", order = 30, childGroups = "tab",
         args = {
             interruptAnnounce = BuildInterruptAnnounceGroup(),
             overshieldDisplay = BuildOvershieldGroup(),
@@ -2727,6 +2749,7 @@ function BuildKastaCDOptions()
             kastaplates = BuildKastaPlatesGroup(),
             buffDisplay = BuildBuffDisplayGroup(),
             debuffDisplay = BuildDebuffDisplayGroup(),
+            debuffExtender = BuildDebuffExtenderGroup(),
         },
     }
 

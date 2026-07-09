@@ -100,6 +100,11 @@ Modules\KastaCD_BuffDisplay.lua
 #     auto-sorted class tabs. Same dependencies as KastaCD_BuffDisplay.lua.
 Modules\KastaCD_DebuffDisplay.lua
 
+# 6o. Debuff Extender - extends the party-frame debuff row from 3 to
+#     12 icons, past the frame's own bounds. Depends on DB, must load
+#     before Options.lua uses GetDebuffExtenderDB().
+Modules\KastaCD_DebuffExtender.lua
+
 # 7. Settings UI options table (depends on DB + Tracking + Ace3 libs)
 UI\KastaCD_Options.lua
 
