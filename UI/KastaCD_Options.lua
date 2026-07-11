@@ -1057,10 +1057,10 @@ local function BuildDebuffExtenderGroup()
     local args = {
         desc = {
             type = "description", order = 1,
-            name = "Extends the debuff row on party frames from 3 icons up to 12 (two stacked rows of 6), using Blizzard's own native debuff icons - the extra icons draw past the frame's own bounds rather than shrinking to fit.",
+            name = "|cffff4444Temporarily disabled|r - confirmed live that this feature taints party/raid frames and blocks Blizzard's own frame layout, even after a safer rewrite. Needs a different implementation before it can come back.",
         },
         enabled = {
-            type = "toggle", order = 10, name = "Enable", width = "full",
+            type = "toggle", order = 10, name = "Enable", width = "full", disabled = true,
             get = function() return GetDebuffExtenderDB().enabled == true end,
             set = function(_, v)
                 GetDebuffExtenderDB().enabled = v and true or false

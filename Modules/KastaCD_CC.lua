@@ -30,12 +30,20 @@ local CC_DEFAULT = {}
 -- `isTalent=true` mirrors the same field in KastaCD_SpellDB.lua: spec
 -- alone can't tell us which *talent* a player picked (multiple CC spells
 -- can share a spec, e.g. Shockwave is baseline Protection while Storm
--- Bolt is a Protection-selectable talent) - so PickGuessCC below never
--- guesses a talent-gated entry, it only ever appears once the combat log
--- actually witnesses that exact spell being cast. Non-talent entries are
--- always safe to guess since they're guaranteed available the moment the
--- spec/class matches. A real combat-log cast is ground truth regardless
--- of either flag, since you can't cast what you don't have.
+-- Bolt is a Protection-selectable talent) - so a plain isTalent entry
+-- (no alwaysGuess) is never guessed by PickGuessCC below, it only ever
+-- appears once the combat log or a resolved inspect scan (ScanUnitTalents
+-- in KastaCD_DB.lua) actually confirms that exact spell. Non-talent
+-- entries are always safe to guess since they're guaranteed available
+-- the moment the spec/class matches. A real combat-log cast (or a
+-- resolved inspect) is ground truth regardless of either flag, since you
+-- can't cast what you don't have.
+--
+-- `alwaysGuess=true` on a mutually-exclusive talentGroup member (e.g. the
+-- Shockwave/Storm Bolt row, the Monk L45 row) shows one placeholder guess
+-- for that group immediately on join, instead of waiting for a cast or
+-- inspect - see PickGuessCC's groupCandidates handling. Ground truth
+-- (once it arrives) always overrides the placeholder with the real pick.
 --
 -- `race` gates a racial ability to a specific UnitRace() token (e.g.
 -- "BloodElf") - only relevant to the guess path, same reasoning as
@@ -60,8 +68,8 @@ CC_SPELLS = {
     -- corrected per live confirmation, the old specs={73} restriction was
     -- wrong). talentGroup marks them as mutually exclusive - see
     -- ClearCompetingCCTalents below.
-    [46968]  = { class="WARRIOR",     cooldown=40,  isTalent=true,  talentGroup="warr_stormrow" },  -- Shockwave
-    [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true,  talentGroup="warr_stormrow" },  -- Storm Bolt
+    [46968]  = { class="WARRIOR",     cooldown=40,  isTalent=true,  talentGroup="warr_stormrow", alwaysGuess=true },  -- Shockwave
+    [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true,  talentGroup="warr_stormrow", alwaysGuess=true },  -- Storm Bolt
     [5246]   = { class="WARRIOR",     cooldown=90                   },                    -- Intimidating Shout (baseline, approx CD)
     [236077] = { class="WARRIOR",     cooldown=60                   },                    -- Disarm (baseline, approx CD)
 
@@ -119,10 +127,22 @@ CC_SPELLS = {
     [6789]   = { class="WARLOCK",     cooldown=45,  isTalent=true   },                    -- Mortal Coil (talent, approx CD)
     [212459] = { class="WARLOCK",     cooldown=45,  specs={266},    isTalent=true },       -- Call Fel Lord (Demonology talent, approx CD)
 
-    -- MONK
-    [119381] = { class="MONK",        cooldown=45                   },                    -- Leg Sweep
+    -- MONK - Leg Sweep, Ring of Peace, and Charging Ox Wave are the same
+    -- level-45 talent row (all 3 specs) - pick one, same treatment as the
+    -- Warrior Shockwave/Storm Bolt row above. Both Leg Sweep and Ring of
+    -- Peace were previously (wrongly) marked as guaranteed baseline; that
+    -- let both show as guessed defaults simultaneously even though only
+    -- one can actually be selected. Charging Ox Wave wasn't tracked at
+    -- all before - added so a respec into it correctly clears whichever
+    -- of the other two was previously confirmed (see ClearCompetingCCTalents).
+    -- groupDefault marks Leg Sweep as the preferred placeholder guess
+    -- (most commonly picked) until ground truth confirms otherwise -
+    -- without it, PickGuessCC's fallback tiebreak (lowest spellId) picked
+    -- Ring of Peace (116844 < 119381) instead.
+    [119381] = { class="MONK",        cooldown=45,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true, groupDefault=true },  -- Leg Sweep
+    [116844] = { class="MONK",        cooldown=45,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true },  -- Ring of Peace
+    [119392] = { class="MONK",        cooldown=30,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true },  -- Charging Ox Wave (approx CD, not yet confirmed against this server)
     [115078] = { class="MONK",        cooldown=45,  isTalent=true   },                    -- Paralysis (talent)
-    [116844] = { class="MONK",        cooldown=45                   },                    -- Ring of Peace (baseline, approx CD)
     [233759] = { class="MONK",        cooldown=60,  specs={268},    isTalent=true },       -- Grapple Weapon (Brewmaster PvP talent, approx CD)
 
     -- DRUID
@@ -333,32 +353,78 @@ local function PickGuessCC(unit, class, specId, raceToken)
     local known = guid and KNOWN_UNIT_SPELLS[guid]
 
     local guesses = {}
+    -- Tracks which talentGroups already have a ground-truth pick added
+    -- below, so the alwaysGuess placeholder loop further down never adds
+    -- a second (guessed, possibly wrong) bar once the real one is known.
+    local confirmedGroups = {}
 
     if known then
         for sid, info in pairs(CC_SPELLS) do
-            if info.isTalent and not info.alwaysGuess and known[sid] and IsCCSpellEnabled(sid) then
+            if info.isTalent and known[sid] and IsCCSpellEnabled(sid) then
                 local classOk = info.class == class or info.class == "ALL"
                 local raceOk  = not info.race or info.race == raceToken
                 if classOk and raceOk and SpecInList(info.specs, specId) then
                     table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
+                    if info.talentGroup then confirmedGroups[info.talentGroup] = true end
                 end
             end
         end
     end
 
-    -- alwaysGuess entries (Kidney Shot, Maim, Between the Eyes) bypass the
-    -- "known"/witnessed-cast gate entirely - they're real baseline finishers
-    -- with a fixed cooldown on this server, so as soon as a unit's class/spec
-    -- matches they get their own guessed bar, independent of the single-slot
-    -- exactMatch/fallback competition below.
+    -- alwaysGuess entries (Kidney Shot, Maim, Between the Eyes, and any
+    -- mutually-exclusive talentGroup row like the Monk L45 row) bypass the
+    -- "known"/witnessed-cast gate so a bar shows immediately once a
+    -- matching unit joins, instead of waiting on a cast or a resolved
+    -- inspect scan (which - see ScanUnitTalents in KastaCD_DB.lua -
+    -- frequently never resolves at all on private servers).
+    --
+    -- Entries with NO talentGroup are independent abilities (Kidney Shot
+    -- etc.) and every eligible one gets its own bar, same as before.
+    -- Entries that DO share a talentGroup are real mutually-exclusive
+    -- talent picks, not independent abilities - only ONE placeholder
+    -- guess is shown per group (lowest spellId, for a deterministic pick)
+    -- so a 3-way row like Leg Sweep/Ring of Peace/Charging Ox Wave shows
+    -- exactly one bar, not three. That placeholder is silently corrected
+    -- to the real pick the moment ground truth (a cast or inspect scan)
+    -- arrives - confirmedGroups above already added the true one to
+    -- `guesses`, and skipping the group here means the wrong placeholder
+    -- simply isn't re-added on the next rebuild, so RebuildCCBars' own
+    -- stale-entry pruning (below) clears it within ~1s.
+    local groupCandidates = {}
     for sid, info in pairs(CC_SPELLS) do
         if info.alwaysGuess and IsCCSpellEnabled(sid) then
             local classOk = info.class == class or info.class == "ALL"
             local raceOk  = not info.race or info.race == raceToken
             if classOk and raceOk and SpecInList(info.specs, specId) then
-                table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
+                if info.talentGroup then
+                    if not confirmedGroups[info.talentGroup] then
+                        local list = groupCandidates[info.talentGroup]
+                        if not list then
+                            list = {}
+                            groupCandidates[info.talentGroup] = list
+                        end
+                        table.insert(list, sid)
+                    end
+                else
+                    table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
+                end
             end
         end
+    end
+    for _, list in pairs(groupCandidates) do
+        -- Prefer whichever candidate is flagged groupDefault=true (the
+        -- most commonly-picked option in that row); falls back to lowest
+        -- spellId for a deterministic pick in any group with no flagged
+        -- default.
+        local sid = nil
+        for _, candidate in ipairs(list) do
+            if CC_SPELLS[candidate].groupDefault then sid = candidate end
+        end
+        if not sid then
+            table.sort(list)
+            sid = list[1]
+        end
+        table.insert(guesses, { spellId = sid, cooldown = CC_SPELLS[sid].cooldown })
     end
 
     local fallback, exactMatch = nil, nil

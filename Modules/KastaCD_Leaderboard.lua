@@ -43,7 +43,9 @@ local function RecordCompletion()
     local mapID, level, timeMs, onTime = C_ChallengeMode.GetCompletionInfo()
     if not mapID or not timeMs then return end
 
-    local mapName = C_ChallengeMode.GetMapUIInfo(mapID)
+    -- GetMapUIInfo is a post-Legion rename/expansion of this API - 7.3.5
+    -- only has GetMapInfo(mapID), returning name as its first value.
+    local mapName = type(C_ChallengeMode.GetMapInfo) == "function" and C_ChallengeMode.GetMapInfo(mapID) or nil
     local existing = db.best[mapID]
 
     if not existing or timeMs < existing.time then

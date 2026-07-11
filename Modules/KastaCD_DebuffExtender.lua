@@ -6,7 +6,21 @@
 -- cooldown swipes, tooltips, dispel coloring, and stack text all keep
 -- working exactly like the default 3-icon row.
 -- Depends on: KastaCD_DB.lua (KastaCDDB must exist)
+--
+-- RUNTIME DISABLED: confirmed live that writing to f.maxDebuffs/
+-- f.debuffFrames on a real CompactRaidFrame taints it even as a plain
+-- field write (not a function call) - Blizzard's own protected raid-
+-- frame layout code (FlowContainer_DoLayout) later reads that same data
+-- to decide how to reposition the frame, and gets blocked from calling
+-- ClearAllPoints() on frames this feature had touched. Modifying data a
+-- protected code path later acts on is apparently enough to taint it,
+-- regardless of how the modification happens - this feature's whole
+-- approach (writing into Blizzard's own CompactUnitFrame debuff-tracking
+-- fields) needs a fundamentally different design (e.g. an addon-owned
+-- overlay drawn next to the frame, never touching frame.debuffFrames at
+-- all) before it can be safely re-enabled.
 -- =============================================================
+local KCD_DEBUFF_EXTENDER_RUNTIME_DISABLED = true
 
 function GetDebuffExtenderDB()
     KastaCDDB = KastaCDDB or {}
@@ -61,25 +75,15 @@ local function ExtendDebuffRow(f)
     end
 end
 
--- CompactUnitFrame_SetMaxDebuffs/UpdateDebuffs are called directly here
--- (not just hooksecurefunc'd) from inside a hooksecurefunc callback -
--- CompactUnitFrame_SetMaxDebuffs is a trivial one-line property setter,
--- but CompactUnitFrame_UpdateDebuffs is a real Blizzard update function,
--- so this still executes its body under KastaCD's own call stack rather
--- than Blizzard's. Kept because it's the same technique CDEW uses and
--- KastaUI already ships it without incident, but worth knowing if a
--- taint report ever points back here.
 local function ApplyExtendedDebuffs(f)
+    if KCD_DEBUFF_EXTENDER_RUNTIME_DISABLED then return end
     local db = GetDebuffExtenderDB()
     if not db.enabled then return end
     if not (f and f.unit and f.unit:match("^party%d$")) then return end
     if not f.debuffFrames then return end
 
-    local needsRefresh = false
-
     if f.maxDebuffs ~= 12 then
-        CompactUnitFrame_SetMaxDebuffs(f, 12)
-        needsRefresh = true
+        f.maxDebuffs = 12
     end
 
     if not f.debuffFrames[4] then
@@ -96,18 +100,6 @@ local function ApplyExtendedDebuffs(f)
             end)
             f.kcdDebuffHideHooked = true
         end
-        needsRefresh = true
-    end
-
-    if needsRefresh then
-        -- Blizzard's own update already ran this pass using the OLD
-        -- maxDebuffs (3), so it never populated icons 4-12 with real
-        -- aura data. Force it to run again now that the cap and the
-        -- buttons both exist. This re-enters this same hook once more,
-        -- but on that second pass needsRefresh will be false, so it
-        -- falls through to a plain reposition and stops - no infinite loop.
-        CompactUnitFrame_UpdateDebuffs(f)
-        return
     end
 
     ExtendDebuffRow(f)
@@ -117,9 +109,11 @@ hooksecurefunc("CompactUnitFrame_UpdateDebuffs", function(f)
     ApplyExtendedDebuffs(f)
 end)
 
--- Re-apply immediately on toggle/roster change by forcing a debuff
--- refresh on currently visible party frames (both layouts).
+-- Re-apply immediately on toggle/roster change - calls ApplyExtendedDebuffs
+-- directly (KastaCD's own function, not Blizzard's), never
+-- CompactUnitFrame_UpdateDebuffs itself.
 function RefreshDebuffExtender()
+    if KCD_DEBUFF_EXTENDER_RUNTIME_DISABLED then return end
     local db = GetDebuffExtenderDB()
     if not db.enabled then return end
 
@@ -136,7 +130,7 @@ function RefreshDebuffExtender()
 
     for _, f in ipairs(candidates) do
         if f and f.unit and f.unit:match("^party%d$") then
-            CompactUnitFrame_UpdateDebuffs(f)
+            ApplyExtendedDebuffs(f)
         end
     end
 end
