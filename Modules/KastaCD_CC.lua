@@ -1,55 +1,15 @@
--- =============================================================
--- KastaCD_CC.lua
--- Independent crowd-control cooldown tracker.
--- Shows a class-colored status bar for each party member with a
--- tracked stun/root/incapacitate, tracking cooldown remaining after
--- each use. Completely independent of the main cooldown anchor/icon
--- system and of the interrupt tracker (KastaCD_Interrupts.lua) - this
--- file mirrors that one's architecture exactly, swapped to CC spells.
--- =============================================================
-
--- Unlike interrupts (one interrupt per class/spec), most classes have
--- several unrelated CC spells with no single hardcoded "primary" one -
--- so instead of a static INT_DEFAULT-style table, a unit's default is
--- guessed live from their current spec (see PickGuessCC below) the same
--- way the interrupt tracker's per-class default works, just resolved
--- per-spec instead of hardcoded. The guess is always replaced the moment
--- a real cast is witnessed, since that's ground truth.
+-- KastaCD_CC.lua - independent crowd-control cooldown tracker, mirrors
+-- KastaCD_Interrupts.lua's architecture, swapped to CC spells.
 local CC_DEFAULT = {}
 
--- All crowd-control spell IDs detected from the combat log.
--- Only spells with a real, fixed cooldown are listed - GCD-only /
--- combo-point finishers (Polymorph, Kidney Shot, Cheap Shot, Entangling
--- Roots, ...) have nothing meaningful to show on a cooldown bar, so
--- they're intentionally left out.
---
--- `specs` mirrors SpellMatchesSpec's convention in KastaCD_DB.lua: a list
--- of spec IDs that can actually use the spell, omitted when it's baseline
--- for every spec of that class.
---
--- `isTalent=true` mirrors the same field in KastaCD_SpellDB.lua: spec
--- alone can't tell us which *talent* a player picked (multiple CC spells
--- can share a spec, e.g. Shockwave is baseline Protection while Storm
--- Bolt is a Protection-selectable talent) - so a plain isTalent entry
--- (no alwaysGuess) is never guessed by PickGuessCC below, it only ever
--- appears once the combat log or a resolved inspect scan (ScanUnitTalents
--- in KastaCD_DB.lua) actually confirms that exact spell. Non-talent
--- entries are always safe to guess since they're guaranteed available
--- the moment the spec/class matches. A real combat-log cast (or a
--- resolved inspect) is ground truth regardless of either flag, since you
--- can't cast what you don't have.
---
--- `alwaysGuess=true` on a mutually-exclusive talentGroup member (e.g. the
--- Shockwave/Storm Bolt row, the Monk L45 row) shows one placeholder guess
--- for that group immediately on join, instead of waiting for a cast or
--- inspect - see PickGuessCC's groupCandidates handling. Ground truth
--- (once it arrives) always overrides the placeholder with the real pick.
---
--- `race` gates a racial ability to a specific UnitRace() token (e.g.
--- "BloodElf") - only relevant to the guess path, same reasoning as
--- isTalent. `class="ALL"` marks an entry as available to any class
--- (mirrors SPELL_DB[208683]'s PvP Medallion convention), used together
--- with `race` for racials that aren't tied to a single class at all.
+-- Only spells with a real fixed cooldown - GCD-only/combo-point finishers
+-- are left out. `specs`: spec IDs that can use it (omitted = baseline for
+-- every spec). `isTalent=true`: never guessed by PickGuessCC, only shown
+-- once a cast or inspect scan confirms it (spec alone can't tell talent
+-- picks apart). `alwaysGuess=true` on a talentGroup member shows one
+-- placeholder guess immediately on join; ground truth overrides it once
+-- it arrives (see PickGuessCC). `race` gates a racial to a UnitRace()
+-- token; class="ALL" + race is for racials not tied to one class.
 --   WARRIOR:     71=Arms, 72=Fury, 73=Protection
 --   PALADIN:     65=Holy, 66=Protection, 70=Retribution
 --   HUNTER:     253=Beast Mastery, 254=Marksmanship, 255=Survival
@@ -63,11 +23,7 @@ local CC_DEFAULT = {}
 --   DRUID:      102=Balance, 103=Feral, 104=Guardian, 105=Restoration
 --   DEMONHUNTER:577=Havoc, 581=Vengeance
 CC_SPELLS = {
-    -- WARRIOR - Shockwave and Storm Bolt are the same talent row, pick
-    -- one or the other, available to all 3 specs (not Protection-only -
-    -- corrected per live confirmation, the old specs={73} restriction was
-    -- wrong). talentGroup marks them as mutually exclusive - see
-    -- ClearCompetingCCTalents below.
+    -- WARRIOR - Shockwave/Storm Bolt are the same talent row (all 3 specs).
     [46968]  = { class="WARRIOR",     cooldown=40,  isTalent=true,  talentGroup="warr_stormrow", alwaysGuess=true },  -- Shockwave
     [107570] = { class="WARRIOR",     cooldown=30,  isTalent=true,  talentGroup="warr_stormrow", alwaysGuess=true },  -- Storm Bolt
     [5246]   = { class="WARRIOR",     cooldown=90                   },                    -- Intimidating Shout (baseline, approx CD)
@@ -87,20 +43,10 @@ CC_SPELLS = {
     -- ROGUE
     [2094]   = { class="ROGUE",       cooldown=120                  },                    -- Blind
     [1776]   = { class="ROGUE",       cooldown=10,  specs={260},    isTalent=true },       -- Gouge (Outlaw, uncertain baseline/talent)
-    -- Kidney Shot has a real 20s cooldown on this server (unlike retail,
-    -- where it's an uncapped combo-point finisher) - confirmed by the
-    -- user. Assassination/Subtlety only - Outlaw uses Between the Eyes
-    -- instead (see below). isTalent=true keeps it out of the single-slot
-    -- default-guess pool (see PickGuessCC below), but alwaysGuess=true
-    -- makes it show as its own bar the moment a matching-spec Rogue is
-    -- seen in the group, rather than waiting on an actual witnessed cast.
+    -- Kidney Shot has a real 20s CD on this server (not an uncapped finisher) - confirmed.
     [408]    = { class="ROGUE",       cooldown=20,  specs={259,261}, isTalent=true, alwaysGuess=true }, -- Kidney Shot (Assassination/Subtlety)
     [207777] = { class="ROGUE",       cooldown=60,  isTalent=true   },                    -- Dismantle (approx CD)
     [207736] = { class="ROGUE",       cooldown=60,  specs={261},    isTalent=true },       -- Shadowy Duel (Subtlety talent, approx CD)
-    -- Between the Eyes is Outlaw's baseline finisher stun/debuff - cooldown
-    -- is the author's best-known Legion value (approx, not yet confirmed
-    -- against this server). Same alwaysGuess treatment as Kidney Shot: show
-    -- it as soon as an Outlaw Rogue is in the group.
     [199804] = { class="ROGUE",       cooldown=45,  specs={260},    isTalent=true, alwaysGuess=true }, -- Between the Eyes (Outlaw, approx CD)
 
     -- DEATHKNIGHT
@@ -127,39 +73,20 @@ CC_SPELLS = {
     [6789]   = { class="WARLOCK",     cooldown=45,  isTalent=true   },                    -- Mortal Coil (talent, approx CD)
     [212459] = { class="WARLOCK",     cooldown=45,  specs={266},    isTalent=true },       -- Call Fel Lord (Demonology talent, approx CD)
 
-    -- MONK - Leg Sweep, Ring of Peace, and Charging Ox Wave are the same
-    -- level-45 talent row (all 3 specs) - pick one, same treatment as the
-    -- Warrior Shockwave/Storm Bolt row above. Both Leg Sweep and Ring of
-    -- Peace were previously (wrongly) marked as guaranteed baseline; that
-    -- let both show as guessed defaults simultaneously even though only
-    -- one can actually be selected. Charging Ox Wave wasn't tracked at
-    -- all before - added so a respec into it correctly clears whichever
-    -- of the other two was previously confirmed (see ClearCompetingCCTalents).
-    -- groupDefault marks Leg Sweep as the preferred placeholder guess
-    -- (most commonly picked) until ground truth confirms otherwise -
-    -- without it, PickGuessCC's fallback tiebreak (lowest spellId) picked
-    -- Ring of Peace (116844 < 119381) instead.
+    -- MONK - Leg Sweep/Ring of Peace/Charging Ox Wave are the same level-45 row.
+    -- groupDefault marks Leg Sweep as the preferred placeholder guess.
     [119381] = { class="MONK",        cooldown=45,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true, groupDefault=true },  -- Leg Sweep
     [116844] = { class="MONK",        cooldown=45,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true },  -- Ring of Peace
     [119392] = { class="MONK",        cooldown=30,  isTalent=true,  talentGroup="monk_l45row", alwaysGuess=true },  -- Charging Ox Wave (approx CD, not yet confirmed against this server)
     [115078] = { class="MONK",        cooldown=45,  isTalent=true   },                    -- Paralysis (talent)
     [233759] = { class="MONK",        cooldown=60,  specs={268},    isTalent=true },       -- Grapple Weapon (Brewmaster PvP talent, approx CD)
 
-    -- DRUID
-    -- Cooldowns below marked "approx" are the author's best-known Legion
-    -- value, not yet confirmed against this specific server - correct via
-    -- the in-game tooltip if a bar's countdown looks off.
+    -- DRUID - "approx" cooldowns are unconfirmed against this server; check tooltip if off.
     [5211]   = { class="DRUID",       cooldown=60,                  isTalent=true },       -- Mighty Bash
     [102359] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Mass Entanglement (Feral/Guardian talent, approx CD)
     [132469] = { class="DRUID",       cooldown=30,  specs={103,104},isTalent=true },       -- Typhoon (Feral/Guardian talent, approx CD)
     [102793] = { class="DRUID",       cooldown=60,  specs={105},    isTalent=true },       -- Ursol's Vortex (Restoration talent, approx CD)
-    -- Maim has a real 10s cooldown on this server (unlike retail, where
-    -- it's an uncapped combo-point finisher) - confirmed by the user,
-    -- same treatment as Rogue's Kidney Shot above. isTalent=true keeps
-    -- it out of the single-slot default-guess pool (see PickGuessCC
-    -- below), but alwaysGuess=true makes it show as its own bar the
-    -- moment a Feral Druid is seen in the group, rather than waiting on
-    -- an actual witnessed cast.
+    -- Maim has a real 10s CD on this server (not an uncapped finisher) - confirmed.
     [22570]  = { class="DRUID",       cooldown=10,  specs={103},    isTalent=true, alwaysGuess=true }, -- Maim (Feral)
 
     -- DEMONHUNTER
@@ -168,23 +95,12 @@ CC_SPELLS = {
     [205630] = { class="DEMONHUNTER", cooldown=30,  specs={581},    isTalent=true },       -- Illidan's Grasp (Vengeance talent, approx CD)
     [206649] = { class="DEMONHUNTER", cooldown=60,  specs={577},    isTalent=true },       -- Eye of Leotheras (Havoc talent, approx CD)
 
-    -- Arcane Torrent (Blood Elf racial) moved to the Interrupt tracker's
-    -- INT_SPELLS - see KastaCD_Interrupts.lua. `race`/class="ALL" support
-    -- above is kept in place for any future racial CC additions.
+    -- Arcane Torrent (Blood Elf racial) moved to KastaCD_Interrupts.lua's INT_SPELLS.
 }
 
--- Clears every OTHER spellId sharing spellId's talentGroup from guid's
--- KNOWN_UNIT_SPELLS. Confirming one pick in a mutually-exclusive talent
--- row (e.g. Shockwave vs Storm Bolt) is definitive proof the alternative
--- is NOT currently selected - Legion's talent system only allows one
--- choice per row. Without this, ground truth from an earlier pick (a
--- witnessed cast, a sync update, or an inspect scan) could keep both
--- marked "known" simultaneously, showing two bars for what's actually
--- one talent choice, or leaving the display stuck on a stale pick once
--- the current one's own entry got cleared by something else. Called from
--- every site that writes a confirmed CC_SPELLS pick into KNOWN_UNIT_SPELLS
--- (KastaCD_CombatLog.lua's cast hook, KastaCD_DB.lua's ScanUnitTalents,
--- KastaCD_Sync.lua's HandleSyncMessage).
+-- Clears every other spellId sharing spellId's talentGroup from guid's
+-- KNOWN_UNIT_SPELLS - confirming one pick proves the alternative isn't
+-- selected. Called from every site that confirms a CC_SPELLS pick.
 function ClearCompetingCCTalents(guid, spellId)
     if not guid then return end
     local info = CC_SPELLS[spellId]
@@ -201,24 +117,14 @@ function ClearCompetingCCTalents(guid, spellId)
     end
 end
 
--- Per-unit, per-spell state and bar frames. Nested by spellId (not a
--- single entry per unit) so a unit with multiple independent CC options
--- (e.g. a Rogue's Blind AND Kidney Shot) gets one bar per spell that
--- never overwrites the other - casting one doesn't erase the other's
--- in-progress cooldown.
+-- Nested by spellId so a unit with multiple CC options gets one bar per
+-- spell - casting one doesn't erase another's in-progress cooldown.
 local ccBarState  = {}   -- [unit][spellId] = { spellId, cooldown, endTime, class }
 local ccBarFrames = {}   -- [unit][spellId] = { row, sb, ico, nameText, cdText }
 local ccAnchorFrame = nil
 local ccBarsParent  = nil
 
--- Five synthetic "party members" used only for Test Mode while solo (no
--- real party exists to preview against). Picked for class-color variety
--- and a spread of cooldown lengths (20s-90s) so the staggered start below
--- shows several different animation states at once. Each token is fake
--- and never resolves via the real UnitClass/UnitName/UnitGUID APIs - see
--- the class/name-resolution branches in RebuildCCBars for how that's
--- handled, and the ticker for how their cooldowns loop forever instead of
--- sitting "ready" after the first cycle.
+-- Five fake party members for Test Mode while solo.
 local TEST_FAKE_UNITS = {
     { token="KCDTESTCC1", name="Test Warrior",     class="WARRIOR",     spellId=46968,  cooldown=40 },
     { token="KCDTESTCC2", name="Test Rogue",       class="ROGUE",       spellId=6770,   cooldown=20 },
@@ -229,11 +135,7 @@ local TEST_FAKE_UNITS = {
 local TEST_FAKE_LOOKUP = {}
 for _, u in ipairs(TEST_FAKE_UNITS) do TEST_FAKE_LOOKUP[u.token] = u end
 
--- ─────────────────────────────────────────────────────────────
--- DB accessor with lazy defaults
--- ─────────────────────────────────────────────────────────────
--- Default statusbar texture, used whenever no SharedMedia texture has
--- been picked (or SharedMedia/LibStub isn't installed at all).
+-- Default statusbar texture when no SharedMedia texture is picked.
 local DEFAULT_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 local function GetCCDB()
@@ -250,23 +152,15 @@ local function GetCCDB()
     if db.showReady   == nil then db.showReady   = true  end
     if db.clickThrough == nil then db.clickThrough = false end
     if db.maxNameChars == nil then db.maxNameChars = 0 end
-    -- Grow direction: false/nil = grow down (bars stack below a fixed top
-    -- edge, the original behavior), true = grow up (bars stack above a
-    -- fixed bottom edge).
+    -- growUp: false/nil = bars stack down from a fixed top edge, true = stack up from bottom.
     if db.growUp      == nil then db.growUp      = false end
-    -- Independent "Active in:" choice for this tracker - no longer bound
-    -- to the main icon tracker's shared KastaCDDB.contentTypes.
     if db.contentTypes == nil then
         db.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
             ["Arena"]=true,      ["Battleground"]=true,
         }
     end
-    -- Per-spell opt-out: every CC_SPELLS entry is shown by default (the
-    -- pre-existing behavior, preserved for anyone who never touches this
-    -- setting) - [sid]=true here explicitly EXCLUDES a spell from the
-    -- tracker regardless of what PickGuessCC/a real cast would otherwise
-    -- show. Set from the "Tracked Spells" sub-tab (KastaCD_Options.lua).
+    -- Per-spell opt-out, set from the "Tracked Spells" sub-tab.
     if type(db.disabledSpells) ~= "table" then db.disabledSpells = {} end
     return db
 end
@@ -285,47 +179,14 @@ local function SpecInList(specs, specId)
     return false
 end
 
--- Picks the CC_SPELLS entries matching the given class (and, when known,
--- the unit's actual current spec) worth showing a preview bar for before
--- any real cast happens - there's no static CC_DEFAULT, see the comment
--- above that table for why. Returns a LIST, not a single best guess: a
--- class can have more than one independent CC option worth previewing at
--- once (e.g. a Rogue always has Blind available, and separately may have
--- a confirmed talent like Kidney Shot) - these must never replace each
--- other's bar, so every eligible entry is returned and the caller seeds
--- a preview for each spellId that doesn't already have one.
---
--- For the baseline (non-talent) half, only the single most specific match
--- is included (an exact spec match over a spec-unrestricted fallback) -
--- unlike talents, baseline CC options for the same class are typically
--- mutually exclusive across specs (only one applies to a given spec at a
--- time), so including every class-wide baseline entry would show
--- irrelevant other-spec abilities.
---
--- isTalent=true entries are only included once KNOWN_UNIT_SPELLS actually
--- confirms the pick - either a real witnessed cast, or a resolved inspect
--- talent scan (ScanUnitTalents in KastaCD_DB.lua) - never guessed from
--- spec alone, since multiple CC spells can share a spec (e.g. Shockwave
--- and Storm Bolt are both valid for Protection).
---
--- raceToken (from UnitRace(unit)'s second return) gates race-restricted
--- entries (class="ALL", e.g. Arcane Torrent) the same way specId gates
--- spec-restricted ones - an entry with a race requirement is skipped for
--- anyone who isn't that race, regardless of class/spec match.
---
--- PLAYER-ONLY EXCEPTION: ScanUnitTalents (KastaCD_DB.lua) explicitly
--- skips "player" on the assumption IsPlayerSpell/IsSpellKnown already
--- covers them reliably - true for SPELL_DB's IsSpellKnownForUnit path,
--- but this function has its own separate KNOWN_UNIT_SPELLS-only gate with
--- no equivalent player self-check, so a talent-gated CC spell (e.g. Storm
--- Bolt) stayed hidden for your OWN bar until you happened to cast it once.
--- Same problem for baseline spec-gated entries (e.g. Shockwave) whenever
--- GetSpecialization()/GetSpecializationInfo() themselves don't resolve
--- reliably on a given server - KastaCD_CombatLog.lua already documents
--- this exact failure mode for the player's own spec cache. Both are fixed
--- below by trusting IsPlayerSpell/IsSpellKnown directly for "player",
--- bypassing spec-cache/witnessed-cast entirely - "do I have this spell"
--- is always 100% reliable for your own character.
+-- Returns the list of CC_SPELLS entries worth a preview bar for a unit,
+-- before any real cast happens. A list, not one guess - a class can have
+-- several independent CC options at once (baseline picks a single most-
+-- specific match; isTalent entries only appear once KNOWN_UNIT_SPELLS
+-- confirms them via cast or inspect scan). raceToken gates race-only
+-- entries. "player" bypasses spec-cache/witnessed-cast entirely and
+-- trusts IsPlayerSpell/IsSpellKnown directly, since ScanUnitTalents skips
+-- "player" and GetSpecialization can be unreliable on some servers.
 local function PlayerHasSpellID(spellId)
     local checkId = spellId
     if FindSpellOverrideByID then
@@ -340,22 +201,12 @@ end
 local function PickGuessCC(unit, class, specId, raceToken)
     local isPlayer = (unit == "player")
     local guid  = unit and UnitGUID(unit)
-    -- For "player", KNOWN_UNIT_SPELLS[guid] is kept fresh by
-    -- ScanUnitTalents("player") (KastaCD_DB.lua, called from
-    -- KastaCD_Sync.lua's BuildSyncPayload) - this loop already handles
-    -- the player correctly via that shared cache, no separate
-    -- IsPlayerSpell-based branch needed (that used to exist here and was
-    -- removed: it was redundant with this loop once ScanUnitTalents
-    -- started covering "player" too, and worse, actively risky - raw
-    -- IsPlayerSpell can report a stale competing pick true for a stretch
-    -- after respeccing, which could re-add an already-invalidated talent
-    -- guess right back in).
+    -- "player"'s KNOWN_UNIT_SPELLS is kept fresh by ScanUnitTalents("player").
     local known = guid and KNOWN_UNIT_SPELLS[guid]
 
     local guesses = {}
-    -- Tracks which talentGroups already have a ground-truth pick added
-    -- below, so the alwaysGuess placeholder loop further down never adds
-    -- a second (guessed, possibly wrong) bar once the real one is known.
+    -- talentGroups with a ground-truth pick, so the alwaysGuess loop below
+    -- never adds a second (possibly wrong) bar once the real one is known.
     local confirmedGroups = {}
 
     if known then
@@ -371,25 +222,11 @@ local function PickGuessCC(unit, class, specId, raceToken)
         end
     end
 
-    -- alwaysGuess entries (Kidney Shot, Maim, Between the Eyes, and any
-    -- mutually-exclusive talentGroup row like the Monk L45 row) bypass the
-    -- "known"/witnessed-cast gate so a bar shows immediately once a
-    -- matching unit joins, instead of waiting on a cast or a resolved
-    -- inspect scan (which - see ScanUnitTalents in KastaCD_DB.lua -
-    -- frequently never resolves at all on private servers).
-    --
-    -- Entries with NO talentGroup are independent abilities (Kidney Shot
-    -- etc.) and every eligible one gets its own bar, same as before.
-    -- Entries that DO share a talentGroup are real mutually-exclusive
-    -- talent picks, not independent abilities - only ONE placeholder
-    -- guess is shown per group (lowest spellId, for a deterministic pick)
-    -- so a 3-way row like Leg Sweep/Ring of Peace/Charging Ox Wave shows
-    -- exactly one bar, not three. That placeholder is silently corrected
-    -- to the real pick the moment ground truth (a cast or inspect scan)
-    -- arrives - confirmedGroups above already added the true one to
-    -- `guesses`, and skipping the group here means the wrong placeholder
-    -- simply isn't re-added on the next rebuild, so RebuildCCBars' own
-    -- stale-entry pruning (below) clears it within ~1s.
+    -- alwaysGuess entries bypass the known/witnessed-cast gate so a bar
+    -- shows immediately on join. No talentGroup = independent ability,
+    -- every eligible one gets a bar. Shared talentGroup = mutually
+    -- exclusive picks, only one placeholder guess per group (confirmed
+    -- ground truth, if any, already took the group's slot above).
     local groupCandidates = {}
     for sid, info in pairs(CC_SPELLS) do
         if info.alwaysGuess and IsCCSpellEnabled(sid) then
@@ -412,10 +249,7 @@ local function PickGuessCC(unit, class, specId, raceToken)
         end
     end
     for _, list in pairs(groupCandidates) do
-        -- Prefer whichever candidate is flagged groupDefault=true (the
-        -- most commonly-picked option in that row); falls back to lowest
-        -- spellId for a deterministic pick in any group with no flagged
-        -- default.
+        -- Prefer groupDefault=true; falls back to lowest spellId.
         local sid = nil
         for _, candidate in ipairs(list) do
             if CC_SPELLS[candidate].groupDefault then sid = candidate end
@@ -433,8 +267,6 @@ local function PickGuessCC(unit, class, specId, raceToken)
         local raceOk  = not info.race or info.race == raceToken
         if classOk and raceOk and not info.isTalent and IsCCSpellEnabled(sid) then
             if not info.specs then
-                -- Baseline for every spec - good enough unless something
-                -- more specific (an exact spec match) turns up.
                 fallback = fallback or { spellId = sid, cooldown = info.cooldown }
             elseif isPlayer and PlayerHasSpellID(sid) then
                 exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
@@ -450,31 +282,16 @@ local function PickGuessCC(unit, class, specId, raceToken)
     return guesses
 end
 
--- ─────────────────────────────────────────────────────────────
--- Anchor frame (created once, reused)
--- Header is always visible when bars are shown; turns orange when unlocked.
--- ─────────────────────────────────────────────────────────────
+-- Anchor frame (created once, reused). Header always visible; orange when unlocked.
 local HEADER_H = 18
 local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
 
--- KastaCD-local: which corner of the anchor frame is the fixed/dragged
--- point - TOPLEFT for "grow down" (bars stack below a fixed top edge,
--- the original/default behavior), BOTTOMLEFT for "grow up" (bars stack
--- above a fixed bottom edge). Used everywhere the frame's position is
--- read or written so all of them agree on which edge "savedX/savedY"
--- actually refers to.
+-- TOPLEFT for "grow down" (default), BOTTOMLEFT for "grow up".
 local function CCAnchorPoint(db)
     return db.growUp and "BOTTOMLEFT" or "TOPLEFT"
 end
 
--- Positions the header strip/label and the bars container relative to
--- the anchor frame according to the current grow direction - called both
--- once at creation and on every RebuildCCBars pass (so toggling Grow Up/
--- Down in settings takes effect immediately, not just for newly-created
--- frames). For "grow down" the header sits at the top and bars extend
--- below it (original layout); for "grow up" the header sits at the
--- bottom and bars extend above it, so the header stays next to whichever
--- edge the user actually dragged/anchored.
+-- Positions the header/bars container per the current grow direction.
 local function ApplyCCGrowLayout()
     local a, bp = ccAnchorFrame, ccBarsParent
     if not a or not bp then return end
@@ -553,14 +370,7 @@ local function EnsureCCAnchor()
     local bp = CreateFrame("Frame", nil, a)
     bp:SetSize(1, 1)
 
-    -- Hidden by default - WoW frames are shown unless told otherwise, and
-    -- this function can be triggered just by reading the anchor's position
-    -- (GetCCAnchorPos, e.g. the settings menu's Position X/Y fields opening
-    -- for the first time) without a real RebuildCCBars pass ever following
-    -- it. Real visibility is entirely owned by that function's own
-    -- `ccAnchorFrame:SetShown(anyBar or not db.locked)` call at the end,
-    -- and by UnlockCCAnchor()'s explicit :Show() - never by mere frame
-    -- creation.
+    -- Hidden by default; RebuildCCBars/UnlockCCAnchor own real visibility.
     a:Hide()
 
     ccAnchorFrame = a
@@ -568,15 +378,7 @@ local function EnsureCCAnchor()
     ApplyCCGrowLayout()
 end
 
--- Click-through: lets clicks pass to whatever is underneath the bar
--- (nameplates, action bars, the game world) instead of the bar itself
--- eating them. Only takes effect while locked - unlocked always keeps
--- mouse enabled, otherwise the anchor couldn't be dragged at all.
--- EnableMouse only affects the exact frame it's called on (not
--- children), so every icon frame under ccBarsParent needs the same
--- call, not just the anchor itself - walked generically via
--- GetChildren() rather than tracking a separate icon-frame list, so
--- this stays correct regardless of how RebuildCCBars builds rows.
+-- Lets clicks pass through to whatever's underneath, only while locked.
 function ApplyCCClickThrough()
     if not ccAnchorFrame then return end
     local db = GetCCDB()
@@ -608,18 +410,9 @@ local function ApplyCCAnchorLockState()
     ApplyCCClickThrough()
 end
 
--- ─────────────────────────────────────────────────────────────
--- Lock / unlock helpers (called from UI settings panel)
--- ─────────────────────────────────────────────────────────────
 function LockCCAnchor()
     GetCCDB().locked = true
     ApplyCCAnchorLockState()
-    -- Without this, locking while solo left the anchor/bars showing in
-    -- whatever state they were in while unlocked - ApplyCCAnchorLockState
-    -- only toggles the header strip, not the in-group/instance/content-type
-    -- gating that decides whether the anchor should be visible at all.
-    -- RebuildCCBars() re-applies all of that immediately, same as
-    -- UnlockCCAnchor() already does on the way in.
     RebuildCCBars()
 end
 
@@ -631,11 +424,7 @@ function UnlockCCAnchor()
     RebuildCCBars()
 end
 
--- Sets the anchor's exact saved position (same units as OnDragStop above
--- writes) and repositions the live frame immediately - used by the
--- Position X/Y sliders in the settings panel for pixel-perfect placement
--- without needing to drag. EnsureCCAnchor() is a no-op if the frame
--- already exists, so this works whether or not it's been created yet.
+-- Sets the anchor's saved position and repositions the live frame immediately.
 function SetCCAnchorPos(x, y)
     EnsureCCAnchor()
     local db = GetCCDB()
@@ -646,13 +435,8 @@ function SetCCAnchorPos(x, y)
     ccAnchorFrame:SetPoint(CCAnchorPoint(db), UIParent, "TOPLEFT", x / esc, y / esc)
 end
 
--- Returns the anchor's current resolved x/y in the same units
--- SetCCAnchorPos expects. If nothing's been saved yet (anchor still
--- sitting at its CENTER-relative default), this reads the *actual* live
--- position off the frame instead of returning 0/0 - otherwise the
--- Position X/Y sliders in settings would snap the anchor to the corner
--- of the screen the moment either one is touched, since writing one axis
--- always writes both and the other would fall back to a wrong default.
+-- Reads the anchor's live position if nothing's saved yet, so touching
+-- one X/Y slider doesn't snap the other axis to a wrong default.
 function GetCCAnchorPos()
     EnsureCCAnchor()
     local db = GetCCDB()
@@ -667,24 +451,14 @@ function GetCCAnchorPos()
     return x, y
 end
 
--- Clears a unit's stored state (real witnessed cast or guess alike), so
--- the next rebuild re-evaluates their default guess from scratch. Needed
--- because a spec change can make previously-witnessed "ground truth"
--- state factually wrong (e.g. a Blood DK's witnessed Asphyxiate cast
--- keeps showing after respeccing to Frost, which can't use it at all) -
--- without this, stale ground-truth data persists forever since it's
--- normally treated as permanently authoritative. Called from
--- KastaCD_Events.lua whenever a spec change is detected.
+-- Clears a unit's stored state so the next rebuild re-guesses from
+-- scratch - needed since a spec change can make witnessed "ground truth"
+-- wrong (e.g. a respec away from a class that had it). Called from
+-- KastaCD_Events.lua on spec change.
 function ClearCCBarState(unit)
     ccBarState[unit] = nil
 end
 
--- ccBarFrames is keyed [unit][spellId] = barFrame (a unit can have
--- several simultaneous guessed/witnessed CC bars - see PickGuessCC),
--- never [unit] = barFrame directly, so hiding every row needs a nested
--- walk. Shared here since the early-exit guards below and the "hide
--- everything before re-showing what's active" pass further down both
--- need it.
 local function HideAllCCBarRows()
     for _, unitFrames in pairs(ccBarFrames) do
         for _, bf in pairs(unitFrames) do
@@ -693,9 +467,6 @@ local function HideAllCCBarRows()
     end
 end
 
--- ─────────────────────────────────────────────────────────────
--- Rebuild all crowd-control bars
--- ─────────────────────────────────────────────────────────────
 function RebuildCCBars()
     local db = GetCCDB()
 
@@ -704,17 +475,13 @@ function RebuildCCBars()
         return
     end
 
-    -- Hide entirely when not in a party or raid group, unless test mode is
-    -- on or the anchor is unlocked - unlocking always has to make the
-    -- anchor visible, otherwise there'd be nothing to drag while solo.
+    -- Hidden unless in a group, unlocked, or test mode.
     if db.locked and not IsInGroup() and not db.testMode then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         HideAllCCBarRows()
         return
     end
 
-    -- Hide entirely inside raid instances (10-man and above), same
-    -- unlocked exception as above.
     local _, instanceType = IsInInstance()
     if db.locked and instanceType == "raid" then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
@@ -722,11 +489,7 @@ function RebuildCCBars()
         return
     end
 
-    -- Hide entirely when the current content type is disabled via this
-    -- tracker's OWN "Active in:" toggles (Crowd Control panel >
-    -- Visibility) - independent of the main icon tracker's and the
-    -- Interrupt tracker's own choices, same unlocked/testMode exception
-    -- as above.
+    -- This tracker's own "Active in:" gating, independent of the others.
     if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         HideAllCCBarRows()
@@ -735,10 +498,7 @@ function RebuildCCBars()
 
     EnsureCCAnchor()
 
-    -- Collect current party units. Test Mode always substitutes 5 fake
-    -- units, whether solo or grouped, so it's a straightforward "show me
-    -- the demo" toggle usable anytime - not just when there's no real
-    -- party to preview against.
+    -- Test Mode always substitutes 5 fake units, solo or grouped.
     local units = {}
     local usingFakeUnits = db.testMode
     if usingFakeUnits then
@@ -752,12 +512,7 @@ function RebuildCCBars()
         end
     end
 
-    -- Sort by class instead of raid/party slot order, so bars group
-    -- same-class units together (e.g. two Monks always end up adjacent)
-    -- rather than scattering them whenever a different class happens to
-    -- land in a party slot between them. CLASS_INFO's order matches the
-    -- rest of the addon (per-class settings panels, etc.); unrecognized
-    -- classes sort last and ties keep their original party-slot order.
+    -- Sort by class so same-class units end up adjacent; ties keep party-slot order.
     do
         local classOrder = {}
         for i, ci in ipairs(CLASS_INFO or {}) do classOrder[ci.key] = i end
@@ -801,12 +556,7 @@ function RebuildCCBars()
             ccBarState[unit] = ccBarState[unit] or {}
             local unitState = ccBarState[unit]
 
-            -- Seed a fully "live" animated demo bar the first time a fake
-            -- unit is seen: staggered cooldown position (spread across
-            -- 0%-80% remaining) so the 5 preview bars show a mix of
-            -- states - just used, mid-cooldown, nearly ready - instead of
-            -- all sitting idle-ready. The ticker keeps looping it once it
-            -- reaches ready, so the animation runs continuously.
+            -- Seed a staggered demo bar so the 5 preview bars show a mix of states.
             if fakeInfo and not next(unitState) then
                 local frac = (i - 1) / 5
                 unitState[fakeInfo.spellId] = {
@@ -818,18 +568,9 @@ function RebuildCCBars()
                 }
             end
 
-            -- No static default for this class: guess every
-            -- spec-appropriate CC option so a bar shows something
-            -- immediately, same as the interrupt tracker's INT_DEFAULT -
-            -- but a class can have more than one independent CC option at
-            -- once (e.g. a Rogue's Blind is always available, and
-            -- separately Kidney Shot once confirmed), so PickGuessCC
-            -- returns a list and every entry gets its own bar - one never
-            -- replaces another. Only seeds an entry that doesn't exist yet
-            -- or is itself still just a preview (isPreview) - never
-            -- overwrites a real witnessed cast - and re-evaluates every
-            -- rebuild so a talent/spec swap updates that specific preview
-            -- immediately instead of getting stuck on the first guess.
+            -- PickGuessCC returns a list - every entry gets its own bar.
+            -- Only seeds an entry that's new or still just a preview, never
+            -- overwrites a witnessed cast; re-evaluated every rebuild.
             if not fakeInfo then
                 local specId    = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
                 local raceToken = select(2, UnitRace(unit))
@@ -845,25 +586,8 @@ function RebuildCCBars()
                     end
                 end
 
-                -- Prune stale entries: the seeding loop above only ever
-                -- ADDED entries, never removed one - so a spell that WAS
-                -- guessed/confirmed before (an old talent pick, or a
-                -- since-corrected sync snapshot - see KastaCD_Sync.lua)
-                -- but ISN'T in this rebuild's guess list anymore just sat
-                -- there forever. This covers BOTH guessed previews AND
-                -- real witnessed-cast entries (HandleCCCast clears
-                -- isPreview on those, so an earlier fix here that only
-                -- pruned isPreview==true entries left any spell that had
-                -- ever actually been cast once permanently stuck,
-                -- immune to ever being corrected by a later respec/sync
-                -- update) - PickGuessCC's own isTalent branch already
-                -- re-checks KNOWN_UNIT_SPELLS fresh every call, so
-                -- currentGuesses is always this rebuild's true ground
-                -- truth regardless of how the entry originally got here.
-                -- Never yanks a bar that's actively mid-cooldown right
-                -- now (endTime in the future) - only prunes once it's
-                -- back to idle, so a live countdown never visibly cuts
-                -- off mid-animation.
+                -- Prune stale entries (guessed or witnessed) not in this
+                -- rebuild's list anymore, unless mid-cooldown right now.
                 local now = GetTime()
                 for sid, st in pairs(unitState) do
                     if not currentGuesses[sid] and st.endTime <= now then
@@ -879,15 +603,8 @@ function RebuildCCBars()
                 if not bf then
                     local row = CreateFrame("Frame", nil, ccBarsParent)
 
-                    -- Border: four strips forming an outline flush against
-                    -- the row's own edges and extending outward by
-                    -- BORDER_THICKNESS - not a single oversized rectangle
-                    -- behind everything, which would sit under the
-                    -- statusbar's semi-transparent background and show
-                    -- through as a dark tint across the whole unfilled
-                    -- portion of the bar instead of a crisp edge. Top/
-                    -- bottom strips overhang left/right by the same
-                    -- thickness so the four corners meet cleanly.
+                    -- Border: four edge strips, not one rectangle behind
+                    -- everything (would tint through the bar's own bg).
                     local T = BORDER_THICKNESS
                     local border = {}
                     local bTop = row:CreateTexture(nil, "BACKGROUND", nil, -1)
@@ -928,11 +645,7 @@ function RebuildCCBars()
                     ico:SetAllPoints()
                     ico:SetTexCoord(0, 1, 0, 1)
 
-                    -- Tooltip: this bar is permanently bound to this one
-                    -- (unit, sid) pair, so it just reads the live state for
-                    -- that exact spell rather than "whatever the unit's
-                    -- current spell happens to be" - each spell now has
-                    -- its own bar instead of sharing one per unit.
+                    -- Bound to this exact (unit, sid) pair - each spell has its own bar.
                     iconF:SetScript("OnEnter", function(self)
                         local liveSt = ccBarState[unit] and ccBarState[unit][sid]
                         if not liveSt then return end
@@ -949,9 +662,6 @@ function RebuildCCBars()
                     end)
                     iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-                    -- StatusBar (background + fill). Texture is applied
-                    -- every rebuild below (not here) so changing it in
-                    -- settings updates already-existing bars immediately.
                     local sb = CreateFrame("StatusBar", nil, row)
                     sb:SetPoint("LEFT",  iconF, "RIGHT",  0, 0)
                     sb:SetPoint("RIGHT", row,   "RIGHT",  0, 0)
@@ -980,9 +690,7 @@ function RebuildCCBars()
                     ccBarFrames[unit][sid] = bf
                 end
 
-                -- Resize / reposition - stacks downward from the top (grow
-                -- down) or upward from the bottom (grow up), see
-                -- ApplyCCGrowLayout for how ccBarsParent itself is anchored.
+                -- Stacks down from top (grow down) or up from bottom (grow up).
                 bf.row:SetSize(ROW, BH)
                 bf.row:ClearAllPoints()
                 if db.growUp then
@@ -997,26 +705,16 @@ function RebuildCCBars()
                 -- Resize status bar (in case barWidth changed)
                 bf.sb:SetHeight(BH)
 
-                -- Statusbar texture (applied every rebuild so a SharedMedia
-                -- selection change in settings takes effect immediately).
                 local barTex = db.texturePath or DEFAULT_BAR_TEXTURE
                 bf.sb:SetStatusBarTexture(barTex)
                 bf.sbBg:SetTexture(barTex)
 
-                -- Border visibility (applied every rebuild so toggling it
-                -- in settings takes effect immediately). bf.border is a
-                -- list of the 4 edge-strip textures.
                 for _, b in ipairs(bf.border) do b:SetShown(not db.hideBorder) end
 
-                -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(sid)
                 if tex then bf.ico:SetTexture(tex) end
 
-                -- Class colour: fill always class-colored, background
-                -- track starts grey if already on cooldown so there's no
-                -- flash of the wrong colour before the next 0.1s ticker
-                -- tick corrects it - the ticker owns this for everything
-                -- after the first draw.
+                -- Background track starts grey if on cooldown; the 0.1s ticker corrects it.
                 local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
                 if cc then
                     bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
@@ -1065,9 +763,7 @@ function RebuildCCBars()
     ccAnchorFrame:SetShown(anyBar or not db.locked)
 end
 
--- ─────────────────────────────────────────────────────────────
--- Called from KastaCD_CombatLog when a known CC spell is cast
--- ─────────────────────────────────────────────────────────────
+-- Called from KastaCD_CombatLog when a known CC spell is cast.
 function HandleCCCast(sourceGUID, spellId)
     local ccInfo = CC_SPELLS[spellId]
     if not ccInfo then return end
@@ -1091,10 +787,7 @@ function HandleCCCast(sourceGUID, spellId)
     local now = GetTime()
     local _, class = UnitClass(unit)
 
-    -- Keyed by (unit, spellId), not just unit - casting a different CC
-    -- spell must never overwrite/replace another CC spell's own
-    -- in-progress bar for the same unit (e.g. a Rogue's Blind and Kidney
-    -- Shot track independently).
+    -- Keyed by (unit, spellId) so independent CC spells track separately.
     ccBarState[unit] = ccBarState[unit] or {}
     if not ccBarState[unit][spellId] then
         ccBarState[unit][spellId] = { spellId=spellId, cooldown=ccInfo.cooldown, endTime=0, class=class or ccInfo.class }
@@ -1120,9 +813,6 @@ function HandleCCCast(sourceGUID, spellId)
     end
 end
 
--- ─────────────────────────────────────────────────────────────
--- 0.1-second update ticker
--- ─────────────────────────────────────────────────────────────
 C_Timer.NewTicker(0.1, function()
     if type(KastaCDDB) ~= "table" then return end
     local db = GetCCDB()
@@ -1141,10 +831,6 @@ C_Timer.NewTicker(0.1, function()
                         local remaining = st.endTime - now
                         -- Inverted: 0 = just used, fills toward 1 = ready
                         bf.sb:SetValue(math.max(0, math.min(1, 1 - remaining / cd)))
-                        -- Fill stays class-colored; grey the background track
-                        -- instead while on cooldown - makes "still down" instantly
-                        -- readable without checking the text, without losing the
-                        -- class-color identity on the active bar itself.
                         if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
                         bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
                         bf.cdText:SetTextColor(1, 1, 0.7)
@@ -1167,10 +853,7 @@ C_Timer.NewTicker(0.1, function()
                             bf.cdText:SetText("")
                         end
 
-                        -- Fake demo units (solo Test Mode preview) loop forever
-                        -- instead of sitting ready after the first cycle, so the
-                        -- animation keeps demonstrating what an active cooldown
-                        -- looks like without requiring a real cast.
+                        -- Fake demo units loop forever instead of sitting ready.
                         if st.isFake then
                             st.endTime = now + cd
                         end
@@ -1181,13 +864,7 @@ C_Timer.NewTicker(0.1, function()
     end
 end)
 
--- =============================================================
--- Debug helper: /kcdccunit <party1|party2|party3|party4|player> - compares
--- ground truth (KNOWN_UNIT_SPELLS/UNIT_SPEC_CACHE) against what
--- PickGuessCC currently computes against what's actually persisted in
--- ccBarState right now, for one specific unit. Pinpoints exactly which
--- stage a "why doesn't this unit's CC bar update" bug is stuck at.
--- =============================================================
+-- Debug: /kcdccunit <unit> compares ground truth vs PickGuessCC vs persisted state.
 SLASH_KASTACDCCUNIT1 = "/kcdccunit"
 SlashCmdList["KASTACDCCUNIT"] = function(msg)
     local unit = (msg and msg:match("^%s*(.-)%s*$")) or ""

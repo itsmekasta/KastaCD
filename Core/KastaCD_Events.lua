@@ -1,10 +1,6 @@
--- =============================================================
--- KastaCD_Events.lua
--- Event frame: registers all WoW events KastaCD cares about,
--- routes them to the correct handler, and registers the /kcd
--- slash command.
+-- KastaCD_Events.lua - registers all WoW events KastaCD cares about,
+-- routes them to the correct handler, and registers the /kcd slash command.
 -- Depends on: everything else (loaded last).
--- =============================================================
 
 local kcdEvent = CreateFrame("Frame")
 
@@ -44,9 +40,7 @@ local function RefreshMemberGUIDs()
     end
 end
 
--- All unit tokens currently worth polling for spec data: the player
--- plus every party member we know about. Rebuilt fresh each call so
--- it always reflects the current roster.
+-- Player plus every known party member. Rebuilt fresh each call.
 local function GetTrackedUnits()
     local units = { "player" }
     for i = 1, 4 do
@@ -56,17 +50,9 @@ local function GetTrackedUnits()
     return units
 end
 
--- ---------------------------------------------------------------
--- SpecPollTicker  –  the actual fix for spec-detection reliability.
---
--- Rather than validating a single read and hoping it's correct,
--- re-read every tracked unit's spec once a second, forever, for as
--- long as the addon is loaded. A transient bad/stale read is never
--- trusted for more than ~1 second before being silently overwritten
--- by the next poll - which in practice behaves exactly like "always
--- correct" without any of the validation complexity that kept
--- producing edge-case false negatives in earlier versions.
--- ---------------------------------------------------------------
+-- SpecPollTicker: re-reads every tracked unit's spec every second rather
+-- than validating a single read - a bad/stale read is overwritten within
+-- ~1s instead of needing complex validation logic.
 local lastInspectRequest = 0
 C_Timer.NewTicker(1.0, function()
     if not HasGroup() then return end
@@ -75,9 +61,7 @@ C_Timer.NewTicker(1.0, function()
         PollUnitSpec(unit)
     end
 
-    -- Fire inspect requests at a slower cadence (every 3rd tick) so
-    -- we don't spam NotifyInspect; GetInspectSpecialization only
-    -- returns real data after an inspect request has been answered.
+    -- Fire inspect requests at a slower cadence so we don't spam NotifyInspect.
     local now = GetTime()
     if now - lastInspectRequest > 3 then
         lastInspectRequest = now
@@ -86,28 +70,13 @@ C_Timer.NewTicker(1.0, function()
         end
     end
 
-    -- Same self-correcting philosophy as the spec poll above: rather than
-    -- chasing the exact timing of whichever event *should* have shown the
-    -- trackers, just re-run their rebuild on this same 1s cadence while
-    -- grouped. Cheap (mostly reuses existing bar frames) and guarantees
-    -- both trackers self-heal within ~1s of group/spec state settling,
-    -- instead of staying stuck hidden until the user manually unlocks to
-    -- force a rebuild.
+    -- Same self-correcting philosophy: re-run rebuilds on this 1s cadence
+    -- while grouped instead of chasing exact event timing.
     if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
     if type(RebuildCCBars) == "function" then RebuildCCBars() end
 
-    -- RebuildIcons() has its own signature-based short-circuit (near-free
-    -- when nothing's actually changed), so it's cheap to include here too.
-    -- This is what fixes the "player icons gone after login, back after a
-    -- /reload" symptom with ElvUI's "show player in party frame" turned
-    -- off: TrySnapAnchor's ElvUI-frame lookup depends on ElvUI having
-    -- already applied that hide setting by the time we check, which is a
-    -- timing race we don't control - a login has a loading screen giving
-    -- ElvUI more time to settle before our one-shot delayed rebuild fires,
-    -- while a same-session /reload can catch it mid-settle. Re-checking
-    -- every second means whichever way that race goes, it self-corrects
-    -- within ~1s instead of being stuck wrong until something else
-    -- happens to trigger another rebuild.
+    -- RebuildIcons has its own signature-based short-circuit, so it's
+    -- cheap to include here too - fixes ElvUI hide-setting timing races.
     RebuildIcons()
 end)
 
@@ -126,13 +95,9 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- ── PLAYER_ENTERING_WORLD ──────────────────────────────────
     if event == "PLAYER_ENTERING_WORLD" then
         KastaCDInitDB()
-        -- Test Mode (Interrupt/CC trackers, Buff/Debuff Display) never
-        -- persists across a reload/relog - always reset to off here, so
-        -- leaving it on by accident doesn't quietly keep faking bars/
-        -- icons in a fresh session.
+        -- Test Mode never persists across a reload/relog.
         if type(KastaCDDB.intAnchor) == "table" then KastaCDDB.intAnchor.testMode = false end
         if type(KastaCDDB.ccAnchor)  == "table" then KastaCDDB.ccAnchor.testMode  = false end
         if type(GetBuffDisplayDB)    == "function" then GetBuffDisplayDB().testMode   = false end
@@ -143,14 +108,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
             if type(RebuildCCBars) == "function" then RebuildCCBars() end
         end)
-        -- The Interrupt Tracker bar was intermittently landing a few
-        -- pixels off its saved position after a reload - most likely
-        -- UIParent's effective scale/size not being fully settled yet at
-        -- the exact moment the first SetPoint call above ran (a known
-        -- class of WoW UI-init timing issue, not a bug in the saved
-        -- value itself). Re-asserting the exact same saved position
-        -- once more, safely later, corrects it without needing to
-        -- guess at a single delay that's "long enough" every time.
+        -- Re-asserts the Interrupt Tracker's saved position once more,
+        -- later, since UIParent's scale isn't always settled by the first try.
         C_Timer.After(3, function()
             if type(ReapplyIntAnchorPos) == "function" then ReapplyIntAnchorPos() end
         end)
@@ -185,14 +144,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- ── Talent / spell / spec changes ──────────────────────────
-    -- Also clears the player's stored interrupt/CC bar state before
-    -- rebuilding: once a real cast has been witnessed it's normally
-    -- treated as permanently authoritative (never re-guessed), but a
-    -- talent/spec swap can make that witnessed spell factually wrong
-    -- (e.g. respeccing away from the class/spec that had it) - without
-    -- clearing it, the bar would keep showing the old spell until the
-    -- player actually casts whatever they swapped to.
+    -- Talent/spell/spec changes: also clears stored interrupt/CC bar
+    -- state, since a witnessed cast can become factually wrong after a respec.
     if event == "SPELLS_CHANGED"
     or event == "CHARACTER_POINTS_CHANGED"
     or event == "PLAYER_TALENT_UPDATE" then
@@ -206,11 +159,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- ── PLAYER_SPECIALIZATION_CHANGED ─────────────────────────
-    -- The next SpecPollTicker tick (within 1s) will pick up the new
-    -- spec on its own; this just rebuilds icons a beat after that so
-    -- the UI reflects it without waiting for an unrelated event. Clears
-    -- stored bar state first - see the comment above for why.
+    -- SpecPollTicker picks up the new spec within 1s; this rebuilds icons
+    -- a beat after and clears stored bar state (same reason as above).
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         local unit = ...
         if unit == "player" then
@@ -225,29 +175,16 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         return
     end
 
-    -- ── COMBAT_LOG_EVENT_UNFILTERED ───────────────────────────
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCombatLog(...)
         return
     end
 
-    -- ── INSPECT_READY ─────────────────────────────────────────
-    -- Inspect data just arrived. Only rebuild when the spec actually
-    -- changed - unconditional RebuildIcons() here would restart active
-    -- glow animations unnecessarily on every 3-second inspect cycle
-    -- (INSPECT_READY fires for every NotifyInspect, even if the spec
-    -- value is identical to what was already cached).
-    --
-    -- Deliberately does NOT call ClearIntBarState/ClearCCBarState here.
-    -- GetInspectSpecialization() is the exact unreliable-on-private-
-    -- servers read this file's own architecture notes warn about (see
-    -- KastaCD_DB.lua) - trusting a single "spec changed" detection from
-    -- it to wipe out real witnessed-cast bar state meant a transient bad
-    -- read would intermittently clear valid data, and the bar wouldn't
-    -- reliably come back until the next witnessed cast or lucky guess.
-    -- The player's own spec (PLAYER_SPECIALIZATION_CHANGED below) is
-    -- safe to clear on since GetSpecialization() is synchronous/reliable
-    -- - only that path gets the clear.
+    -- Only rebuild when spec actually changed, to avoid restarting glow
+    -- animations on every inspect cycle. Doesn't clear bar state here -
+    -- GetInspectSpecialization is unreliable enough that a bad read would
+    -- intermittently wipe valid data; only the player's own
+    -- (synchronous) spec change gets the clear.
     if event == "INSPECT_READY" then
         local guid = select(1, ...)
         if guid then
@@ -257,10 +194,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                     local oldSpec = GetUnitSpec(unit)
                     PollUnitSpec(unit)
                     local specChanged = GetUnitSpec(unit) ~= oldSpec
-                    -- Also confirm actual talent picks (Storm Bolt, Mighty
-                    -- Bash, etc.) via the same inspect data - see
-                    -- ScanUnitTalents in KastaCD_DB.lua for why this needs
-                    -- its own rebuild trigger separate from the spec check.
+                    -- Also confirm talent picks via the same inspect data.
                     local talentsLearned = type(ScanUnitTalents) == "function" and ScanUnitTalents(unit)
                     if specChanged or talentsLearned then
                         RebuildIcons()
@@ -275,24 +209,18 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
--- =============================================================
--- /rl  –  shorthand for /reload. Deliberately not surfaced anywhere in
--- the settings menu - just a quick typing shortcut, nothing to toggle.
--- =============================================================
+-- /rl - shorthand for /reload.
 SLASH_KASTACDRELOAD1 = "/rl"
 SlashCmdList["KASTACDRELOAD"] = function()
     ReloadUI()
 end
 
--- =============================================================
--- Slash commands  /kcd, /kastacd, /kasta  –  open / close the settings menu
--- =============================================================
+-- /kcd, /kastacd, /kasta - open/close the settings menu.
 SLASH_KASTACD1 = "/kcd"
 SLASH_KASTACD2 = "/kastacd"
 SLASH_KASTACD3 = "/kasta"
 SlashCmdList["KASTACD"] = function()
-    -- Wrap in pcall so any error during menu construction is shown
-    -- rather than silently leaving kcdMenu nil and erroring on IsShown.
+    -- pcall so a construction error is shown, not left silently nil.
     local ok, err = pcall(CreateKastaCDMenu)
     if not ok then
         print("|cffff0000KastaCD: failed to open menu — " .. tostring(err) .. "|r")

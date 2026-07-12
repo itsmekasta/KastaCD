@@ -1,22 +1,8 @@
--- =============================================================
--- KastaCD_KastaPlatesData.lua
--- Static per-dungeon NPC name/ID database for KastaPlates' dungeon +
--- NPC dropdown pickers (KastaCD_Options.lua's BuildKastaPlatesGroup).
---
--- Extracted from MethodDungeonTools' own per-dungeon route-planning data
--- (Addons/MethodDungeonTools/<Dungeon>.lua's dungeonBosses/dungeonEnemies
--- tables) rather than hand-typed from memory, since MDT's NPC IDs have to
--- be pixel-accurate for its own pull-planning feature to work at all -
--- confirmed consistent with this addon's own live data too (91785
--- "Wandering Shellback" in Eye of Azshara matched a live-tested entry).
---
--- Dungeon keys are the real GetInstanceInfo() instanceID (8th return) -
--- the same value KastaCD_MobCount.lua and KastaCD_KastaPlates.lua's own
--- CurrentInstance() already use, confirmed via LibObjectiveProgress-1.0's
--- own ProgressWeightData.lua (MapBasedWeights keys + comments). Return to
--- Karazhan's Lower/Upper wings share one instanceID (1651), matching how
--- the game itself treats them as a single instance.
--- =============================================================
+-- KastaCD_KastaPlatesData.lua - static per-dungeon NPC name/ID database
+-- for KastaPlates' dungeon + NPC dropdown pickers.
+-- Extracted from MethodDungeonTools' route-planning data for accuracy.
+-- Dungeon keys are the real GetInstanceInfo() instanceID (8th return).
+-- Karazhan's Lower/Upper wings share one instanceID (1651).
 
 -- Dungeon dropdown - order matches values shown, sorted alphabetically.
 KASTAPLATES_DUNGEONS = {
@@ -387,10 +373,8 @@ KASTAPLATES_DUNGEON_NPCS = {
     },
 }
 
--- Flat NPC ID -> creature displayID lookup, used to preview the NPC's
--- actual 3D model next to the picker (Model:SetDisplayInfo) so picking a
--- name out of a dropdown isn't a total guess at what/where it is. Not
--- nested per-dungeon since npcID alone is already a unique lookup key.
+-- Flat NPC ID -> creature displayID lookup, for previewing the NPC's 3D
+-- model next to the picker (Model:SetDisplayInfo).
 KASTAPLATES_NPC_DISPLAYID = {
     [98243] = 65762,
     [98275] = 65743,
@@ -712,25 +696,10 @@ KASTAPLATES_NPC_DISPLAYID = {
     [102583] = 62511,
     [102584] = 65542,
 }
--- Preset default colors - every NPC in every Legion dungeon gets its own
--- color so mobs stand out from each other when pulling a large group, not
--- just a handful of manually-flagged priority targets.
---
--- Generation method (applied the same way across all 12 dungeons): for
--- each dungeon's own NPC list (sorted alphabetically, the same order the
--- in-game dropdown/list already uses), the first 12 entries each get one
--- full-brightness, fully-saturated hue, spaced 30 degrees apart around the
--- ENTIRE color wheel - about the practical limit for reliably telling hues
--- apart at a glance, and far more reliable than inventing lots of
--- same-family variants (an earlier pass had several different-on-paper
--- greens/pinks/purples that all read as "the same color" at nameplate
--- size). Entries 13-24 reuse those same 12 hues at reduced brightness (a
--- clearly darker version, still easy to tell apart from its bright
--- counterpart), and 25-36 reuse them again desaturated/pastel - a third,
--- distinct dimension (hue, then brightness, then saturation) instead of a
--- straight repeat. Only Return to Karazhan (53 NPCs) needs a 4th cycle;
--- beyond ~36 simultaneously distinguishable colors is past what any
--- single-color scheme can realistically offer.
+-- Preset default colors - every NPC gets its own color so mobs stand
+-- out when pulling a large group. Each dungeon's alphabetical NPC list
+-- cycles through 12 full-brightness hues spaced 30° apart, then darker
+-- and pastel variants of the same 12 for entries 13-36.
 KASTAPLATES_PRESET_COLORS = {
     -- Black Rook Hold
     [98542] = { 1, 0, 0 }, -- Amalgam of Souls (red)

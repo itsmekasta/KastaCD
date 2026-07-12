@@ -1,21 +1,10 @@
--- =============================================================
--- KastaCD_Interrupts.lua
--- Independent interrupt cooldown tracker.
--- Shows a class-colored status bar for each party member with
--- an interrupt, tracking cooldown remaining after each use.
--- Completely independent of the main cooldown anchor/icon system.
--- =============================================================
+-- KastaCD_Interrupts.lua - independent interrupt cooldown tracker,
+-- class-colored status bar per party member, mirrors KastaCD_CC.lua.
 
--- Default interrupt per class (shown before any cast is seen).
--- Each class maps to a *list* of candidates rather than a single entry,
--- since some classes have a different interrupt per spec (Druid: Skull
--- Bash for Feral/Guardian, Solar Beam for Balance - Restoration has
--- neither, so intentionally has no candidate at all). specs: if present,
--- only matches when the unit's known spec is in the list; the first
--- matching candidate wins, falling back to a spec-less (universal)
--- candidate if the class has one. Units whose spec isn't yet known, or
--- whose spec matches nothing, won't show a default bar until their first
--- witnessed cast.
+-- Default interrupt per class, shown before any cast is seen. Each class
+-- maps to a list (some have a different interrupt per spec, e.g. Druid);
+-- specs, if present, only matches a unit whose known spec is in the
+-- list, first match wins.
 local INT_DEFAULT = {
     WARRIOR     = { { spellId=6552,   cooldown=15 } },
     PALADIN     = { { spellId=96231,  cooldown=15, specs={70} } },        -- Ret only (Prot appears via Avenger's Shield cast)
@@ -51,55 +40,33 @@ INT_SPELLS = {
     [183752] = { class="DEMONHUNTER", cooldown=15 },
     [119910] = { class="WARLOCK",     cooldown=24 },  -- Spell Lock (Felhunter)
 
-    -- Arcane Torrent (Blood Elf racial). Not tied to a class - "ALL" is
-    -- just documentation here, since HandleInterruptCast below always
-    -- uses the real caster's resolved class for display/coloring
-    -- regardless of this field. isRacial=true routes both the default
-    -- (RACIAL_DEFAULT below) and any witnessed cast to a separate
-    -- "#racial" bar per unit (see RebuildInterruptBars/HandleInterruptCast)
-    -- instead of overwriting that unit's class-interrupt bar - a Blood Elf
-    -- Warrior gets both a Pummel bar AND an Arcane Torrent bar.
-    --
-    -- Retail WoW historically used a *different* spell ID per resource
-    -- type (mana/energy/rage/runic power/chi/focus/fury/insanity) before
-    -- eventually unifying them, and this server doesn't have that
-    -- unification for every class - each ID below is confirmed via
-    -- /kcdcast against this specific server, per-class, not guessed.
+    -- Arcane Torrent (Blood Elf racial). isRacial=true routes it to a
+    -- separate "#racial" bar per unit instead of overwriting the class-
+    -- interrupt bar. This server uses a different spell ID per resource
+    -- type; each confirmed via /kcdcast, not guessed.
     [155145] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (confirmed on this server)
     [25046]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Energy - Rogue, confirmed)
     [50613]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Runic Power - Death Knight, confirmed)
     [129597] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Chi - Monk, confirmed)
     [232633] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Priest, confirmed)
     [202719] = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Demon Hunter, confirmed)
-    -- Not yet confirmed on this server - kept as a reasonable guess since
-    -- an unconfirmed/wrong ID is harmless (worst case it just never gets
-    -- cast); replace with the real ID via /kcdcast if these turn out wrong.
+    -- Not yet confirmed - a wrong ID is harmless, correct via /kcdcast if wrong.
     [28730]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Mana - unconfirmed)
     [69179]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Rage - Warrior, unconfirmed)
     [80483]  = { class="ALL", cooldown=90,  isRacial=true },  -- Arcane Torrent (Focus - Hunter, unconfirmed)
 }
 
--- Always-visible racial default per UnitRace() token - shown immediately
--- for every matching unit, same as INT_DEFAULT is per class, but as an
--- *additional* bar rather than a replacement (see the "#racial" synthetic
--- unit key throughout this file).
+-- Always-visible racial default per UnitRace() token - an additional bar, not a replacement.
 local RACIAL_DEFAULT = {
     BloodElf = { spellId=155145, cooldown=90 },
 }
 
--- Per-unit state and bar frames
 local intBarState  = {}   -- [unit] = { spellId, cooldown, endTime, class }
 local intBarFrames = {}   -- [unit] = { row, sb, ico, nameText, cdText }
 local intAnchorFrame = nil
 local intBarsParent  = nil
 
--- Five synthetic "party members" used only for Test Mode while solo (no
--- real party exists to preview against). Picked for class-color variety.
--- Each token is fake and never resolves via the real
--- UnitClass/UnitName/UnitGUID APIs - see the class/name-resolution
--- branches in RebuildInterruptBars for how that's handled, and the
--- ticker for how their cooldowns loop forever instead of sitting "ready"
--- after the first cycle.
+-- Five fake party members for Test Mode while solo.
 local TEST_FAKE_UNITS = {
     { token="KCDTESTINT1", name="Test Warrior",     class="WARRIOR",     spellId=6552,   cooldown=15 },
     { token="KCDTESTINT2", name="Test Hunter",      class="HUNTER",      spellId=147362, cooldown=24 },
@@ -110,11 +77,7 @@ local TEST_FAKE_UNITS = {
 local TEST_FAKE_LOOKUP = {}
 for _, u in ipairs(TEST_FAKE_UNITS) do TEST_FAKE_LOOKUP[u.token] = u end
 
--- ─────────────────────────────────────────────────────────────
--- DB accessor with lazy defaults
--- ─────────────────────────────────────────────────────────────
--- Default statusbar texture, used whenever no SharedMedia texture has
--- been picked (or SharedMedia/LibStub isn't installed at all).
+-- Default statusbar texture when no SharedMedia texture is picked.
 local DEFAULT_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 local function GetIntDB()
@@ -131,52 +94,29 @@ local function GetIntDB()
     if db.showReady   == nil then db.showReady   = true  end
     if db.clickThrough == nil then db.clickThrough = false end
     if db.maxNameChars == nil then db.maxNameChars = 0 end
-    -- Grow direction: false/nil = grow down (bars stack below a fixed top
-    -- edge, the original behavior), true = grow up (bars stack above a
-    -- fixed bottom edge).
+    -- growUp: false/nil = bars stack down from a fixed top edge, true = stack up from bottom.
     if db.growUp      == nil then db.growUp      = false end
-    -- Independent "Active in:" choice for this tracker - no longer bound
-    -- to the main icon tracker's shared KastaCDDB.contentTypes.
     if db.contentTypes == nil then
         db.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
             ["Arena"]=true,      ["Battleground"]=true,
         }
     end
-    -- Every INT_SPELLS entry with isRacial=true is a resource-type variant
-    -- of the same Blood Elf racial (Arcane Torrent) - one toggle controls
-    -- all of them, since from a user's perspective it's a single ability.
-    -- Defaults to shown (the pre-existing behavior, preserved for anyone
-    -- who never touches this setting).
+    -- One toggle controls every isRacial resource-type variant of Arcane Torrent.
     if db.showArcaneTorrent == nil then db.showArcaneTorrent = true end
     return db
 end
 
--- ─────────────────────────────────────────────────────────────
--- Anchor frame (created once, reused)
--- Header is always visible when bars are shown; turns orange when unlocked.
--- ─────────────────────────────────────────────────────────────
+-- Anchor frame (created once, reused). Header always visible; orange when unlocked.
 local HEADER_H = 18
 local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
 
--- KastaCD-local: which corner of the anchor frame is the fixed/dragged
--- point - TOPLEFT for "grow down" (bars stack below a fixed top edge,
--- the original/default behavior), BOTTOMLEFT for "grow up" (bars stack
--- above a fixed bottom edge). Used everywhere the frame's position is
--- read or written so all of them agree on which edge "savedX/savedY"
--- actually refers to.
+-- TOPLEFT for "grow down" (default), BOTTOMLEFT for "grow up".
 local function IntAnchorPoint(db)
     return db.growUp and "BOTTOMLEFT" or "TOPLEFT"
 end
 
--- Positions the header strip/label and the bars container relative to
--- the anchor frame according to the current grow direction - called both
--- once at creation and on every RebuildInterruptBars pass (so toggling
--- Grow Up/Down in settings takes effect immediately, not just for
--- newly-created frames). For "grow down" the header sits at the top and
--- bars extend below it (original layout); for "grow up" the header sits
--- at the bottom and bars extend above it, so the header stays next to
--- whichever edge the user actually dragged/anchored.
+-- Positions the header/bars container per the current grow direction.
 local function ApplyIntGrowLayout()
     local a, bp = intAnchorFrame, intBarsParent
     if not a or not bp then return end
@@ -254,14 +194,7 @@ local function EnsureIntAnchor()
     local bp = CreateFrame("Frame", nil, a)
     bp:SetSize(1, 1)
 
-    -- Hidden by default - WoW frames are shown unless told otherwise, and
-    -- this function can be triggered just by reading the anchor's position
-    -- (GetIntAnchorPos, e.g. the settings menu's Position X/Y fields opening
-    -- for the first time) without a real RebuildInterruptBars pass ever
-    -- following it. Real visibility is entirely owned by that function's
-    -- own `intAnchorFrame:SetShown(anyBar or not db.locked)` call at the
-    -- end, and by UnlockIntAnchor()'s explicit :Show() - never by mere
-    -- frame creation.
+    -- Hidden by default; RebuildInterruptBars/UnlockIntAnchor own real visibility.
     a:Hide()
 
     intAnchorFrame = a
@@ -269,16 +202,9 @@ local function EnsureIntAnchor()
     ApplyIntGrowLayout()
 end
 
--- Re-applies the saved position exactly as EnsureIntAnchor's own
--- restore branch does, without recreating anything. Exposed so
--- KastaCD_Events.lua can call it again a couple of seconds after the
--- normal PLAYER_ENTERING_WORLD rebuild - the bar was intermittently
--- landing a few pixels off after a reload, which points at UIParent's
--- effective scale/size not having fully settled yet at the moment the
--- very first SetPoint call ran (a known class of WoW UI-init timing
--- issue); re-asserting the exact same saved values once more, safely
--- later, corrects it without needing to guess at a "long enough" single
--- delay that might still not always be long enough on a slower load.
+-- Re-applies the saved position without recreating anything - called a
+-- couple seconds after PLAYER_ENTERING_WORLD to fix occasional post-
+-- reload pixel drift (UIParent scale not fully settled yet).
 function ReapplyIntAnchorPos()
     if not intAnchorFrame then return end
     local db = GetIntDB()
@@ -288,15 +214,7 @@ function ReapplyIntAnchorPos()
     intAnchorFrame:SetPoint(IntAnchorPoint(db), UIParent, "TOPLEFT", db.savedX / esc, db.savedY / esc)
 end
 
--- Click-through: lets clicks pass to whatever is underneath the bar
--- (nameplates, action bars, the game world) instead of the bar itself
--- eating them. Only takes effect while locked - unlocked always keeps
--- mouse enabled, otherwise the anchor couldn't be dragged at all.
--- EnableMouse only affects the exact frame it's called on (not
--- children), so every icon frame under intBarsParent needs the same
--- call, not just the anchor itself - walked generically via
--- GetChildren() rather than tracking a separate icon-frame list, so
--- this stays correct regardless of how RebuildInterruptBars builds rows.
+-- Lets clicks pass through to whatever's underneath, only while locked.
 function ApplyIntClickThrough()
     if not intAnchorFrame then return end
     local db = GetIntDB()
@@ -387,21 +305,13 @@ function GetIntAnchorPos()
     return x, y
 end
 
--- Clears a unit's stored state (real witnessed cast or guess alike), so
--- the next rebuild re-evaluates their default guess from scratch. Needed
--- because a spec change can make previously-witnessed "ground truth"
--- state factually wrong (e.g. a Protection Paladin's witnessed Avenger's
--- Shield cast keeps showing after respeccing to Retribution, which uses
--- Rebuke instead) - without this, stale ground-truth data persists
--- forever since it's normally treated as permanently authoritative.
--- Called from KastaCD_Events.lua whenever a spec change is detected.
+-- Clears a unit's stored state so the next rebuild re-guesses from
+-- scratch - needed since a spec change can make witnessed "ground truth"
+-- wrong. Called from KastaCD_Events.lua on spec change.
 function ClearIntBarState(unit)
     intBarState[unit] = nil
 end
 
--- ─────────────────────────────────────────────────────────────
--- Rebuild all interrupt bars
--- ─────────────────────────────────────────────────────────────
 function RebuildInterruptBars()
     local db = GetIntDB()
 
@@ -410,17 +320,13 @@ function RebuildInterruptBars()
         return
     end
 
-    -- Hide entirely when not in a party or raid group, unless test mode is
-    -- on or the anchor is unlocked - unlocking always has to make the
-    -- anchor visible, otherwise there'd be nothing to drag while solo.
+    -- Hidden unless in a group, unlocked, or test mode.
     if db.locked and not IsInGroup() and not db.testMode then
         if intAnchorFrame then intAnchorFrame:Hide() end
         for _, bf in pairs(intBarFrames) do bf.row:Hide() end
         return
     end
 
-    -- Hide entirely inside raid instances (10-man and above), same
-    -- unlocked exception as above.
     local _, instanceType = IsInInstance()
     if db.locked and instanceType == "raid" then
         if intAnchorFrame then intAnchorFrame:Hide() end
@@ -428,10 +334,7 @@ function RebuildInterruptBars()
         return
     end
 
-    -- Hide entirely when the current content type is disabled via this
-    -- tracker's OWN "Active in:" toggles (Interrupts panel > Visibility) -
-    -- independent of the main icon tracker's and the CC tracker's own
-    -- choices, same unlocked/testMode exception as above.
+    -- This tracker's own "Active in:" gating, independent of the others.
     if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if intAnchorFrame then intAnchorFrame:Hide() end
         for _, bf in pairs(intBarFrames) do bf.row:Hide() end
@@ -440,10 +343,7 @@ function RebuildInterruptBars()
 
     EnsureIntAnchor()
 
-    -- Collect current party units. Test Mode always substitutes 5 fake
-    -- units, whether solo or grouped, so it's a straightforward "show me
-    -- the demo" toggle usable anytime - not just when there's no real
-    -- party to preview against.
+    -- Test Mode always substitutes 5 fake units, solo or grouped.
     local units = {}
     local usingFakeUnits = db.testMode
     if usingFakeUnits then
@@ -456,15 +356,7 @@ function RebuildInterruptBars()
             end
         end
 
-        -- Sort by class instead of raid/party slot order, so bars group
-        -- same-class units together (e.g. two Monks always end up
-        -- adjacent) rather than scattering them whenever a different
-        -- class happens to land in a party slot between them - same
-        -- logic as KastaCD_CC.lua's own sort. CLASS_INFO's order matches
-        -- the rest of the addon; unrecognized classes sort last and ties
-        -- keep their original party-slot order. Done before the racial-
-        -- row appending below, so "#racial" rows naturally follow their
-        -- now-sorted base units.
+        -- Sort by class so same-class units end up adjacent, before racial rows are appended.
         do
             local classOrder = {}
             for i, ci in ipairs(CLASS_INFO or {}) do classOrder[ci.key] = i end
@@ -484,26 +376,11 @@ function RebuildInterruptBars()
             end)
         end
 
-        -- Append a synthetic "<unit>#racial" entry for anyone whose race
-        -- has an always-on racial default (e.g. Blood Elf/Arcane Torrent)
-        -- - this becomes a *second, additional* bar for that unit rather
-        -- than replacing their class interrupt. Real units only; fake
-        -- Test Mode units don't have a race to check.
-        --
-        -- ALSO appended whenever a real cast has already been witnessed
-        -- for that unit (intBarState already has "<unit>#racial" data),
-        -- regardless of whether the race-token match above succeeds -
-        -- private servers can report UnitRace()'s non-localized token in
-        -- an unexpected format, and without this fallback a real witnessed
-        -- cast would silently never get a bar frame to render into: this
-        -- unit-collection loop is the only thing that puts a "#racial"
-        -- key into the render list at all.
-        --
-        -- Gated by db.showArcaneTorrent - every INT_SPELLS isRacial entry
-        -- is a resource-type variant of the same racial, so this one
-        -- toggle suppresses ALL of them (guessed default and any real
-        -- witnessed cast alike) by simply never adding the "#racial" key
-        -- to the render list in the first place.
+        -- Appends a synthetic "<unit>#racial" entry (a second, additional
+        -- bar) for anyone whose race has an always-on racial default, or
+        -- who already has a witnessed racial cast (covers UnitRace()
+        -- reporting an unexpected token on some servers). Gated by
+        -- db.showArcaneTorrent, which suppresses every isRacial variant at once.
         if db.showArcaneTorrent then
             local racialUnits = {}
             for _, u in ipairs(units) do
@@ -523,7 +400,6 @@ function RebuildInterruptBars()
     local ICO = BH  -- icon is square, matches bar height
     local ROW = ICO + BW  -- total row width
 
-    -- Hide all rows; we re-show only the ones that are active
     for _, bf in pairs(intBarFrames) do
         bf.row:Hide()
     end
@@ -533,9 +409,7 @@ function RebuildInterruptBars()
 
     for i, unit in ipairs(units) do
         local fakeInfo = TEST_FAKE_LOOKUP[unit]
-        -- "<realUnit>#racial" rows resolve class/name/etc from the real
-        -- base unit token - "player#racial" isn't a valid UnitClass/
-        -- UnitName argument on its own.
+        -- "#racial" rows resolve class/name from the real base unit token.
         local baseUnit    = unit:match("^(.*)#racial$")
         local isRacialRow = baseUnit ~= nil
         if not isRacialRow then baseUnit = unit end
@@ -553,10 +427,7 @@ function RebuildInterruptBars()
                 local _, raceToken = UnitRace(baseUnit)
                 defInt = raceToken and RACIAL_DEFAULT[raceToken]
             else
-                -- Pick the best candidate from INT_DEFAULT[class]: an exact
-                -- spec match always wins; a spec-less (universal) candidate
-                -- is only used if nothing matched. Fake units skip the spec
-                -- lookup entirely - they're already fully seeded below.
+                -- Exact spec match wins; spec-less candidate only used as fallback.
                 local candidates = INT_DEFAULT[class]
                 if candidates then
                     local specId = (not fakeInfo) and type(GetUnitSpec) == "function" and GetUnitSpec(unit)
@@ -572,12 +443,7 @@ function RebuildInterruptBars()
                 end
             end
 
-            -- Seed a fully "live" animated demo bar the first time a fake
-            -- unit is seen: staggered cooldown position (spread across
-            -- 0%-80% remaining) so the 5 preview bars show a mix of
-            -- states - just used, mid-cooldown, nearly ready - instead of
-            -- all sitting idle-ready. The ticker keeps looping it once it
-            -- reaches ready, so the animation runs continuously.
+            -- Seed a staggered demo bar so the 5 preview bars show a mix of states.
             if fakeInfo and not st then
                 local frac = (i - 1) / 5
                 intBarState[unit] = {
@@ -599,15 +465,8 @@ function RebuildInterruptBars()
                 if not bf then
                     local row = CreateFrame("Frame", nil, intBarsParent)
 
-                    -- Border: four strips forming an outline flush against
-                    -- the row's own edges and extending outward by
-                    -- BORDER_THICKNESS - not a single oversized rectangle
-                    -- behind everything, which would sit under the
-                    -- statusbar's semi-transparent background and show
-                    -- through as a dark tint across the whole unfilled
-                    -- portion of the bar instead of a crisp edge. Top/
-                    -- bottom strips overhang left/right by the same
-                    -- thickness so the four corners meet cleanly.
+                    -- Border: four edge strips, not one rectangle behind
+                    -- everything (would tint through the bar's own bg).
                     local T = BORDER_THICKNESS
                     local border = {}
                     local bTop = row:CreateTexture(nil, "BACKGROUND", nil, -1)
@@ -638,7 +497,6 @@ function RebuildInterruptBars()
                     bRight:SetColorTexture(0, 0, 0, 1)
                     border[#border + 1] = bRight
 
-                    -- Icon frame
                     local iconF = CreateFrame("Frame", nil, row)
                     iconF:SetSize(ICO, ICO)
                     iconF:SetPoint("LEFT", row, "LEFT", 0, 0)
@@ -648,9 +506,7 @@ function RebuildInterruptBars()
                     ico:SetAllPoints()
                     ico:SetTexCoord(0, 1, 0, 1)
 
-                    -- Tooltip: always reads the unit's *current* tracked spell
-                    -- (not the one captured at row-creation time), since the
-                    -- interrupt bound to a unit can change after a first-seen cast.
+                    -- Always reads the unit's current tracked spell, not the row-creation-time one.
                     iconF:SetScript("OnEnter", function(self)
                         local liveSt = intBarState[unit]
                         local sid    = liveSt and liveSt.spellId
@@ -668,9 +524,6 @@ function RebuildInterruptBars()
                     end)
                     iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-                    -- StatusBar (background + fill). Texture is applied
-                    -- every rebuild below (not here) so changing it in
-                    -- settings updates already-existing bars immediately.
                     local sb = CreateFrame("StatusBar", nil, row)
                     sb:SetPoint("LEFT",  iconF, "RIGHT",  0, 0)
                     sb:SetPoint("RIGHT", row,   "RIGHT",  0, 0)
@@ -699,9 +552,7 @@ function RebuildInterruptBars()
                     intBarFrames[unit] = bf
                 end
 
-                -- Resize / reposition - stacks downward from the top (grow
-                -- down) or upward from the bottom (grow up), see
-                -- ApplyIntGrowLayout for how intBarsParent itself is anchored.
+                -- Stacks down from top (grow down) or up from bottom (grow up).
                 bf.row:SetSize(ROW, BH)
                 bf.row:ClearAllPoints()
                 if db.growUp then
@@ -710,32 +561,19 @@ function RebuildInterruptBars()
                     bf.row:SetPoint("TOPLEFT", intBarsParent, "TOPLEFT", 0, -yOff)
                 end
 
-                -- Icon always matches bar height
                 bf.iconF:SetSize(ICO, ICO)
-
-                -- Resize status bar (in case barWidth changed)
                 bf.sb:SetHeight(BH)
 
-                -- Statusbar texture (applied every rebuild so a SharedMedia
-                -- selection change in settings takes effect immediately).
                 local barTex = db.texturePath or DEFAULT_BAR_TEXTURE
                 bf.sb:SetStatusBarTexture(barTex)
                 bf.sbBg:SetTexture(barTex)
 
-                -- Border visibility (applied every rebuild so toggling it
-                -- in settings takes effect immediately). bf.border is a
-                -- list of the 4 edge-strip textures.
                 for _, b in ipairs(bf.border) do b:SetShown(not db.hideBorder) end
 
-                -- Icon texture
                 local tex = GetSpellTexture and GetSpellTexture(spellId)
                 if tex then bf.ico:SetTexture(tex) end
 
-                -- Class colour: fill always class-colored, background
-                -- track starts grey if already on cooldown so there's no
-                -- flash of the wrong colour before the next 0.1s ticker
-                -- tick corrects it - the ticker owns this for everything
-                -- after the first draw.
+                -- Background track starts grey if on cooldown; the 0.1s ticker corrects it.
                 local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
                 if cc then
                     bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9)
@@ -779,26 +617,21 @@ function RebuildInterruptBars()
         end
     end
 
-    -- Resize bars container
     intBarsParent:SetSize(math.max(1, ROW), math.max(1, yOff))
     intAnchorFrame:SetWidth(ROW)
 
-    -- Header space is always reserved (whether locked or not) so the bars never
-    -- shift position when the header strip is shown/hidden by locking/unlocking.
+    -- Header space is always reserved so bars don't shift when locking/unlocking.
     intAnchorFrame:SetHeight(HEADER_H + math.max(1, yOff))
     ApplyIntGrowLayout()
     ApplyIntAnchorLockState()
     intAnchorFrame:SetShown(anyBar or not db.locked)
 end
 
--- ─────────────────────────────────────────────────────────────
--- Called from KastaCD_CombatLog when a known interrupt is cast
--- ─────────────────────────────────────────────────────────────
+-- Called from KastaCD_CombatLog when a known interrupt is cast.
 function HandleInterruptCast(sourceGUID, spellId)
     local intInfo = INT_SPELLS[spellId]
     if not intInfo then return end
 
-    -- Resolve GUID → unit token
     local baseUnit = nil
     if UnitGUID("player") == sourceGUID then
         baseUnit = "player"
@@ -813,9 +646,7 @@ function HandleInterruptCast(sourceGUID, spellId)
     end
     if not baseUnit then return end
 
-    -- Racial abilities (e.g. Arcane Torrent) get their own separate bar
-    -- per unit instead of overwriting that unit's class-interrupt bar -
-    -- see the "#racial" synthetic key in RebuildInterruptBars.
+    -- Racial abilities get their own separate "#racial" bar per unit.
     local unit = intInfo.isRacial and (baseUnit .. "#racial") or baseUnit
 
     local now = GetTime()
@@ -831,22 +662,17 @@ function HandleInterruptCast(sourceGUID, spellId)
     st.endTime    = now + intInfo.cooldown
     st.class      = class or st.class
 
-    -- Update icon immediately if bar already exists
     local bf = intBarFrames[unit]
     if bf then
         local tex = GetSpellTexture and GetSpellTexture(spellId)
         if tex then bf.ico:SetTexture(tex) end
     end
 
-    -- First-seen unit (Priest/Warlock) → need a new bar row
     if not bf or not bf.row:IsShown() then
         RebuildInterruptBars()
     end
 end
 
--- ─────────────────────────────────────────────────────────────
--- 0.1-second update ticker
--- ─────────────────────────────────────────────────────────────
 C_Timer.NewTicker(0.1, function()
     if type(KastaCDDB) ~= "table" then return end
     local db = GetIntDB()
@@ -862,10 +688,6 @@ C_Timer.NewTicker(0.1, function()
                 local remaining = st.endTime - now
                 -- Inverted: 0 = just used, fills toward 1 = ready
                 bf.sb:SetValue(math.max(0, math.min(1, 1 - remaining / cd)))
-                -- Fill stays class-colored; grey the background track
-                -- instead while on cooldown - makes "still down" instantly
-                -- readable without checking the text, without losing the
-                -- class-color identity on the active bar itself.
                 if cc then bf.sb:SetStatusBarColor(cc.r, cc.g, cc.b, 0.9) end
                 bf.sbBg:SetVertexColor(0.5, 0.5, 0.5)
                 bf.cdText:SetTextColor(1, 1, 0.7)
@@ -888,10 +710,7 @@ C_Timer.NewTicker(0.1, function()
                     bf.cdText:SetText("")
                 end
 
-                -- Fake demo units (solo Test Mode preview) loop forever
-                -- instead of sitting ready after the first cycle, so the
-                -- animation keeps demonstrating what an active cooldown
-                -- looks like without requiring a real cast.
+                -- Fake demo units loop forever instead of sitting ready.
                 if st.isFake then
                     st.endTime = now + cd
                 end

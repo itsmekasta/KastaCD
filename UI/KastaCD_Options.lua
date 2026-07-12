@@ -1,21 +1,8 @@
--- =============================================================
--- KastaCD_Options.lua
--- Builds the AceConfig-3.0 options table consumed by KastaCD_UI.lua's
--- CreateKastaCDMenu(). This is the GladiusEx-style rewrite of the old
--- hand-built settings frame: same KastaCDDB fields and same tracker
--- functions, expressed as an Ace3 options table instead of raw frames.
+-- KastaCD_Options.lua - builds the Ace3 options table for the settings menu.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua,
 --             KastaCD_Interrupts.lua, KastaCD_CC.lua, KastaCD_libs.xml
--- =============================================================
 
--- Shared dark/flat theme for the settings menu's Ace3 widgets (see the
--- KastaCD-local patches in libs/AceGUI-3.0/widgets/*.lua). A single global
--- table instead of hardcoding colors in every widget file so the whole
--- menu stays visually consistent and can be re-tuned in one place. This
--- file loads before KastaCD_UI.lua opens the menu, and the widget files
--- (loaded even earlier, via KastaCD_libs.xml) only read KASTACD_THEME from
--- inside functions that run at actual widget-creation time - never at
--- file-load time - so the load-order difference doesn't matter.
+-- Shared theme for the settings menu's widgets.
 KASTACD_THEME = {
     flatTex   = "Interface\\Buttons\\WHITE8x8",       -- solid 1x1 texture, tinted via color below
     bgWindow  = { 0.07, 0.07, 0.07, 0.97 },            -- outer settings window
@@ -29,13 +16,9 @@ KASTACD_THEME = {
 
 local LSM = LibStub("LibSharedMedia-3.0")
 
--- LibSharedMedia-3.0 ships with statusbar textures pre-registered but NO
--- fonts at all - font entries normally come from a standalone SharedMedia
--- data addon (see KastaCD.toc's OptionalDeps). Without this, the LSM30_Font
--- picker below would have zero selectable entries for anyone who doesn't
--- have that addon installed. :Register() is a no-op if the name is already
--- taken (e.g. by that addon's own registrations), so this is always safe -
--- same fallback set the old hand-rolled MakeMediaPicker used.
+-- LSM ships with statusbar textures but no fonts - registers fallbacks
+-- so the font picker isn't empty without a standalone SharedMedia addon.
+-- :Register() is a no-op if the name is already taken, so this is safe.
 LSM:Register(LSM.MediaType.FONT, "Friz Quadrata", "Fonts\\FRIZQT__.TTF")
 LSM:Register(LSM.MediaType.FONT, "Arial Narrow",  "Fonts\\ARIALN.TTF")
 LSM:Register(LSM.MediaType.FONT, "Morpheus",      "Fonts\\MORPHEUS.TTF")
@@ -44,14 +27,7 @@ LSM:Register(LSM.MediaType.STATUSBAR, "Solid", "Interface\\Buttons\\WHITE8x8")
 
 local CLASS_ICON_TEXTURE = "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes"
 
--- Matches the main party-icon tracker's own border technique (see
--- ApplyIconBorders in KastaCD_Tracking.lua): the full texture region shows
--- the art's natural edge, a small inset crops it away. Applied
--- proportionally to the class icon's own quadrant of the shared class
--- atlas rather than a flat 0-1 range, since each class only occupies a
--- small sub-rectangle of that shared texture. A function (not a static
--- table) so it re-evaluates live if "Icon Borders" is toggled while the
--- menu is open.
+-- Crops class icon art when borders are off (see ApplyIconBorders).
 local function ClassIconCoords(classKey)
     local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classKey]
     if not c then return { 0, 1, 0, 1 } end
@@ -68,12 +44,8 @@ local CATEGORY_NAMES = {
     DEFENSIVE="Defensive", IMMUNITY="Immunity", UTILITY="Utility",
 }
 
--- ── Profile export/import scratch state (dialog-local, not saved) ──
+-- Dialog-local scratch state, not saved.
 local newProfileNameVal = ""
-
--- ── KastaPlates "Add a Priority NPC" dropdown scratch state (dialog-
--- local, not saved) - which dungeon/NPC is currently picked in the two
--- Add-a-Priority-NPC dropdowns, before the Add button commits it.
 local kpSelectedDungeon = nil
 local kpSelectedNPC = nil
 
@@ -93,13 +65,7 @@ end
 
 local function B(v) return v and 1 or 0 end
 
--- Recursive plain-table copy - used wherever a profile (or one of its
--- nested settings tables like intAnchor/ccAnchor) needs to be duplicated
--- into a NEW profile without the two ending up sharing the same nested
--- table by reference (which would make editing one silently edit the
--- other). Values are assumed to be plain data (numbers/strings/booleans/
--- tables) - KastaCDDB never stores functions or other non-serializable
--- values, so a naive recursive copy is safe here.
+-- Recursive table copy, so a duplicated profile doesn't share nested tables by reference.
 local function DeepCopyTable(t)
     if type(t) ~= "table" then return t end
     local copy = {}
@@ -109,26 +75,8 @@ local function DeepCopyTable(t)
     return copy
 end
 
--- KCD5 bundles the full settings picture, not just the per-profile spell
--- list: Party Cooldowns' own global toggles (growLeft, medallion,
--- borders, master enable) plus BOTH trackers' settings (enabled, test
--- mode, bar size, font size, border, READY text, "Active in:", and their
--- anchor's saved screen position) - all of it. intAnchor/ccAnchor are
--- themselves per-profile fields on `p` (see KastaCD_DB.lua's
--- NewProfileData/ApplyActiveProfile), so SerializeProfile/
--- DeserializeProfile read/write them straight off `p` like every other
--- profile field. This is what makes /kcdimport (and the plain paste-import
--- box) actually change something beyond the spell list - previously KCD3
--- only ever touched offsets/iconSize/iconsPerRow/enabled/contentTypes.
---
--- Font/texture *choice* is deliberately NOT included - safely encoding
--- arbitrary SharedMedia-registered names in this delimited format risks
--- collisions with the format's own separators, for a cosmetic setting
--- that's the least likely thing anyone actually wants transplanted from
--- someone else's setup.
---
--- Global (not local) so KastaCD_ProfileShare.lua can reuse the exact same
--- string format for chat-shared profile links, instead of duplicating it.
+-- Serializes a profile into a "KCD9:..." string for /kcdimport and
+-- profile links. Global so KastaCD_ProfileShare.lua can reuse it.
 function SerializeProfile(p)
     local parts = {}
     for sid, v in pairs(p.enabled or {}) do
@@ -137,10 +85,7 @@ function SerializeProfile(p)
     for ct, v in pairs(p.contentTypes or {}) do
         if v then table.insert(parts, "c" .. ct:gsub(" ", "_")) end
     end
-    -- intAnchor/ccAnchor are per-profile fields on p itself (not global
-    -- KastaCDDB fields) - see KastaCD_DB.lua's NewProfileData/
-    -- ApplyActiveProfile for why. Reading straight off p keeps this
-    -- correct even if p isn't the currently-active profile.
+    -- intAnchor/ccAnchor live on p, not KastaCDDB directly.
     local ia = p.intAnchor or {}
     for ct, v in pairs(ia.contentTypes or {}) do
         if v then table.insert(parts, "i" .. ct:gsub(" ", "_")) end
@@ -149,25 +94,13 @@ function SerializeProfile(p)
     for ct, v in pairs(ca.contentTypes or {}) do
         if v then table.insert(parts, "x" .. ct:gsub(" ", "_")) end
     end
-    -- Buff Display's watched-spell list (KastaCD_BuffDisplay.lua) - a
-    -- single global blob, not profile-scoped like intAnchor/ccAnchor, so
-    -- this always reads the live KastaCDDB.buffDisplay directly (same
-    -- treatment SerializeProfile already gives growLeft/showIconBorders
-    -- below, rather than routing it through `p`). "b" token, underscore-
-    -- separated sub-fields - NOT colon, since SplitColon in
-    -- DeserializeProfile splits the whole string on colons first and only
-    -- the LAST field is this comma-separated token list.
+    -- "b" = Buff Display watched spell (global, not per-profile).
     local bd = type(GetBuffDisplayDB) == "function" and GetBuffDisplayDB() or nil
     for spellId, entry in pairs((bd and bd.list) or {}) do
         table.insert(parts, string.format("b%d_%d%d%d_%d", spellId,
             B(entry.enabled ~= false), B(entry.glow ~= false), B(entry.showTimer ~= false), entry.iconSize or 30))
     end
-    -- Debuff Display (KastaCD_DebuffDisplay.lua) - same global-blob
-    -- treatment as Buff Display above. "g" tokens carry its user-created
-    -- categories (id_name, name with spaces as underscores like the "c"/
-    -- "i"/"x" content-type tokens above); "d" tokens carry the
-    -- watched-spell list itself, same shape as "b" plus a trailing
-    -- categoryId so each spell lands back in the right one on import.
+    -- "g" = Debuff Display category, "d" = watched spell (also global).
     local dd = type(GetDebuffDisplayDB) == "function" and GetDebuffDisplayDB() or nil
     for id, catName in pairs((dd and dd.categories) or {}) do
         table.insert(parts, string.format("g%d_%s", id, catName:gsub(" ", "_")))
@@ -179,13 +112,8 @@ function SerializeProfile(p)
     end
     table.sort(parts)
 
-    -- savedX/savedY are left as "" (not 0) when nil - the sender's anchor
-    -- has never been manually positioned yet, still sitting at its
-    -- CENTER-relative default. Encoding that as 0/0 would make the
-    -- receiver's tracker jump to the screen corner on import, the exact
-    -- "snaps to corner" bug already fixed once for the Position sliders
-    -- (see GetIntAnchorPos's comment) - so DeserializeProfile below only
-    -- calls SetIntAnchorPos/SetCCAnchorPos when both fields are present.
+    -- savedX/savedY are left as "" (not 0) when nil, so an anchor that
+    -- was never manually positioned doesn't snap to the corner on import.
     local fields = {
         p.offsetX or 0, p.offsetY or 0, p.iconSize or 22, p.iconsPerRow or 5,
         B(KastaCDDB.growLeft), B(KastaCDDB.medallionOutsidePvP), B(KastaCDDB.showIconBorders),
@@ -208,10 +136,7 @@ function SerializeProfile(p)
         (bd and bd.raidOffsetX) or 0, (bd and bd.raidOffsetY) or 0,
         B(bd and bd.showInRaidGroups), B(bd and bd.showIconBorders),
         B(KastaCDDB.hideVanillaPartyBuffs),
-        -- KCD8 addition: Buff Display's icon growth direction
-        -- (CENTER/LEFT/RIGHT/UP/DOWN - a plain word, safe as a raw field
-        -- since it can't contain the ":" or "," this format's own
-        -- delimiters use).
+        -- KCD8: Buff Display's icon growth direction.
         (bd and bd.growDirection) or "CENTER",
         -- KCD9 additions: Debuff Display's own settings (its categories
         -- and watched-spell list itself travel as "g"/"d" tokens above,
@@ -225,33 +150,9 @@ function SerializeProfile(p)
     return "KCD9:" .. table.concat(fields, ":") .. ":" .. table.concat(parts, ",")
 end
 
--- Deserialise — KCD9 is current (adds Debuff Display's own settings +
--- categories + watched-spell list on top of KCD8); KCD8 is legacy (Buff
--- Display's growth direction on top of KCD7); KCD7 is legacy (Buff
--- Display's own settings + its watched-spell list on top of KCD6); KCD6
--- is legacy (raid-group settings + click-through on top of KCD5); KCD5 is
--- legacy (full settings + tracker anchor position); KCD4 is legacy (full
--- settings, no position); KCD1/2/3 are legacy (spell list + offsets only,
--- tracker settings left untouched). Importing an older format simply
--- leaves the newer fields at their defaults (GetIntDB()/GetCCDB()/
--- GetBuffDisplayDB()/GetDebuffDisplayDB()'s own lazy-fill logic already
--- handle a missing clickThrough/raidOffsetX/growDirection/etc. safely)
--- rather than erroring. Global for the same reason as SerializeProfile above.
---
--- For KCD4/KCD5 this also still writes KastaCDDB.growLeft/
--- medallionOutsidePvP/showIconBorders/iconsEnabled directly, since those
--- ARE global (not profile-scoped) settings the imported data is meant to
--- replace outright. Buff/Debuff Display (KCD7+/KCD9+) get the same global
--- treatment, written straight to KastaCDDB.buffDisplay/.debuffDisplay via
--- GetBuffDisplayDB()/GetDebuffDisplayDB(). Interrupt/CC tracker settings,
--- by contrast, are profile-scoped (see KastaCD_DB.lua's NewProfileData/
--- ApplyActiveProfile) so they're written onto the returned profile table
--- `p` (p.intAnchor/p.ccAnchor) instead of the live KastaCDDB globals -
--- the caller installs `p` as a new/updated profile and switches to it, at
--- which point ApplyActiveProfile() copies p.intAnchor/p.ccAnchor down
--- into KastaCDDB.intAnchor/.ccAnchor for the live trackers to pick up.
--- Writing them straight to KastaCDDB here (as this used to) would instead
--- mutate whichever OTHER profile happened to be active at import time.
+-- Deserializes a profile string. KCD9 is current; KCD1-8 are older
+-- formats missing newer fields (left at defaults). Global settings write
+-- to KastaCDDB; tracker settings write onto the returned profile `p`.
 function DeserializeProfile(str)
     local p = type(NewProfileData) == "function" and NewProfileData() or {}
     p.enabled   = p.enabled   or {}
@@ -307,10 +208,7 @@ function DeserializeProfile(str)
         end
         KastaCDDB.hideVanillaPartyBuffs = N(41) == 1
 
-        -- Debuff Display (KastaCD_DebuffDisplay.lua) - global blob, same
-        -- treatment as Buff Display above. list AND categories are reset
-        -- first so a re-import cleanly REPLACES both instead of merging -
-        -- the "g"/"d" tokens below then repopulate them.
+        -- Debuff Display: reset list/categories, re-import repopulates them.
         if type(GetDebuffDisplayDB) == "function" then
             local dd = GetDebuffDisplayDB()
             dd.enabled              = N(43) == 1
@@ -364,12 +262,7 @@ function DeserializeProfile(str)
         ia.clickThrough = N(32) == 1
         ca.clickThrough = N(33) == 1
 
-        -- Buff Display (KastaCD_BuffDisplay.lua) - global blob, written
-        -- straight to KastaCDDB.buffDisplay via GetBuffDisplayDB() (same
-        -- non-profile-scoped treatment as growLeft/showIconBorders above).
-        -- list is reset to {} first so a re-import cleanly REPLACES the
-        -- watched-spell list instead of merging with whatever was already
-        -- there - the "b" tokens below then repopulate it.
+        -- Buff Display: reset list, re-import repopulates it.
         if type(GetBuffDisplayDB) == "function" then
             local bd = GetBuffDisplayDB()
             bd.enabled              = N(34) == 1
@@ -421,12 +314,7 @@ function DeserializeProfile(str)
         ia.clickThrough = N(32) == 1
         ca.clickThrough = N(33) == 1
 
-        -- Buff Display (KastaCD_BuffDisplay.lua) - global blob, written
-        -- straight to KastaCDDB.buffDisplay via GetBuffDisplayDB() (same
-        -- non-profile-scoped treatment as growLeft/showIconBorders above).
-        -- list is reset to {} first so a re-import cleanly REPLACES the
-        -- watched-spell list instead of merging with whatever was already
-        -- there - the "b" tokens below then repopulate it.
+        -- Buff Display: reset list, re-import repopulates it.
         if type(GetBuffDisplayDB) == "function" then
             local bd = GetBuffDisplayDB()
             bd.enabled              = N(34) == 1
@@ -445,9 +333,7 @@ function DeserializeProfile(str)
         local f = SplitColon(str:sub(6))
         if #f < 33 then return nil, "Bad format." end
         local function N(i) return tonumber(f[i]) or 0 end
-        -- Empty field ("") means the sender's anchor was never manually
-        -- positioned - see the comment on savedX/savedY in
-        -- SerializeProfile above.
+        -- Empty field = anchor never manually positioned.
         local function NOpt(i)
             local s = f[i]
             if not s or s == "" then return nil end
@@ -487,10 +373,7 @@ function DeserializeProfile(str)
         local f = SplitColon(str:sub(6))
         if #f < 26 then return nil, "Bad format." end
         local function N(i) return tonumber(f[i]) or 0 end
-        -- Empty field ("") means the sender's anchor was never manually
-        -- positioned - leave it alone instead of forcing 0/0, which would
-        -- snap the receiver's tracker to the screen corner (see the
-        -- comment on savedX/savedY in SerializeProfile above).
+        -- Empty field = anchor never manually positioned.
         local function NOpt(i)
             local s = f[i]
             if not s or s == "" then return nil end
@@ -568,14 +451,7 @@ function DeserializeProfile(str)
     p.contentTypes = {}
     local ia2 = p.intAnchor
     local ca2 = p.ccAnchor
-    -- Highest Debuff Display category id seen among "g" tokens below -
-    -- table.sort in SerializeProfile means "d" tokens can be processed
-    -- before the "g" token that creates their category (alphabetical:
-    -- "d" < "g"), so categoryId is trusted as-is rather than validated
-    -- against dd.categories at parse time (see the "d" branch) - by the
-    -- time this whole loop finishes every "g" token has run regardless of
-    -- order. Used afterward to set nextCategoryId so a category the
-    -- receiving user creates later can't collide with an imported id.
+    -- Highest Debuff Display category id seen, for nextCategoryId after import.
     local maxDebuffCategoryId = 0
     for tok in ((rest or "") .. ","):gmatch("([^,]*),") do
         if tok ~= "" then
@@ -592,10 +468,7 @@ function DeserializeProfile(str)
                 ca2.contentTypes = ca2.contentTypes or {}
                 ca2.contentTypes[v:gsub("_", " ")] = true
             elseif k == "b" then
-                -- Buff Display watched spell: "spellId_EGT_size" (E/G/T =
-                -- enabled/glow/showTimer bits). Reuses AddBuffDisplaySpell
-                -- for name/class resolution and dedup instead of building
-                -- the entry table by hand here.
+                -- Buff Display spell: "spellId_EGT_size" (enabled/glow/showTimer bits).
                 local spellIdStr, bits, sizeStr = v:match("^(%d+)_(%d%d%d)_(%d+)$")
                 if spellIdStr and type(AddBuffDisplaySpell) == "function" and type(GetBuffDisplayDB) == "function" then
                     local ok = AddBuffDisplaySpell(spellIdStr)
@@ -610,13 +483,7 @@ function DeserializeProfile(str)
                     end
                 end
             elseif k == "g" then
-                -- Debuff Display category: "id_name" (name with spaces as
-                -- underscores, same convention as the "c"/"i"/"x" content-
-                -- type tokens above). Written directly into dd.categories
-                -- rather than through AddDebuffDisplayCategory, which
-                -- would hand out a fresh auto-incremented id instead of
-                -- preserving the sender's - "d" tokens below reference
-                -- these exact ids.
+                -- Debuff Display category: "id_name", written directly to preserve the sender's id.
                 local idStr, catName = v:match("^(%d+)_(.*)$")
                 local id = idStr and tonumber(idStr)
                 if id and type(GetDebuffDisplayDB) == "function" then
@@ -624,11 +491,7 @@ function DeserializeProfile(str)
                     if id > maxDebuffCategoryId then maxDebuffCategoryId = id end
                 end
             elseif k == "d" then
-                -- Debuff Display watched spell: "spellId_EGT_size_categoryId".
-                -- categoryId is trusted as-is (not validated against
-                -- dd.categories here) - see maxDebuffCategoryId's comment
-                -- above for why "g" tokens can't be relied on to have run
-                -- first.
+                -- Debuff Display spell: "spellId_EGT_size_categoryId".
                 local spellIdStr, bits, sizeStr, catIdStr = v:match("^(%d+)_(%d%d%d)_(%d+)_(%d+)$")
                 if spellIdStr and type(AddDebuffDisplaySpell) == "function" and type(GetDebuffDisplayDB) == "function" then
                     local ok = AddDebuffDisplaySpell(spellIdStr)
@@ -667,10 +530,7 @@ end
 -- Settings group (offsets, icon layout, misc toggles, content types)
 -- =============================================================
 local function BuildSettingsGroup()
-    -- Grouped into three inline "cells" so related settings are visually
-    -- separated without adding extra tab navigation: Position (every
-    -- slider), Misc (everything else toggle-like), Visibility (borders +
-    -- "Active in:" content-type gating).
+    -- Three inline cells: Position (sliders), Misc (toggles), Visibility.
     local positionArgs = {
         offsetX = {
             type = "range", order = 10, name = "Offset X", min = -200, max = 200, step = 1,
@@ -766,11 +626,7 @@ local function BuildSettingsGroup()
         ctOrder = ctOrder + 10
     end
 
-    -- Separate offset/size/per-row controls for raid1-40 units, only
-    -- relevant (and only shown) once "Show in Raid Groups" above is on -
-    -- a 40-member raid usually wants smaller icons/different placement
-    -- than a 5-person party, so these deliberately don't share the
-    -- Position cell's values (see raidOffsetX etc. in KastaCD_DB.lua).
+    -- Separate raid1-40 offset/size, only shown when "Show in Raid Groups" is on.
     local raidArgs = {
         raidOffsetX = {
             type = "range", order = 10, name = "Offset X", min = -200, max = 200, step = 1,
@@ -794,9 +650,6 @@ local function BuildSettingsGroup()
         },
     }
 
-    -- Master switch sits above everything else on the page (order 1) and
-    -- hides the rest of the page's content when off, same treatment as
-    -- the tracker pages' own Enable toggle.
     local isHidden = function() return KastaCDDB.iconsEnabled == false end
     local isRaidCellHidden = function()
         return KastaCDDB.iconsEnabled == false or not KastaCDDB.showInRaidGroups
@@ -820,11 +673,7 @@ local function BuildSettingsGroup()
     return { type = "group", name = "Party Cooldowns", order = 10, args = args }
 end
 
--- =============================================================
--- Interrupt Announce - chat message on the player's own successful
--- interrupt (see KastaCD_Announce.lua for the actual announce logic).
--- Placed as its own tab under Party Cooldowns for now.
--- =============================================================
+-- Interrupt Announce - chat message on your own successful interrupt.
 local function BuildInterruptAnnounceGroup()
     local args = {
         enabled = {
@@ -838,12 +687,6 @@ local function BuildInterruptAnnounceGroup()
             values = { SAY = "Say", YELL = "Yell" },
             get = function() return GetAnnounceDB().channel end,
             set = function(_, v) GetAnnounceDB().channel = v end,
-        },
-        showBrand = {
-            type = "toggle", order = 25, name = "Show \"- KastaCD\" Tag", width = "full",
-            desc = "Appends \" - KastaCD\" to the end of the announcement. Turn off to send just your customized message text with nothing added.",
-            get = function() return GetAnnounceDB().showBrand ~= false end,
-            set = function(_, v) GetAnnounceDB().showBrand = v and true or false end,
         },
         messageHeader = { type = "header", order = 30, name = "Message" },
         placeholderDesc = {
@@ -883,12 +726,7 @@ local function BuildInterruptAnnounceGroup()
     return { type = "group", name = "Interrupt Announce", order = 5, args = args }
 end
 
--- =============================================================
--- Overshield Display - ported from Derangement's Shield Meters (see
--- KastaCD_Overshield.lua for the actual hook logic). Extends Blizzard's
--- default absorb-bar overlay so shield amounts past max HP stay
--- visible, on party/raid frames and player/target/focus/pet frames.
--- =============================================================
+-- Overshield Display - shows shield amounts past max HP on unit frames.
 local function BuildOvershieldGroup()
     local args = {
         enabled = {
@@ -907,18 +745,8 @@ local function BuildOvershieldGroup()
     return { type = "group", name = "Overshield Display", order = 10, args = args }
 end
 
--- =============================================================
--- Keystone Helper - adds Ready Check / Pull Timer buttons to the Mythic+
--- keystone frame (Font of Power) and best-effort auto-inserts the
--- player's keystone when that frame opens (KastaCD_Keystone.lua). Also
--- houses the Mob Count toggle (KastaCD_MobCount.lua) - both are Mythic+
--- run helpers, merged into one box instead of two separate ones.
--- =============================================================
+-- Keystone Helper - Ready Check/Pull Timer buttons + Mob Count toggle.
 local function BuildKeystoneGroup()
-    -- Split into three compact nested boxes (General / Pull Timer / Key
-    -- Announcer) instead of one long flat list - each concern gets its
-    -- own labeled group, and simple checkboxes drop `width="full"` so
-    -- they sit two-per-row instead of each eating a whole line.
     local generalArgs = {
         enabled = {
             type = "toggle", order = 10, name = "Enable",
@@ -1014,10 +842,7 @@ local function BuildKeystoneGroup()
     return { type = "group", name = "Keystone Helper", order = 20, args = args }
 end
 
--- =============================================================
--- Affix Call-outs - warns about Explosive orb spawns and Quaking debuffs
--- during a Mythic Keystone run. See KastaCD_AffixCallouts.lua.
--- =============================================================
+-- Affix Call-outs - warns about Explosive orbs and Quaking.
 local function BuildAffixCalloutGroup()
     local args = {
         enabled = {
@@ -1048,11 +873,7 @@ local function BuildAffixCalloutGroup()
     return { type = "group", name = "Affix Call-outs", order = 40, args = args }
 end
 
--- =============================================================
--- Debuff Extender - extends Blizzard's own party-frame debuff row past
--- the frame's own bounds, from 3 up to 12 icons. See
--- KastaCD_DebuffExtender.lua.
--- =============================================================
+-- Debuff Extender - extends the party-frame debuff row to 12 icons.
 local function BuildDebuffExtenderGroup()
     local args = {
         desc = {
@@ -1071,11 +892,7 @@ local function BuildDebuffExtenderGroup()
     return { type = "group", name = "Debuff Extender", order = 45, args = args }
 end
 
--- =============================================================
--- Personal Leaderboard - records your own best Mythic+ completion time
--- per dungeon (no cross-player sync). See KastaCD_Leaderboard.lua and
--- the /kcdboard slash command.
--- =============================================================
+-- Personal Leaderboard - your own best Mythic+ time per dungeon.
 local function BuildLeaderboardGroup()
     local args = {
         enabled = {
@@ -1092,15 +909,7 @@ local function BuildLeaderboardGroup()
     return { type = "group", name = "Personal Leaderboard", order = 50, inline = true, args = args }
 end
 
--- =============================================================
--- KastaPlates - recolors nameplates for user-flagged priority NPCs, per
--- dungeon (see KastaCD_KastaPlates.lua). The per-dungeon/per-NPC list
--- grows and shrinks at runtime (Add Target/Mouseover, Remove), which
--- AceConfig's static `args` tables can't reflect just by re-evaluating
--- get/set/hidden closures - every add/remove calls
--- RefreshKastaCDOptionsTable() (KastaCD_UI.lua) to rebuild the whole
--- options table fresh instead.
--- =============================================================
+-- KastaPlates - recolors nameplates for flagged priority NPCs per dungeon.
 local function BuildKastaPlatesGroup()
     local function GetKPDB() return GetKastaPlatesDB() end
 
@@ -1120,9 +929,6 @@ local function BuildKastaPlatesGroup()
             name = "Pick a dungeon and an NPC - every NPC in it is already known from Mythic Dungeon " ..
                 "Tools' data, nothing to add first. Color/mark controls appear below once you've picked one.",
         },
-        -- No explicit width on either - both default to the same ~170px
-        -- column width, which is what keeps them on the same row instead
-        -- of each claiming the full width and wrapping to its own line.
         pickDungeon = {
             type = "select", order = 22, name = "Dungeon",
             values = function() return KASTAPLATES_DUNGEONS or {} end,
@@ -1141,15 +947,7 @@ local function BuildKastaPlatesGroup()
             get = function() return kpSelectedNPC end,
             set = function(_, v) kpSelectedNPC = v end,
         },
-        -- 3D model preview of the selected NPC, with its name/NPC ID as
-        -- text to the model's right - both live inside ONE custom widget
-        -- (KastaCD_ModelWidget.lua) that positions them itself, rather
-        -- than two separate option entries relying on AceGUI's Flow
-        -- layout to land side by side (tried first, didn't reliably keep
-        -- them on the same row). `name` (-> the widget's SetLabel) carries
-        -- the info text; `get` (-> SetText) carries the stringified
-        -- displayID. KASTAPLATES_NPC_DISPLAYID is a flat npcID -> creature
-        -- displayID lookup (KastaCD_KastaPlatesData.lua).
+        -- 3D model preview widget (KastaCD_ModelWidget.lua).
         pickModel = {
             type = "input", dialogControl = "KastaCDModel",
             order = 24, width = "full",
@@ -1164,10 +962,7 @@ local function BuildKastaPlatesGroup()
                 return displayID and tostring(displayID) or ""
             end,
         },
-        -- Reading never creates a saved entry (avoids cluttering the list
-        -- below with every NPC someone merely glanced at) - only writing
-        -- a color/mark actually different from the default does, via
-        -- GetOrCreateKastaPlatesEntry (KastaCD_KastaPlates.lua).
+        -- Reading doesn't save an entry, only writing a color/mark does.
         pickColor = {
             type = "color", order = 26, name = "Color",
             hidden = function() return kpSelectedDungeon == nil or kpSelectedNPC == nil end,
@@ -1199,9 +994,6 @@ local function BuildKastaPlatesGroup()
                 local entry = GetOrCreateKastaPlatesEntry(kpSelectedDungeon, kpSelectedNPC)
                 if entry then
                     entry.mark = v
-                    -- Missing before - meant a picked mark never actually
-                    -- got applied to a currently-visible plate until
-                    -- something else happened to re-trigger it.
                     if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
                     if type(RefreshKastaCDOptionsTable) == "function" then RefreshKastaCDOptionsTable() end
                 end
@@ -1209,14 +1001,7 @@ local function BuildKastaPlatesGroup()
         },
     }
 
-    -- One TAB per dungeon that has at least one tracked NPC (not inline -
-    -- childGroups="tab" on the returned group below turns these into
-    -- actual browsable tabs, same non-inline + childGroups="tab" pattern
-    -- BuildClassGroup already uses successfully for Party Cooldowns' own
-    -- per-class category tabs, at the same nesting depth: Misc >
-    -- Kastaplates > [this tab strip], matching Party Cooldowns > [class]
-    -- > [category tabs]). Each NPC is its own row: name label, color
-    -- picker, raid-mark dropdown, remove button.
+    -- One tab per dungeon with a tracked NPC.
     local dungeonOrder = 100
     local db = GetKPDB()
     local instanceIDs = {}
@@ -1238,9 +1023,6 @@ local function BuildKastaPlatesGroup()
 
         for _, npcID in ipairs(npcIDs) do
             local entry = bucket.npcs[npcID]
-            -- width here is a plain string keyword only ("half"/"double"/
-            -- "full"/nil) - AceConfigRegistry's validator rejects a raw
-            -- number outright.
             npcArgs["name" .. npcID] = {
                 type = "description", order = npcOrder, width = "double",
                 name = entry.name or ("NPC " .. npcID),
@@ -1262,9 +1044,6 @@ local function BuildKastaPlatesGroup()
                 get = function() return entry.mark or 0 end,
                 set = function(_, v)
                     entry.mark = v
-                    -- Missing before - see the matching fix on pickMark
-                    -- above for why this is what made mark changes not
-                    -- actually take effect on an already-visible plate.
                     if type(RefreshKastaPlates) == "function" then RefreshKastaPlates() end
                 end,
             }
@@ -1287,10 +1066,7 @@ local function BuildKastaPlatesGroup()
         dungeonOrder = dungeonOrder + 10
     end
 
-    -- Cast Highlight - generic "this unit is casting something" tint,
-    -- independent of the per-NPC list above (works on any nameplate, not
-    -- just tracked ones) since it reads UnitCastingInfo/UnitChannelInfo
-    -- directly rather than needing a curated spell database.
+    -- Cast Highlight - tints any nameplate that's casting, not just tracked NPCs.
     local chArgs = {
         enabled = {
             type = "toggle", order = 10, name = "Enable", width = "full",
@@ -1324,23 +1100,10 @@ local function BuildKastaPlatesGroup()
         type = "group", inline = true, order = 200, name = "Cast Highlight", args = chArgs,
     }
 
-    -- childGroups="tab" turns the non-inline "dungeon<id>" groups above
-    -- into a browsable tab strip; the "Cast Highlight" group stays
-    -- inline=true so it's exempt and keeps rendering as a fixed box
-    -- alongside the enable toggle/picker controls above the tab strip,
-    -- per AceConfigDialog's own documented rule (inline groups never
-    -- become tab/tree nodes regardless of childGroups on their parent).
     return { type = "group", name = "Colored Nameplates", order = 60, childGroups = "tab", args = args }
 end
 
--- =============================================================
--- Buff Display - user-defined buff/debuff watch list (KastaCD_BuffDisplay.lua).
--- Add any spell by ID or exact name; each watched spell gets its own
--- icon centered on a party member's real unit frame while they carry
--- that aura, with per-spell glow/timer/size/position controls so
--- several watched spells shown on the same frame at once don't have to
--- overlap.
--- =============================================================
+-- Buff Display - user-defined buff/debuff watch list.
 local bdAddInput = ""
 local bdAddMessage = nil
 
@@ -1348,11 +1111,7 @@ local function BuffDisplayRGBHex(ci)
     return string.format("%02x%02x%02x", (ci.r or 1) * 255, (ci.g or 1) * 255, (ci.b or 1) * 255)
 end
 
--- One real Ace3 tab per class with a watched spell (childGroups="tab" on
--- the group this returns into - same pattern BuildKastaPlatesGroup
--- already uses successfully for its per-dungeon tabs). Each spell is just
--- Enable/Glow/Timer/Icon Size/Remove - position is handled once, globally,
--- on the main Buff Display page, not per spell.
+-- One tab per class with a watched spell.
 local function BuildBuffDisplayClassTab(label, spellIds, db)
     local args = {}
     local order = 10
@@ -1403,9 +1162,7 @@ local function BuildBuffDisplayClassTab(label, spellIds, db)
     return { type = "group", name = label, args = args }
 end
 
--- Every arg below except "enabled" itself shares this - hides the whole
--- rest of the page (settings, Add a Spell, and every class tab) once
--- Enable is unchecked, since none of it does anything while disabled.
+-- Hides the rest of the page when Enable is off.
 local function BuffDisplayContentHidden()
     return GetBuffDisplayDB().enabled ~= true
 end
@@ -1443,11 +1200,7 @@ local function BuildBuffDisplayGroup()
                 if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
             end,
         },
-        -- Same shared KastaCDDB.glowColor every glow in the addon reads
-        -- (see ShowProcGlow/HideProcGlow in KastaCD_Tracking.lua and
-        -- Party Cooldowns > Settings > Misc, where this same control also
-        -- lives) - duplicated here purely for discoverability, not a
-        -- separate per-feature color.
+        -- Same shared glow color as Party Cooldowns > Settings > Misc.
         glowColor = {
             type = "color", order = 12.3, name = "Glow Color", hasAlpha = true, hidden = BuffDisplayContentHidden,
             desc = "Recolors every glow in the addon, not just Buff Display - same setting as Party Cooldowns > Settings > Misc. Defaults to Blizzard's stock gold.",
@@ -1580,11 +1333,7 @@ local function BuildBuffDisplayGroup()
         },
     }
 
-    -- Bucket watched spells by class (see GuessSpellClass in
-    -- KastaCD_BuffDisplay.lua) - each class with at least one watched
-    -- spell becomes its own real tab (childGroups="tab" on the group
-    -- returned below), same pattern BuildKastaPlatesGroup already uses
-    -- for its per-dungeon tabs, rather than a plain filtered list.
+    -- Bucket watched spells by class - each class with a spell gets its own tab.
     local byClass = {}
     for spellId, entry in pairs(db.list) do
         local class = entry.class or "OTHER"
@@ -1628,13 +1377,7 @@ local function BuildBuffDisplayGroup()
     return { type = "group", name = "Buff Display", order = 70, childGroups = "tab", args = args }
 end
 
--- =============================================================
--- Debuff Display - same mechanism as Buff Display (KastaCD_DebuffDisplay.lua),
--- scoped to HARMFUL auras only. Debuffs don't map onto a class the way
--- buffs mostly do, so instead of auto-sorted class tabs this uses
--- user-created, freely renamable categories - each spell also gets a
--- "Category" dropdown to move it between them.
--- =============================================================
+-- Debuff Display - same as Buff Display but for debuffs, with user-created categories.
 local ddAddInput = ""
 local ddAddMessage = nil
 local ddNewCategoryInput = ""
@@ -1643,11 +1386,7 @@ local function DebuffDisplayContentHidden()
     return GetDebuffDisplayDB().enabled ~= true
 end
 
--- One real Ace3 tab per category (including the always-present
--- "Uncategorized", id=0) - same childGroups="tab" pattern as Buff
--- Display's class tabs / Kastaplates' dungeon tabs. categoryId==0 tabs
--- have no rename/remove controls (Uncategorized is permanent); real
--- categories get both, right above their spell list.
+-- One tab per category (plus permanent "Uncategorized", id=0).
 local function BuildDebuffDisplayCategoryTab(categoryId, label, spellIds, db)
     local args = {}
     local order = 10
@@ -1674,9 +1413,7 @@ local function BuildDebuffDisplayCategoryTab(categoryId, label, spellIds, db)
         args.categorySpacer = Spacer(3)
     end
 
-    -- "Category" values for the per-spell move-dropdown: every real
-    -- category plus Uncategorized itself, built fresh per tab so a
-    -- rename/add/remove elsewhere is always reflected.
+    -- Category dropdown values, rebuilt fresh so renames are always reflected.
     local categoryValues = { [0] = "Uncategorized" }
     for id, name in pairs(db.categories) do categoryValues[id] = name end
 
@@ -1769,11 +1506,7 @@ local function BuildDebuffDisplayGroup()
                 if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
             end,
         },
-        -- Same shared KastaCDDB.glowColor every glow in the addon reads
-        -- (see ShowProcGlow/HideProcGlow in KastaCD_Tracking.lua and
-        -- Party Cooldowns > Settings > Misc, where this same control also
-        -- lives) - duplicated here purely for discoverability, not a
-        -- separate per-feature color.
+        -- Same shared glow color as Party Cooldowns > Settings > Misc.
         glowColor = {
             type = "color", order = 12.3, name = "Glow Color", hasAlpha = true, hidden = DebuffDisplayContentHidden,
             desc = "Recolors every glow in the addon, not just Debuff Display - same setting as Party Cooldowns > Settings > Misc. Defaults to Blizzard's stock gold.",
@@ -1942,10 +1675,7 @@ local function BuildDebuffDisplayGroup()
         end)
     end
 
-    -- Only build a tab for a category that actually has watched spells in
-    -- it - mirrors BuildBuffDisplayGroup's per-class "only include if ids
-    -- and #ids > 0" condition, rather than always creating at least the
-    -- Uncategorized tab regardless of content.
+    -- Only build a tab for a category that actually has spells in it.
     if not next(db.list) then
         args.emptyDesc = {
             type = "description", order = 40, hidden = DebuffDisplayContentHidden,
@@ -1978,20 +1708,8 @@ local function BuildDebuffDisplayGroup()
     return { type = "group", name = "Debuff Display", order = 71, childGroups = "tab", args = args }
 end
 
--- =============================================================
--- Info tab - top-level page above Party Cooldowns in the sidebar.
--- Same logo + greeting/Twitch/Discord layout as KastaUI's own Info panel
--- (media/kastalogo.tga copied into KastaCD/media rather than referencing
--- KastaUI's copy directly, so this doesn't silently break for anyone who
--- has KastaCD without also having KastaUI installed).
--- =============================================================
+-- Info tab - top-level page above Party Cooldowns.
 local function BuildInfoGroup()
-    -- Plain left-aligned stock AceConfig descriptions - no image (the
-    -- logo texture rendered green through AceConfig's "image" field even
-    -- with a confirmed-good file/format) and no custom widget for text
-    -- centering (rendered as real, truncated edit boxes instead of plain
-    -- text - worse than what it was trying to fix). Just simple spacers
-    -- between the three text blocks.
     local args = {
         topGap = { type = "description", order = 1, name = "\n\n\n\n\n\n", fontSize = "large" },
         greeting = {
@@ -2012,12 +1730,7 @@ local function BuildInfoGroup()
     return { type = "group", name = "Info", order = 5, args = args }
 end
 
--- =============================================================
--- Interrupt Tracker / Crowd Control Tracker groups
--- Both share identical shape - anchor field name ("intAnchor"/
--- "ccAnchor") and the tracker's own accessor functions are the only
--- difference, so one builder handles both.
--- =============================================================
+-- Interrupt/CC Tracker - one builder, opts.dbField picks intAnchor/ccAnchor.
 local function BuildAnchorGroup(opts)
     -- opts: { name, order, dbField, RebuildFn, GetPos, SetPos, LockFn, UnlockFn }
     local dbField = opts.dbField
@@ -2027,11 +1740,6 @@ local function BuildAnchorGroup(opts)
         return KastaCDDB[dbField]
     end
 
-    -- Grouped into four inline "cells": Position (placement + size
-    -- sliders), Misc (enable/test/lock toggles), Visibility (this
-    -- tracker's OWN independent "Active in:" choice - no longer shared
-    -- with the other two trackers), Customize (everything about how the
-    -- bar looks: texture, font, font size, border).
     local positionArgs = {
         barWidth = {
             type = "range", order = 10, name = "Bar Width", min = 100, max = 400, step = 1,
@@ -2076,11 +1784,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         growDirection = {
-            -- KastaCD-local: string keys ("up"/"down"), not booleans -
-            -- AceConfigDialog sorts a select option's `values` keys with
-            -- plain table.sort, and Lua's default `<` comparator errors on
-            -- booleans ("attempt to compare two boolean values"), which
-            -- silently kept this whole option from rendering at all.
+            -- String keys, not booleans - table.sort on boolean keys errors.
             type = "select", order = 50, name = "Grow Direction",
             desc = "Which way new bars stack. Grow Down keeps the header fixed at the top and adds bars below it (the anchor's saved position is its top-left corner). Grow Up keeps the header fixed at the bottom and adds bars above it (the anchor's saved position is its bottom-left corner instead) - drag/reposition again after switching to re-anchor from the new corner.",
             values = { down = "Grow Down", up = "Grow Up" },
@@ -2187,10 +1891,6 @@ local function BuildAnchorGroup(opts)
         },
     }
 
-    -- Master switch sits above everything else on the page (order 1) and
-    -- hides the rest of the page's content when off, instead of just
-    -- living buried inside Misc - unchecking it is meant to read as
-    -- "nothing else here matters right now."
     local isHidden = function() return GetAnchorDB().enabled == false end
 
     local args = {
@@ -2202,10 +1902,6 @@ local function BuildAnchorGroup(opts)
                 if type(opts.RebuildFn) == "function" then opts.RebuildFn() end
             end,
         },
-        -- KastaCD-local: Test Mode/Unlock moved up to the top layer next
-        -- to Enable (were previously buried inside the "Misc" inline
-        -- section) - Enable > Test Mode > Unlock reads as the natural
-        -- order for getting a tracker visible and positioned.
         testMode = {
             type = "toggle", order = 2, name = "Test Mode", hidden = isHidden,
             get = function() return GetAnchorDB().testMode == true end,
@@ -2230,12 +1926,7 @@ local function BuildAnchorGroup(opts)
     args.visibility = { type = "group", inline = true, order = 30, name = "Visibility", hidden = isHidden, args = visibilityArgs }
     args.customize  = { type = "group", inline = true, order = 40, name = "Customize",  hidden = isHidden, args = customizeArgs }
 
-    -- Extra top-level toggles/entries specific to ONE tracker (not shared
-    -- between Interrupts and CC) - e.g. Interrupts' "Show Arcane Torrent".
-    -- Callers building these get access to this same isHidden/GetAnchorDB
-    -- closure by passing a builder function rather than a plain table, so
-    -- they behave identically to enabled/testMode/locked above instead of
-    -- being bolted on from outside with their own separate DB access.
+    -- Extra toggles specific to one tracker (e.g. Interrupts' "Show Arcane Torrent").
     if type(opts.BuildExtraArgs) == "function" then
         for key, entry in pairs(opts.BuildExtraArgs(GetAnchorDB, isHidden)) do
             args[key] = entry
@@ -2245,9 +1936,6 @@ local function BuildAnchorGroup(opts)
     return { type = "group", name = opts.name, order = opts.order, args = args }
 end
 
--- =============================================================
--- Profiles group
--- =============================================================
 local function BuildProfilesGroup()
     local args = {
         activeProfile = {
@@ -2314,10 +2002,6 @@ local function BuildProfilesGroup()
             end,
         },
         copyProfile = {
-            -- KastaCD-local: width="full" - this button ends up alone on
-            -- its row (createProfile above it already pairs with the
-            -- name input), so without an explicit width it left a dead
-            -- gap to the right instead of filling the row.
             type = "execute", order = 60, name = "Copy Current As New", width = "full",
             func = function()
                 local nm = newProfileNameVal
@@ -2334,10 +2018,7 @@ local function BuildProfilesGroup()
                 copy.iconSize    = cur.iconSize    or 22
                 copy.iconsPerRow = cur.iconsPerRow or 5
                 for ct, v in pairs(cur.contentTypes or {}) do copy.contentTypes[ct] = v end
-                -- Deep-copy (not reference-share) both trackers' settings
-                -- too, so the new profile gets its own independent bar
-                -- position/size/font/toggles instead of the two profiles
-                -- silently editing the same table.
+                -- Deep-copy so the new profile doesn't share tables with the old one.
                 copy.intAnchor = DeepCopyTable(cur.intAnchor) or {}
                 copy.ccAnchor  = DeepCopyTable(cur.ccAnchor)  or {}
                 KastaCDDB.profiles[nm] = copy
@@ -2417,13 +2098,7 @@ local function BuildProfilesGroup()
     return { type = "group", name = "Profiles", order = 500, args = args }
 end
 
--- Ace's toggle tooltip only supports a plain-text `desc` (see
--- AceConfigDialog-3.0.lua's OptionOnMouseOver - it can't call
--- GameTooltip:SetSpellByID like the old hand-rolled row tooltips did), so
--- this builds an equivalent text blurb instead: the spell's real flavor
--- text plus cooldown/duration/spec/level, queried live each hover (a
--- function, not a precomputed string) so it self-heals if the client
--- hadn't cached the spell's data yet on the first hover.
+-- Builds a plain-text tooltip blurb (Ace toggles can't use GameTooltip:SetSpellByID).
 local function BuildSpellDesc(sid, data)
     return function()
         local parts = {}
@@ -2450,9 +2125,6 @@ local function BuildSpellDesc(sid, data)
     end
 end
 
--- =============================================================
--- Per-class spell groups (category sub-tabs)
--- =============================================================
 local function BuildClassGroup(ci, order)
     local byCategory = {}
     for sid, data in pairs(SPELL_DB or {}) do
@@ -2479,11 +2151,6 @@ local function BuildClassGroup(ci, order)
                 catArgs["s" .. sid] = {
                     type = "toggle", order = spellOrder,
                     name = data.name,
-                    -- Real anchored icon (AceGUI CheckBox's native `image`
-                    -- field) instead of an inline |Tpath:size|t escape in
-                    -- the name string - the inline form was getting its
-                    -- top edge clipped by the label font's line-height,
-                    -- and inconsistently so between different icons.
                     image = icon,
                     desc = BuildSpellDesc(sid, data),
                     get = function() return KastaCDDB.enabled[sid] == true end,
@@ -2518,14 +2185,7 @@ local function RGBHex(ci)
     return string.format("%02x%02x%02x", (ci.r or 1) * 255, (ci.g or 1) * 255, (ci.b or 1) * 255)
 end
 
--- Tracked Spells is the LAST section on the Crowd Control page (order=50,
--- highest of that page's args), sitting right below the class button row.
--- Snapping the scroll to the very bottom after a class toggle - instead of
--- the top - is what actually lands the newly shown/hidden spell box in
--- view without the user having to scroll down themselves. offset is an
--- oversized pixel value on purpose: AceGUIContainer-ScrollFrame's FixScroll
--- clamps whatever's stored here to the real max on next layout pass, so
--- this doesn't need to know the page's actual (variable) height.
+-- Scrolls to the bottom after a class toggle so the newly shown spell box is visible.
 local function ScrollCCToBottom()
     local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
     if not AceConfigDialog then return end
@@ -2536,29 +2196,9 @@ local function ScrollCCToBottom()
     end
 end
 
--- =============================================================
--- CC Tracker: per-spell enable/disable ("Tracked Spells" sub-tab)
---
--- Every CC_SPELLS entry is shown by default (unchanged pre-existing
--- behavior) - unchecking one here explicitly excludes it via
--- KastaCDDB.ccAnchor.disabledSpells (KastaCD_CC.lua's IsCCSpellEnabled),
--- regardless of what PickGuessCC's guessing or a real witnessed cast
--- would otherwise show. CC_SPELLS entries don't carry a `.name` field the
--- way SPELL_DB's do, so the label comes from GetSpellInfo(sid) instead.
---
--- Class navigation: a real AceConfig `type="group"` child would normally
--- become a tab/tree node - but that requires this whole box to stop being
--- inline, and per AceConfigDialog-3.0's own documented rule ("When a group
--- is displayed inline, all descendants will also be inline members of the
--- group"), everything under an inline parent is forced flat regardless of
--- what the child itself sets. This exact box being non-inline was also
--- the earlier "Tracked Spells doesn't show at all" bug (nested 4 levels
--- deep with no working tab/tree owner above it). So instead of fighting
--- AceConfig's nesting rules again, class selection here is a manual
--- filter: a row of small class-colored buttons ("cells") sets
--- ccSpellClassFilter and each class's own (still inline, still
--- proven-safe) box hides itself unless it matches - same net effect
--- (click a class, see only its spells) without touching group nesting.
+-- CC Tracker per-spell enable/disable. Class navigation is a manual filter
+-- (button row sets ccSpellClassFilter) rather than real Ace tabs, since
+-- this box is inline and Ace forces all inline descendants flat.
 local function BuildCCSpellToggleGroup()
     local function GetCCAnchorDB()
         if type(KastaCDDB.ccAnchor) ~= "table" then KastaCDDB.ccAnchor = {} end
@@ -2582,47 +2222,22 @@ local function BuildCCSpellToggleGroup()
         end)
     end
 
-    -- Reset the filter if it points at a class that (no longer) has any
-    -- CC_SPELLS entries, so the list can't get stuck permanently hidden.
+    -- Reset the filter if it points at a class with no entries left.
     if ccSpellClassFilter and not (byClass[ccSpellClassFilter] and #byClass[ccSpellClassFilter] > 0) then
         ccSpellClassFilter = nil
     end
 
     local args = {}
 
-    -- Class cell row - one small button per class with at least one
-    -- CC_SPELLS entry. Every class box defaults to hidden
-    -- (ccSpellClassFilter starts nil) so the page opens collapsed instead
-    -- of dumping every class's spells at once - click a class to show
-    -- just it, click it again to collapse back down.
-    --
-    -- No "All"/"Close All" button - that toggle never actually collapsed
-    -- the list back down once every class was shown (AceConfigDialog
-    -- quirk that wasn't worth continuing to chase), so it's been dropped
-    -- in favor of just the single-class cells below.
-    --
-    -- order=1..~12 (well under classOrder's 100+ below) so this row can
-    -- never collide with - and get sorted in among - the class boxes
-    -- themselves, regardless of how many classes end up listed.
+    -- One button per class; click to show just that class's spells.
     local cellOrder = 1
     for _, ci in ipairs(CLASS_INFO or {}) do
         local spells = byClass[ci.key]
         if spells and #spells > 0 then
-            -- Death Knight's class color (dark red) is nearly invisible
-            -- against these buttons' own red background - white reads
-            -- clearly there instead, same as every other class's color
-            -- already does against it.
+            -- Death Knight's dark red is invisible on this button bg - use white instead.
             local hex = (ci.key == "DEATHKNIGHT") and "ffffff" or RGBHex(ci)
             local label = "|cff" .. hex .. ci.label .. "|r"
             args["filter" .. ci.key] = {
-                -- "half" (~85px), not a raw number - AceConfig's width
-                -- field only ever accepts "half"/"double"/"full"/nil (a
-                -- plain number like 0.8 fails AceConfigRegistry's own
-                -- validation outright, AND AceConfigDialog's renderer
-                -- silently ignores anything that isn't one of those three
-                -- keywords anyway, falling back to a default single-column
-                -- width - so a raw number was never actually doing
-                -- anything useful here even before it started erroring).
                 type = "execute", order = cellOrder, width = "half",
                 name = function()
                     return (ccSpellClassFilter == ci.key) and ("[" .. label .. "]") or label
@@ -2637,8 +2252,6 @@ local function BuildCCSpellToggleGroup()
         end
     end
 
-    -- Starts well above the cell row's order range (see above) so a class
-    -- box can never sort in between two button cells.
     local classOrder = 100
     for _, ci in ipairs(CLASS_INFO or {}) do
         local spells = byClass[ci.key]
@@ -2674,17 +2287,8 @@ local function BuildCCSpellToggleGroup()
     return { type = "group", name = "Tracked Spells", order = 50, inline = true, args = args }
 end
 
--- =============================================================
--- BuildKastaCDOptions  –  top-level tree
--- =============================================================
+-- Top-level options tree.
 function BuildKastaCDOptions()
-    -- "Party Cooldowns" doubles as both a real content page (offsets,
-    -- layout, content types - see BuildSettingsGroup) AND the collapsible
-    -- parent for all 12 class groups, nested directly into its own args.
-    -- AceConfig's tree natively supports a group having both its own
-    -- widgets and child sub-groups at once - clicking the row shows its
-    -- page, clicking the separate +/- toggle expands/collapses the
-    -- children, independent of each other.
     local partyCooldowns = BuildSettingsGroup()
     local classOrder = 100
     for _, ci in ipairs(CLASS_INFO or {}) do
@@ -2692,8 +2296,6 @@ function BuildKastaCDOptions()
         classOrder = classOrder + 10
     end
 
-    -- "Tracker Bars" is a tab strip (childGroups="tab") - Interrupts and
-    -- Crowd Control are the actual pages, nested as its children.
     local trackerBars = {
         type = "group", name = "Tracker Bars", order = 20, childGroups = "tab",
         args = {
@@ -2701,11 +2303,6 @@ function BuildKastaCDOptions()
                 name = "Interrupts", order = 10, dbField = "intAnchor",
                 RebuildFn = RebuildInterruptBars, GetPos = GetIntAnchorPos, SetPos = SetIntAnchorPos,
                 LockFn = LockIntAnchor, UnlockFn = UnlockIntAnchor,
-                -- Interrupt-tracker-only: every INT_SPELLS isRacial entry
-                -- is a resource-type variant of the same Blood Elf racial
-                -- (Arcane Torrent) - not applicable to the CC tracker
-                -- (BuildAnchorGroup is shared between both), so passed in
-                -- here rather than living in the shared function.
                 BuildExtraArgs = function(GetAnchorDB, isHidden)
                     return {
                         showArcaneTorrent = {
@@ -2732,12 +2329,6 @@ function BuildKastaCDOptions()
         },
     }
 
-    -- "Misc" is a tab strip (childGroups="tab") - each feature below is
-    -- its own clickable tab rather than a long scroll of stacked boxes.
-    -- Personal Leaderboard stays inline=true (a single toggle doesn't
-    -- need its own tab), which AceConfigDialog always renders as a fixed
-    -- box regardless of the parent's childGroups. Sits above Profiles in
-    -- the sidebar.
     local misc = {
         type = "group", name = "Misc", order = 30, childGroups = "tab",
         args = {

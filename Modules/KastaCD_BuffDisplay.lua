@@ -1,25 +1,12 @@
--- =============================================================
--- KastaCD_BuffDisplay.lua
--- User-defined buff/debuff watch list. Unlike the main party-cooldown
--- tracker (which is driven by a curated SPELL_DB and shows a bar the
--- moment a known ability is CAST), this tracks real aura PRESENCE via
--- UnitAura - a buff like Ironbark can land on any party member from
--- any source, not just from a self-cast, so casting is the wrong signal
--- to key off of here. Each watched spell shows its own icon centered on
--- whichever party member currently carries that aura, anchored directly
--- to their real unit frame (FindUnitFrames(), from KastaCD_Tracking.lua
--- - works with ElvUI/VuhDo/CompactRaidFrame/vanilla alike).
--- Depends on: KastaCD_DB.lua, KastaCD_Tracking.lua (FindUnitFrames,
--- ShowProcGlow/HideProcGlow, HasGroup, IsRaidUnit)
--- =============================================================
+-- KastaCD_BuffDisplay.lua - user-defined buff/debuff watch list.
+-- Tracks real aura presence via UnitAura, not casts. Each watched spell
+-- shows its own icon anchored to the owning unit's real frame.
+-- Depends on: KastaCD_DB.lua, KastaCD_Tracking.lua
 
 local PARTY_UNITS = { "player", "party1", "party2", "party3", "party4" }
 
--- Party by default; raid1-N instead while genuinely in a raid AND the
--- user has opted in via this feature's OWN "Show in Raid Groups" toggle
--- - deliberately a separate field from the main tracker's
--- KastaCDDB.showInRaidGroups (independent, per explicit request), so
--- turning one on doesn't silently affect the other.
+-- Party by default; raid1-N while in a raid and this feature's own
+-- "Show in Raid Groups" toggle is on (separate from the main tracker's).
 local function GetBuffDisplayUnits()
     local db = GetBuffDisplayDB()
     if IsInRaid and IsInRaid() and db.showInRaidGroups then
@@ -31,24 +18,10 @@ local function GetBuffDisplayUnits()
     return PARTY_UNITS
 end
 
--- Best-effort class lookup for a spellId, purely for the options UI's
--- class tabs - arbitrary user-added spells have no inherent class
--- metadata, so this borrows it from SPELL_DB/CC_SPELLS when the spellId
--- happens to already exist in one of those (common case: most
--- interesting party buffs are already class cooldowns tracked elsewhere
--- in this addon). Falls back to "OTHER" when neither has it - still
--- watchable, just sorts into its own bucket in the UI. Defined ABOVE
--- GetBuffDisplayDB (which calls it on every access to keep entries'
--- .class self-healing - see the backfill loop below) since this is a
--- local function and Lua locals are only visible to code written after
--- their declaration in the same file.
+-- Best-effort class lookup for a spellId, for the options UI's class tabs.
+-- Falls back to "OTHER" when unresolved.
 
--- Small curated fallback for well-known external buffs that aren't
--- tracked anywhere else in this addon (SPELL_DB only covers cooldown-
--- tracker spells, CC_SPELLS only covers crowd control) - without this,
--- watching something like Ironbark would always land in the generic
--- "Other" bucket even though it's obviously a Druid spell. Not
--- exhaustive, just the common externals someone would realistically add.
+-- Curated fallback for well-known external buffs not in SPELL_DB/CC_SPELLS.
 local COMMON_BUFF_CLASS = {
     [102342] = "DRUID",       -- Ironbark
     [29166]  = "DRUID",       -- Innervate
@@ -91,40 +64,18 @@ function GetBuffDisplayDB()
     end
     if db.enabled == nil then db.enabled = true end
     if type(db.list) ~= "table" then db.list = {} end
-    -- Test Mode: force every enabled watched spell to show on every found
-    -- party frame with a fake timer, regardless of whether the aura is
-    -- actually present - lets the user confirm icon position/size/glow
-    -- work at all without needing to reproduce the real buff first.
+    -- Test Mode: force every enabled watched spell to show with a fake timer.
     if db.testMode == nil then db.testMode = false end
-    -- Global position offset - ONE shared Offset X/Y for every watched
-    -- spell's icon (not per-spell). Party and raid get independent
-    -- values, same split as the main tracker's own offsetX/offsetY vs
-    -- raidOffsetX/raidOffsetY (see GetIconSettingsFor in
-    -- KastaCD_Tracking.lua) - a raid's frames are usually laid out very
-    -- differently from a 5-man party's.
+    -- Shared Offset X/Y for every watched spell's icon (not per-spell).
     if db.offsetX == nil then db.offsetX = 0 end
     if db.offsetY == nil then db.offsetY = 0 end
     if db.raidOffsetX == nil then db.raidOffsetX = 0 end
     if db.raidOffsetY == nil then db.raidOffsetY = 0 end
     if db.showInRaidGroups == nil then db.showInRaidGroups = false end
-    -- Which way the row/column of icons grows when 2+ watched spells are
-    -- active on the same unit at once (see LayoutUnitBuffIcons) -
-    -- CENTER/LEFT/RIGHT lay out a horizontal row, UP/DOWN a vertical
-    -- column. CENTER (grows symmetrically outward, the original/default
-    -- behavior) unless the user picks something else.
+    -- Row/column growth direction when 2+ watched spells are active at once.
     if db.growDirection == nil then db.growDirection = "CENTER" end
-    -- Global, same as the main tracker's own "Icon Borders" toggle
-    -- (KastaCDDB.showIconBorders / ApplyIconBorders in KastaCD_Tracking.lua)
-    -- - crops the icon texture's edge art in vs out for every watched
-    -- spell's icon, not per-spell.
     if db.showIconBorders == nil then db.showIconBorders = false end
-    -- Backfill entries added before aura-matching switched to name-based
-    -- (see ScanUnitAura) - a no-op once every entry has a name, so this
-    -- stays cheap on every call after the first. Class, unlike name, is
-    -- ALWAYS re-resolved (not just backfilled when missing) - this
-    -- self-heals a spell that landed in "Other" before SPELL_DB/
-    -- CC_SPELLS/COMMON_BUFF_CLASS gained coverage for it, without
-    -- needing to remove and re-add it.
+    -- Backfill name/class for entries added before those fields existed.
     for spellId, entry in pairs(db.list) do
         if not entry.name and GetSpellInfo then
             entry.name = GetSpellInfo(spellId)
@@ -134,21 +85,15 @@ function GetBuffDisplayDB()
     return db
 end
 
--- Resolves a user-typed spell ID or exact spell name to a real spellId,
--- and adds it to the watch list with sensible defaults. Returns
--- true, name on success or false, errorMessage on failure - callers
--- (the options UI) show errorMessage back to the user rather than
--- silently no-op'ing on a bad entry.
+-- Resolves a user-typed spell ID/name and adds it to the watch list.
+-- Returns true, name on success or false, errorMessage on failure.
 function AddBuffDisplaySpell(input)
     input = strtrim and strtrim(tostring(input or "")) or tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if input == "" then return false, "Enter a spell ID or name." end
 
     if not GetSpellInfo then return false, "Spell lookup unavailable." end
-    -- Deliberately NOT "GetSpellInfo and GetSpellInfo(input)" here - the
-    -- `and` short-circuit idiom collapses a multi-return call down to
-    -- just its first value, which would silently leave spellId (the 7th
-    -- return) nil on every single call. Guarded above instead so this
-    -- call keeps its full return list.
+    -- Not "GetSpellInfo and GetSpellInfo(input)" - `and` would collapse
+    -- the multi-return call down to just its first value.
     local name, _, _, _, _, _, spellId = GetSpellInfo(input)
     if not name or not spellId then
         return false, "No spell found for \"" .. input .. "\" - try the exact spell ID instead."
@@ -165,11 +110,8 @@ function AddBuffDisplaySpell(input)
         showTimer  = true,
         iconSize   = 30,
         class      = GuessSpellClass(spellId),
-        -- Kept alongside spellId specifically for aura matching (see
-        -- ScanUnitAura below) - this server can report a different
-        -- spellId on the live UnitAura than GetSpellInfo resolves for the
-        -- same buff by name (same reason KastaCD_AffixCallouts.lua's
-        -- Quaking watcher matches by name, not ID).
+        -- Kept for name-based aura matching (see ScanUnitAura) - this
+        -- server can report a different spellId on the live UnitAura.
         name       = name,
     }
     return true, name
@@ -186,11 +128,7 @@ function RemoveBuffDisplaySpell(spellId)
     end
 end
 
--- -------------------------------------------------------------
--- Icon frames  –  one per (unit, spellId) pair, created lazily and
--- reused for the lifetime of the session (cheap to keep around, just
--- Hide()/Show()'d as auras come and go).
--- -------------------------------------------------------------
+-- Icon frames: one per (unit, spellId) pair, created lazily and reused.
 bdIcons  = {}   -- [unit][spellId] = frame
 local bdActive = {}   -- [unit][spellId] = { expirationTime, duration } - only while shown
 
@@ -245,27 +183,12 @@ function HideAllBuffDisplayIcons()
     end
 end
 
--- Scans one unit's full aura list (both HELPFUL and HARMFUL - a watched
--- entry could just as easily be a debuff someone wants to keep an eye
--- on, not only a friendly buff) for the given spell. Matches by NAME
--- first when available - this server can report a different spellId on
--- the live UnitAura than GetSpellInfo resolved when the entry was added.
---
--- This client's UnitAura returns the OLDER (pre-Legion-trim) signature:
--- name, rank, icon, count, debuffType, duration, expirationTime, caster,
--- isStealable, shouldConsolidate, spellId - confirmed via /kcdbuffdebug,
--- which showed duration=nil (that slot is actually debuffType, nil for
--- buffs) and spellId=false (that slot is actually the shouldConsolidate
--- boolean) on every aura. The extra "rank" return shifts every following
--- value up by one compared to the modern 10-value signature this used to
--- assume.
---
--- Returns expirationTime, duration, found - found is true whenever a
--- matching aura was located, even if expirationTime/duration came back
--- as 0 (some auras, e.g. Devotion Aura, are genuinely permanent/no-
--- duration - see the fallback-duration handling in RefreshBuffDisplay).
--- Distinct from expirationTime itself so callers can tell "found, but no
--- real timer data" apart from "not present at all".
+-- Scans one unit's HELPFUL and HARMFUL auras for the given spell.
+-- Matches by name first when available (this server can report a
+-- different spellId on live UnitAura than GetSpellInfo resolved).
+-- This client's UnitAura uses the older signature with an extra "rank"
+-- return, shifting later values by one - confirmed via /kcdbuffdebug.
+-- Returns expirationTime, duration, found.
 local function ScanUnitAura(unit, spellId, watchName)
     for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
         for i = 1, 40 do
@@ -279,19 +202,11 @@ local function ScanUnitAura(unit, spellId, watchName)
     return nil, nil, false
 end
 
--- Arranges every currently-active icon for one unit in a row or column
--- anchored on that unit's frame, instead of every icon sitting dead-center
--- on top of each other (which is what happens if 2+ watched spells are up
--- on the same person at once, since they'd otherwise all target the exact
--- same CENTER point). Sorted by spellId for a stable, consistent order
--- across refreshes. offsetX/offsetY is the ONE shared position (party or
--- raid, picked by the caller) applied on top of every icon's slot - not
--- per-spell, so the whole group moves together.
---
--- growDirection (GetBuffDisplayDB().growDirection):
---   CENTER (default) - horizontal row, grows outward both ways from center
---   LEFT / RIGHT      - horizontal row, grows only in that direction
---   UP / DOWN         - vertical column, grows only in that direction
+-- Arranges every active icon for one unit in a row/column on that unit's
+-- frame instead of stacking dead-center. Sorted by spellId for a stable
+-- order. offsetX/offsetY is one shared position applied to the whole group.
+-- growDirection: CENTER (default, horizontal both ways), LEFT/RIGHT
+-- (horizontal one way), UP/DOWN (vertical).
 local ICON_GAP = 2
 local function LayoutUnitBuffIcons(mf, shown, offsetX, offsetY, growDirection)
     if #shown == 0 then return end
@@ -316,11 +231,8 @@ local function LayoutUnitBuffIcons(mf, shown, offsetX, offsetY, growDirection)
         totalWidth = totalWidth + (item.entry.iconSize or 30) + ICON_GAP
     end
 
-    -- CENTER starts the row half its total width to the left so it ends
-    -- up straddling the anchor evenly; LEFT starts a full width to the
-    -- left so the row's right edge lands ON the anchor (extends further
-    -- left as more icons show up); RIGHT starts at 0 so the row's left
-    -- edge sits on the anchor instead.
+    -- CENTER straddles the anchor evenly; LEFT extends left from the
+    -- anchor; RIGHT extends right from the anchor.
     local x
     if growDirection == "LEFT" then
         x = -totalWidth
@@ -337,16 +249,8 @@ local function LayoutUnitBuffIcons(mf, shown, offsetX, offsetY, growDirection)
     end
 end
 
--- -------------------------------------------------------------
--- RefreshBuffDisplay  –  full re-scan of every watched spell against
--- every tracked unit (party, or raid1-N while Show in Raid Groups is on
--- and you're actually raided - see GetBuffDisplayUnits above). Cheap
--- enough to call from the self-heal ticker AND straight off UNIT_AURA
--- (mirrors the existing SpecPollTicker/RebuildIcons self-heal philosophy
--- elsewhere in this addon: correctness through frequent, near-free
--- re-evaluation rather than trying to track every possible add/remove/
--- frame-recycle edge case by hand).
--- -------------------------------------------------------------
+-- Full re-scan of every watched spell against every tracked unit. Cheap
+-- enough to call from the self-heal ticker and straight off UNIT_AURA.
 function RefreshBuffDisplay()
     local db = GetBuffDisplayDB()
     if not db.enabled or not next(db.list) or not HasGroup() then
@@ -354,9 +258,7 @@ function RefreshBuffDisplay()
         return
     end
 
-    -- Test Mode forces every enabled entry to show on every found frame
-    -- with a fake 30s timer, so the user can confirm position/size/glow
-    -- without needing the real aura up.
+    -- Test Mode forces every enabled entry to show with a fake 30s timer.
     local forceShow = db.testMode
     local now = GetTime()
 
@@ -415,11 +317,7 @@ function RefreshBuffDisplay()
     end
 end
 
--- -------------------------------------------------------------
--- Timer text ticker (0.2s) - purely cosmetic countdown text on top of
--- whatever RefreshBuffDisplay already decided is shown/hidden; doesn't
--- touch FindUnitFrames or aura scanning, so it's cheap to run often.
--- -------------------------------------------------------------
+-- Timer text ticker (0.2s) - cosmetic countdown text only.
 C_Timer.NewTicker(0.2, function()
     local db = GetBuffDisplayDB()
     if not db.enabled then return end
@@ -446,21 +344,12 @@ C_Timer.NewTicker(0.2, function()
     end
 end)
 
--- -------------------------------------------------------------
--- Self-heal ticker (1s, same cadence/philosophy as SpecPollTicker in
--- KastaCD_Events.lua) - catches group roster changes, unit-frame
--- addon reloads, and newly-added watch-list entries without needing a
--- dedicated event for every one of those cases.
--- -------------------------------------------------------------
+-- Self-heal ticker (1s) - catches roster changes and new watch entries.
 C_Timer.NewTicker(1.0, function()
     if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
 end)
 
--- -------------------------------------------------------------
--- UNIT_AURA - immediate refresh the instant a watched unit's aura list
--- actually changes, instead of waiting up to 1s for the self-heal
--- ticker above to catch it.
--- -------------------------------------------------------------
+-- Immediate refresh on aura change instead of waiting for the ticker.
 local bdWatcher = CreateFrame("Frame")
 bdWatcher:RegisterEvent("UNIT_AURA")
 bdWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -476,13 +365,7 @@ bdWatcher:SetScript("OnEvent", function(_, event, arg1)
     if type(RefreshBuffDisplay) == "function" then RefreshBuffDisplay() end
 end)
 
--- =============================================================
--- /kcdbuffdebug - dumps live state so a "not showing" report can be
--- diagnosed from chat output instead of guessing blind: whether the
--- feature/entries are enabled, what FindUnitFrames() sees right now,
--- and (for each watched spell) which units actually have the aura per
--- a fresh UnitAura scan.
--- =============================================================
+-- /kcdbuffdebug - dumps live state for diagnosing a "not showing" report.
 SLASH_KASTACDBUFFDEBUG1 = "/kcdbuffdebug"
 SlashCmdList["KASTACDBUFFDEBUG"] = function()
     local db = GetBuffDisplayDB()

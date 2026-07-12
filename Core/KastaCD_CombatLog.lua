@@ -1,19 +1,11 @@
--- =============================================================
--- KastaCD_CombatLog.lua
--- Handles COMBAT_LOG_EVENT_UNFILTERED.
--- Responsibilities:
---   1. Cache spell sightings into KNOWN_UNIT_SPELLS (secondary
---      availability signal used by IsSpellKnownForUnit in DB.lua).
---   2. Trigger uptime / cooldown phase transitions on tracked icons
---      when an enabled spell is cast by a group member.
+-- KastaCD_CombatLog.lua - handles COMBAT_LOG_EVENT_UNFILTERED: caches
+-- spell sightings into KNOWN_UNIT_SPELLS and drives uptime/cooldown
+-- phase transitions on tracked icons.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua
--- =============================================================
 
 function HandleCombatLog(...)
-    -- Private servers (TrinityCore/AzerothCore 7.3.5) are inconsistent:
-    -- some pass combat log fields as direct event args (old pre-Legion style),
-    -- others implement CombatLogGetCurrentEventInfo(). Try the API first;
-    -- if it returns nothing fall back to the varargs passed in.
+    -- Some private servers pass fields as direct event args instead of
+    -- via CombatLogGetCurrentEventInfo(). Try the API first, fall back.
     local timestamp, subEvent, hideCaster,
         sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
         destGUID, destName, destFlags, destRaidFlags,
@@ -37,43 +29,24 @@ function HandleCombatLog(...)
             extraSpellId, extraSpellName, extraSchool = ...
     end
 
-    -- ── Interrupt announcement ─────────────────────────────────
-    -- SPELL_INTERRUPT is a distinct sub-event from SPELL_CAST_SUCCESS -
-    -- extraSpellName is the *interrupted* spell (what the enemy was
-    -- casting), not the interrupt ability itself. Only announces the
-    -- player's own interrupts, never party members' - this is a "let
-    -- others know KastaCD is doing this" broadcast, not a tracker.
-    -- Passes both spell IDs along too (extraSpellId for the interrupted
-    -- spell, spellId for the interrupt ability itself) so the chat
-    -- message can link them as real, clickable spell links instead of
-    -- plain text - see AnnounceInterrupt in KastaCD_Announce.lua.
+    -- Interrupt announcement - extraSpellName is the interrupted spell,
+    -- not the interrupt ability. Player's own interrupts only.
     if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
         if type(AnnounceInterrupt) == "function" then
             AnnounceInterrupt(spellName, extraSpellName, destName, extraSpellId, spellId)
         end
     end
 
-    -- ── Interrupt tracker hook ─────────────────────────────────
-    -- Check interrupt spells regardless of SPELL_DB membership so
-    -- Priest/Warlock interrupts not in the main DB are still tracked.
+    -- Interrupt tracker hook - checked regardless of SPELL_DB membership
+    -- so Priest/Warlock interrupts not in the main DB are still tracked.
     if subEvent == "SPELL_CAST_SUCCESS" and spellId and INT_SPELLS and INT_SPELLS[spellId] then
         if sourceGUID and type(HandleInterruptCast) == "function" then
             HandleInterruptCast(sourceGUID, spellId)
         end
 
-        -- ── Interrupt announcement fallback (racials, e.g. Arcane
-        -- Torrent) ───────────────────────────────────────────────
-        -- Confirmed on this server: SPELL_INTERRUPT doesn't reliably fire
-        -- for the Arcane Torrent racial the way it does for real class
-        -- interrupts (the primary hook above handles those), so this
-        -- falls back to SPELL_CAST_SUCCESS for exactly the isRacial
-        -- entries in INT_SPELLS - the same detection path the Interrupt
-        -- Tracker already uses successfully for this ability. There's no
-        -- single-target SPELL_INTERRUPT payload to read the interrupted
-        -- spell's name from here, so it's approximated from whatever the
-        -- player's current target is casting/channeling at that instant;
-        -- if nothing is found, the announcement is skipped rather than
-        -- claiming an interrupt that can't be confirmed.
+        -- Racial fallback (Arcane Torrent): SPELL_INTERRUPT doesn't
+        -- reliably fire for it, so approximate the interrupted spell from
+        -- whatever the target is currently casting/channeling.
         if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
         and type(AnnounceInterrupt) == "function" then
             local castName, castSpellId
@@ -89,30 +62,20 @@ function HandleCombatLog(...)
         end
     end
 
-    -- ── Crowd-control tracker hook ─────────────────────────────
-    -- Same rationale as the interrupt hook above: checked regardless of
-    -- SPELL_DB membership so CC spells not tracked by the main icon
-    -- system still drive the crowd-control bars.
+    -- Crowd-control tracker hook - same rationale as above, checked
+    -- regardless of SPELL_DB membership.
     if subEvent == "SPELL_CAST_SUCCESS" and spellId and CC_SPELLS and CC_SPELLS[spellId] then
         if sourceGUID and type(HandleCCCast) == "function" then
             HandleCCCast(sourceGUID, spellId)
         end
 
-        -- Also cache the sighting into KNOWN_UNIT_SPELLS and, same as the
-        -- SPELL_DB path below, infer spec from a single-spec-restricted
-        -- cast - CC_SPELLS entries (e.g. Shockwave, specs={73}) never fed
-        -- this fallback before, so a party member's spec-gated CC bar
-        -- stayed stuck on "unresolved" until they happened to cast
-        -- something from SPELL_DB instead. See the SPELL_DB block below
-        -- for the full "why" on the spec-inference approach itself.
+        -- Cache the sighting and infer spec from a single-spec-restricted cast.
         if sourceGUID then
             KNOWN_UNIT_SPELLS[sourceGUID] = KNOWN_UNIT_SPELLS[sourceGUID] or {}
             KNOWN_UNIT_SPELLS[sourceGUID][spellId] = true
 
-            -- A real cast is the strongest possible confirmation - clear
-            -- any competing pick in the same mutually-exclusive talent
-            -- row (e.g. casting Storm Bolt proves Shockwave is NOT their
-            -- current pick, whatever earlier ground truth said).
+            -- A real cast is the strongest confirmation - clear any
+            -- competing pick in the same mutually-exclusive talent row.
             if type(ClearCompetingCCTalents) == "function" then
                 ClearCompetingCCTalents(sourceGUID, spellId)
             end
@@ -131,46 +94,36 @@ function HandleCombatLog(...)
     if subEvent ~= "SPELL_CAST_SUCCESS" then return end
     if not spellId or not SPELL_DB[spellId] then return end
 
-    -- ── 1. Cache sighting ──────────────────────────────────────
-    -- Even if this spell isn't enabled we still record the sighting
-    -- so IsSpellKnownForUnit can show the icon once the user enables it.
+    -- 1. Cache sighting, even if not enabled, so IsSpellKnownForUnit can
+    -- show the icon once the user enables it.
     if sourceGUID then
         KNOWN_UNIT_SPELLS[sourceGUID] = KNOWN_UNIT_SPELLS[sourceGUID] or {}
         KNOWN_UNIT_SPELLS[sourceGUID][spellId] = true
 
-        -- Spec inference: GetInspectSpecialization/NotifyInspect is unreliable
-        -- on many private servers and can leave UNIT_SPEC_CACHE permanently nil,
-        -- which made SpellMatchesSpec's "spec unknown" fallback show every spec's
-        -- abilities at once. A spell restricted to exactly one spec is ground
-        -- truth the moment it's cast - use it to set/correct the spec cache
-        -- directly, independent of whether inspect ever resolves.
+        -- Spec inference: inspect is unreliable on many private servers,
+        -- so a single-spec-restricted cast sets/corrects the spec cache directly.
         local castData = SPELL_DB[spellId]
         if castData.specs and #castData.specs == 1 then
             UNIT_SPEC_CACHE[sourceGUID] = castData.specs[1]
-            -- GetUnitSpec("player") reads UNIT_SPEC_CACHE["player"] specifically
-            -- (see KastaCD_DB.lua), not the player's real GUID key. Without this,
-            -- the player's own cast of a spec-exclusive spell never resolved
-            -- their own spec - only PollUnitSpec's GetSpecialization() call did,
-            -- which is the one path with no combat-log fallback if it's broken.
+            -- GetUnitSpec("player") reads UNIT_SPEC_CACHE["player"], not
+            -- the player's real GUID key.
             if sourceGUID == UnitGUID("player") then
                 UNIT_SPEC_CACHE["player"] = castData.specs[1]
             end
         end
     end
 
-    -- ── 2. Bail early if spell is not tracked ──────────────────
+    -- 2. Bail early if spell is not tracked.
     if not KastaCDDB.enabled[spellId] then return end
 
-    -- ── 3. Resolve GUID → unit token ──────────────────────────
+    -- 3. Resolve GUID -> unit token.
     local unit = nil
     for u, g in pairs(memberGUIDs) do
         if g == sourceGUID then unit = u; break end
     end
     if not unit then return end
 
-    -- ── 4. Ensure an icon state exists ────────────────────────
-    -- The spell may be a talent ability seen for the first time.
-    -- RebuildIcons will create the frame; we then re-look-up the state.
+    -- 4. Ensure an icon state exists (first sighting of a talent ability).
     local state = trackerState[unit] and trackerState[unit][spellId]
     if not state then
         RebuildIcons()
@@ -178,14 +131,12 @@ function HandleCombatLog(...)
         if not state then return end
     end
 
-    -- ── 5. Drive phase transition ──────────────────────────────
+    -- 5. Drive phase transition.
     local data = SPELL_DB[spellId]
     local f    = state.frame
     local now  = GetTime()
 
-    -- Charge tracking: consume one charge and record when it will recharge.
-    -- The uptime/cooldown logic below proceeds normally; the ticker decides
-    -- whether to enter cooldown phase based on state.charges after uptime.
+    -- Charge tracking: consume one charge, record recharge time.
     if state.maxCharges and state.maxCharges > 1 then
         state.charges = math.max(0, state.charges - 1)
         table.insert(state.rechargeEndTimes, now + (data.cooldown or 0))
@@ -193,48 +144,22 @@ function HandleCombatLog(...)
     end
 
     if state.phase == "uptime" and not state.maxCharges then
-        -- Ignore a duplicate SPELL_CAST_SUCCESS for a spell that's already
-        -- mid-uptime. Ravager's whirling blade logs a fresh CAST_SUCCESS
-        -- for spellId 156287 on this server for every tick of its ground
-        -- effect (not just the initial throw), and re-arming state.endTime
-        -- from "now" on each of those ticks kept pushing the countdown back
-        -- to the full duration - the timer looked frozen at 6s for the
-        -- entire real uptime, then ran on well past when the effect had
-        -- actually ended. The FIRST cast is authoritative; a genuine new
-        -- cast can't happen again until the cooldown clears (phase leaves
-        -- "uptime"), so it's safe to just drop any re-trigger seen while
-        -- still active. Multi-charge spells are excluded - recasting a
-        -- second charge (e.g. Survival Instincts) while the first's uptime
-        -- is still active is a real, intentional recast that should refresh
-        -- the buff, not a duplicate tick.
+        -- Ignore a duplicate SPELL_CAST_SUCCESS while already mid-uptime
+        -- (e.g. Ravager logs a fresh CAST_SUCCESS per ground-effect tick,
+        -- not just the initial throw, which re-armed endTime each time).
+        -- Multi-charge spells are excluded - a second-charge recast is real.
         return
     end
 
     if data.duration and data.duration > 0 then
-        -- Spell has an active uptime window. Don't call ShowProcGlow
-        -- directly here - the 0.1s ticker in KastaCD_Tracking.lua is the
-        -- sole owner of triggering it, via its own f.glowing guard
-        -- (ActionButton_ShowOverlayGlow restarts its flipbook animation
-        -- on every call, so any second trigger while already glowing
-        -- reads as a visible flash/reset). Calling it here too raced
-        -- against that guard - it fired once directly, then again ~0.1s
-        -- later since this call never set f.glowing, and for multi-charge
-        -- spells like Survival Instincts, recasting the second charge
-        -- while the first's uptime was still active fired it yet again.
-        -- Just reset glowing=false and let the ticker pick it up cleanly,
-        -- same as the rebuild-restore path already does.
+        -- Don't call ShowProcGlow here - the 0.1s ticker in
+        -- KastaCD_Tracking.lua is the sole owner of triggering it via its
+        -- own f.glowing guard, to avoid a double-fire/flash. Just reset
+        -- glowing=false and let the ticker pick it up.
         state.phase   = "uptime"
         state.endTime = now + data.duration
-        -- Cooldown starts at the moment of casting, not when uptime ends -
-        -- the "duration" window overlaps the front of the cooldown, it
-        -- doesn't happen before it (e.g. Shield Wall's 240s cooldown
-        -- starts the instant you cast it, even though the shield itself
-        -- is only up for 8s of that). Precomputed here from `now` so the
-        -- ticker's uptime->cooldown transition can use this real end time
-        -- instead of restarting a fresh `data.cooldown`-length timer once
-        -- uptime finishes, which silently added the duration on top of the
-        -- cooldown and made the displayed timer run long/desync from the
-        -- real spell cooldown.
+        -- Cooldown starts at cast time, not when uptime ends - duration
+        -- overlaps the front of the cooldown rather than preceding it.
         state.cdEndTime = now + (data.cooldown or 0)
         f.glowing = false
         f.bar:Show()

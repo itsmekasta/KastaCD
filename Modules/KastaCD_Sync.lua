@@ -1,45 +1,18 @@
--- =============================================================
--- KastaCD_Sync.lua
---
--- Fixes the "ability doesn't show until they actually use it" problem
--- for talent-gated spells (isTalent=true in SPELL_DB/CC_SPELLS) and for
--- spec-gated baseline spells when spec never resolves. Both are
--- documented in KastaCD_DB.lua as depending on Blizzard's inspect API
--- (NotifyInspect/GetInspectSpecialization/GetTalentInfo), which
--- routinely never resolves on private servers - when it doesn't, a
--- talent-gated spell is only ever shown once witnessed via a real
--- combat-log cast (by design, to avoid guessing wrong).
---
--- Researched OmniCD and ExRT for how they solve this. ExRT uses the same
--- inspect-queue approach KastaCD already has - nothing more robust to
--- adopt there. OmniCD's actual fix (its retail talent/covenant/soulbind
--- scraping itself doesn't apply to Legion) is peer-to-peer sync: every
--- OmniCD user broadcasts their own confirmed spec+talent data to the
--- party via addon message, so any two OmniCD users get instant, 100%
--- reliable data from each other without ever touching inspect. This file
--- adapts that same concept, reusing the chunked SendAddonMessage/
--- CHAT_MSG_ADDON plumbing pattern already established in
--- KastaCD_ProfileShare.lua (own prefix here, kept separate from profile
--- sharing's "KASTACD" prefix so the two features can't interfere).
---
--- Payload is small (a spec ID + a handful of spell IDs per class) so it
--- always fits in one addon message - no chunking needed, unlike profile
--- sharing's much larger export strings.
---
--- Depends on: KastaCD_DB.lua (IsSpellKnownForUnit, UNIT_SPEC_CACHE,
--- KNOWN_UNIT_SPELLS), KastaCD_SpellDB.lua (SPELL_DB), KastaCD_CC.lua
--- (CC_SPELLS), KastaCD_Tracking.lua/Interrupts.lua/CC.lua (Rebuild*).
--- =============================================================
+-- KastaCD_Sync.lua - fixes "ability doesn't show until cast" for
+-- talent-gated/spec-gated spells when inspect never resolves, by having
+-- party members broadcast their own confirmed spec+talent data via
+-- addon message (like OmniCD's peer-to-peer sync). Reuses the
+-- SendAddonMessage/CHAT_MSG_ADDON plumbing from KastaCD_ProfileShare.lua,
+-- own prefix so the two features don't interfere.
+-- Depends on: KastaCD_DB.lua, KastaCD_SpellDB.lua, KastaCD_CC.lua,
+-- KastaCD_Tracking.lua/Interrupts.lua/CC.lua (Rebuild*).
 
 local SYNC_PREFIX = "KASTACDCD"
 local BROADCAST_INTERVAL = 8    -- periodic self-heal re-broadcast, seconds
 local BROADCAST_DEBOUNCE = 2    -- min gap between event-triggered broadcasts
-local TALENT_SETTLE_DELAY = 1.5 -- wait this long after a talent/spec-change
-                                 -- event before reading state - some clients
-                                 -- fire these events slightly before their
-                                 -- own internal spellbook/spec state has
-                                 -- actually finished updating, which was
-                                 -- silently broadcasting the OLD build.
+local TALENT_SETTLE_DELAY = 1.5 -- delay after talent/spec change before
+                                 -- reading state (some clients fire the
+                                 -- event before state finishes updating)
 
 if RegisterAddonMessagePrefix then
     RegisterAddonMessagePrefix(SYNC_PREFIX)
@@ -49,18 +22,11 @@ end
 -- behavior (or lack of it) can be watched live instead of guessed at.
 local debugPrints = false
 
--- -------------------------------------------------------------
 -- Sending
--- -------------------------------------------------------------
--- Direct IsPlayerSpell/IsSpellKnown check, independent of which table a
--- spell ID lives in - IsSpellKnownForUnit("player", sid) looks ONLY at
--- SPELL_DB internally (`local data = SPELL_DB[spellId]`), so calling it
--- for a CC_SPELLS-only entry (e.g. Shockwave, which never appears in
--- SPELL_DB) always returned false regardless of whether the player
--- actually has it - only spells dual-listed in both tables (like Storm
--- Bolt) ever synced correctly. This mirrors the exact check
--- IsSpellKnownForUnit's own player branch does internally, just without
--- requiring a SPELL_DB lookup to succeed first.
+
+-- Direct IsPlayerSpell/IsSpellKnown check, independent of which table
+-- (SPELL_DB/CC_SPELLS) a spell ID lives in - IsSpellKnownForUnit only
+-- checks SPELL_DB internally, so a CC_SPELLS-only entry always failed.
 local function PlayerKnowsSpellID(spellId)
     local checkId = spellId
     if FindSpellOverrideByID then
@@ -73,63 +39,35 @@ local function PlayerKnowsSpellID(spellId)
 end
 
 -- Builds "S:<specId>:<id1>,<id2>,..." from every SPELL_DB/CC_SPELLS entry
--- matching the player's own class that PlayerKnowsSpellID confirms true -
--- 100% reliable for your own character, no inspect or GetSpecialization()
--- dependency involved.
---
--- specId itself is best-effort only, sent as 0 when unresolved rather
--- than blocking the whole payload - confirmed spell IDs are useful on
--- their own via KNOWN_UNIT_SPELLS ground truth regardless of whether
--- specId ever resolves (see IsSpellKnownForUnit's non-player branch,
--- which checks KNOWN_UNIT_SPELLS before ever looking at spec). The old
--- version required specId to resolve before sending ANYTHING, which on
--- a server where GetSpecialization() doesn't reliably resolve even for
--- your own character meant this player could never broadcast at all.
---
--- Deduped via a set (ids[sid]=true) rather than a plain array, since a
--- spell can appear in BOTH SPELL_DB and CC_SPELLS (e.g. Storm Bolt) -
--- appending from both loops into a plain array sent it twice.
+-- matching the player's class that PlayerKnowsSpellID confirms true.
+-- specId is best-effort, sent as 0 when unresolved rather than blocking
+-- the whole payload. Deduped via a set since a spell can appear in both
+-- SPELL_DB and CC_SPELLS (e.g. Storm Bolt).
 local function BuildSyncPayload()
     local _, classToken = UnitClass("player")
     if not classToken then return nil end
 
-    -- Refresh KNOWN_UNIT_SPELLS[playerGUID] via GetTalentInfo (own read,
-    -- isInspect=false) before scanning - authoritative for isTalent
-    -- entries specifically, since GetTalentInfo reads the talent frame's
-    -- actual current selection and structurally can't report two picks
-    -- for the same row, unlike IsPlayerSpell/IsSpellKnown which live
-    -- testing showed can still report an old competing pick (e.g.
-    -- Shockwave AND Storm Bolt both "known") for a stretch after
-    -- respeccing. See ScanUnitTalents in KastaCD_DB.lua.
+    -- Refresh KNOWN_UNIT_SPELLS[playerGUID] via GetTalentInfo before
+    -- scanning - authoritative for isTalent entries. See ScanUnitTalents
+    -- in KastaCD_DB.lua.
     local playerGUID = UnitGUID and UnitGUID("player")
     if type(ScanUnitTalents) == "function" then
         ScanUnitTalents("player")
     end
     local playerKnownTalents = playerGUID and KNOWN_UNIT_SPELLS and KNOWN_UNIT_SPELLS[playerGUID]
 
-    -- inferredSpecIds: whenever a currently-known spell is exclusively
-    -- tied to exactly one spec (data.specs has one entry), that's a
-    -- candidate spec inference - trusted over GetSpecialization()/
-    -- GetSpecializationInfo() (confirmed via live testing that those can
-    -- report a STALE spec, not just nil/0, on this server). Collects
-    -- EVERY distinct candidate rather than trusting whichever is found
-    -- first (pairs() iteration order is unspecified) - if a stale,
-    -- not-yet-cleared entry from a different spec is also present (e.g.
-    -- ScanUnitTalents hadn't caught up removing an old talent pick yet),
-    -- blindly picking "the first one" could just as easily lock onto the
-    -- WRONG spec as the right one. Only trusted when every candidate
-    -- agrees; a disagreement means something here is stale and it's
-    -- safer to fall back to GetSpecialization() than confidently guess
-    -- wrong.
+    -- inferredSpecIds: a known spell exclusively tied to one spec is a
+    -- candidate spec inference, trusted over GetSpecialization() (which
+    -- can report a stale spec on this server). Only trusted when every
+    -- candidate agrees; a disagreement falls back to GetSpecialization().
     local idSet = {}
     local specCandidates = {}
     local function scan(tbl)
         if type(tbl) ~= "table" then return end
         for sid, data in pairs(tbl) do
             if data.class == classToken then
-                -- isTalent entries: trust the GetTalentInfo-backed cache
-                -- just refreshed above over IsPlayerSpell/IsSpellKnown -
-                -- see the comment at the top of this function.
+                -- isTalent entries trust the GetTalentInfo-backed cache
+                -- refreshed above over IsPlayerSpell/IsSpellKnown.
                 local known
                 if data.isTalent then
                     known = playerKnownTalents and playerKnownTalents[sid] == true
@@ -208,12 +146,9 @@ local function BroadcastAfterSettle()
     end)
 end
 
--- -------------------------------------------------------------
 -- Receiving
--- -------------------------------------------------------------
--- Resolves an addon-message sender name to a currently-valid unit token
--- (player/party1-4), the same realm-suffix-stripping approach used in
--- KastaCD_ProfileShare.lua's HandleAddonMessage.
+
+-- Resolves a sender name to a unit token (player/party1-4).
 local function ResolveSenderUnit(sender)
     local short = sender and sender:match("^([^-]+)") or sender
     if not short then return nil end
@@ -245,11 +180,8 @@ local function HandleSyncMessage(prefix, message, _, sender)
     local guid = UnitGUID(unit)
     if not guid then return end
 
-    -- specId 0 means the sender's own GetSpecialization() hadn't resolved
-    -- at broadcast time (see BuildSyncPayload) - leave UNIT_SPEC_CACHE
-    -- alone rather than overwriting a possibly-good cached value with a
-    -- bogus 0 (which is truthy in Lua and would otherwise start failing
-    -- SpellMatchesSpec checks that were working fine before).
+    -- specId 0 means unresolved at broadcast time - don't overwrite a
+    -- possibly-good cached value with it.
     if specId and specId > 0 then
         UNIT_SPEC_CACHE[guid] = specId
     end
@@ -257,13 +189,9 @@ local function HandleSyncMessage(prefix, message, _, sender)
     KNOWN_UNIT_SPELLS[guid] = KNOWN_UNIT_SPELLS[guid] or {}
     local known = KNOWN_UNIT_SPELLS[guid]
 
-    -- Each payload is the sender's complete, current SPELL_DB/CC_SPELLS
-    -- known-spell set (see BuildSyncPayload) - clear any previously-synced
-    -- entry from those two tables before applying the new one, otherwise
-    -- a talent they've since swapped away from stays marked "known"
-    -- forever (only ever added to, never removed). Leaves any other
-    -- GUID-keyed entry untouched (e.g. from a witnessed cast of something
-    -- outside these two tables, though nothing currently writes those).
+    -- Each payload is the sender's complete known-spell set - clear any
+    -- previously-synced entry before applying, so a swapped-away talent
+    -- doesn't stay marked "known" forever.
     for sid in pairs(known) do
         if (type(SPELL_DB) == "table" and SPELL_DB[sid]) or (type(CC_SPELLS) == "table" and CC_SPELLS[sid]) then
             known[sid] = nil
@@ -274,9 +202,7 @@ local function HandleSyncMessage(prefix, message, _, sender)
         if id then known[id] = true end
     end
 
-    -- Same immediate-rebuild treatment as an INSPECT_READY resolution
-    -- (see KastaCD_Events.lua) - no reason to wait for the next poll tick
-    -- once we have ground-truth data in hand.
+    -- Immediate rebuild, same as an INSPECT_READY resolution.
     if type(RebuildIcons) == "function" then RebuildIcons() end
     if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
     if type(RebuildCCBars) == "function" then RebuildCCBars() end
@@ -301,22 +227,15 @@ syncFrame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
--- Periodic self-heal re-broadcast while grouped - covers anyone who
--- joined after your last broadcast, or whose own client wasn't
--- listening yet when you sent it, or an event-triggered broadcast that
--- silently failed to fire for whatever reason. Same "cheap and frequent
--- beats validated-once" philosophy as SpecPollTicker in KastaCD_Events.lua.
+-- Periodic self-heal re-broadcast while grouped, covers anyone who
+-- joined late or missed the last broadcast.
 C_Timer.NewTicker(BROADCAST_INTERVAL, function()
     if HasGroup and HasGroup() then
         BroadcastAbilitySync()
     end
 end)
 
--- -------------------------------------------------------------
--- /kcdsyncdebug - toggles the print output above so send/receive activity
--- can be watched live in chat. Also immediately force-broadcasts once so
--- you can confirm sending works without waiting for the next trigger.
--- -------------------------------------------------------------
+-- /kcdsyncdebug - toggles print output and force-broadcasts once.
 SLASH_KASTACDSYNCDEBUG1 = "/kcdsyncdebug"
 SlashCmdList["KASTACDSYNCDEBUG"] = function()
     debugPrints = not debugPrints

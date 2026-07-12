@@ -1,37 +1,17 @@
--- =============================================================
--- KastaCD_UI.lua
--- Settings menu bootstrap. The actual options table (every panel,
--- slider, toggle, and picker) lives in KastaCD_Options.lua and is
--- rendered by the bundled AceConfig-3.0/AceGUI-3.0 framework - this
--- file just registers it and exposes kcdMenu / CreateKastaCDMenu()
--- for KastaCD_Events.lua's /kcd slash handler, unchanged.
+-- KastaCD_UI.lua - settings menu bootstrap. The options table lives in
+-- KastaCD_Options.lua and is rendered by AceConfig-3.0/AceGUI-3.0; this
+-- file registers it and exposes kcdMenu / CreateKastaCDMenu() for the
+-- /kcd slash handler.
 -- Depends on: KastaCD_DB.lua, KastaCD_Options.lua, KastaCD_libs.xml
--- =============================================================
 
 -- Exposed so KastaCD_Events.lua can call them from the slash handler
 kcdMenu                = nil
 refreshClassPanelsFns  = {}
 
--- =============================================================
--- Defensive DB normalization
--- ---------------------------------------------------------------
--- This file used to assume KastaCD_DB.lua had already fully populated
--- KastaCDDB (offsetX, iconSize, contentTypes, etc.)
--- by the time CreateKastaCDMenu() ran. That's true for an existing
--- install whose SavedVariables already have every field, but it's
--- NOT guaranteed for:
---   - a brand new install (no KastaCDDB on disk yet)
---   - someone upgrading from an older save shape missing newer fields
---     like new fields added in later versions
---   - any case where the other files' ADDON_LOADED-triggered init
---     didn't run before /kcd was typed
--- When any of those fields were nil, widgets like
--- Slider:SetValue(nil) threw immediately, aborting CreateKastaCDMenu
--- before kcdMenu ever got assigned - which is exactly why /kcd worked
--- for the author (whose DB already had every field) but silently
--- failed for other users. This function makes the menu self-healing
--- regardless of what the other files did or didn't set up.
--- =============================================================
+-- Defensive DB normalization: a brand new install, an upgrade from an
+-- older save shape, or a /kcd typed before other files' ADDON_LOADED
+-- init ran can all leave KastaCDDB fields nil, which crashes widgets
+-- like Slider:SetValue(nil). Makes the menu self-healing regardless.
 local function EnsureMenuDBDefaults()
     if type(KastaCDDB) ~= "table" then KastaCDDB = {} end
 
@@ -67,23 +47,15 @@ local function EnsureMenuDBDefaults()
     if KastaCDDB.showIconBorders   == nil     then KastaCDDB.showIconBorders = false end
 end
 
--- =============================================================
--- EnsureOptionsRegistered  –  registers the AceConfig options table and
--- embeds it into Blizzard's own ESC > Interface > AddOns category list,
--- so KastaCD shows up there too instead of only being reachable via
--- /kcd's standalone popup. Split out from CreateKastaCDMenu (below) and
--- called unconditionally at the bottom of this file so the AddOns-list
--- entry exists from login, not only after /kcd has been typed once.
--- =============================================================
+-- Registers the AceConfig options table and embeds it into Blizzard's
+-- ESC > Interface > AddOns list. Called unconditionally at file bottom
+-- so the entry exists from login, not only after /kcd is typed.
 local optionsRegistered = false
 local function EnsureOptionsRegistered()
     if optionsRegistered then return end
     optionsRegistered = true
 
-    -- Must run before BuildKastaCDOptions()'s get/set closures touch
-    -- KastaCDDB.* - see the big comment on EnsureMenuDBDefaults above
-    -- for why this is the actual fix for "menu works for me, not for
-    -- other users."
+    -- Must run before BuildKastaCDOptions()'s get/set closures touch KastaCDDB.*.
     EnsureMenuDBDefaults()
 
     local AceConfig       = LibStub("AceConfig-3.0")
@@ -92,28 +64,14 @@ local function EnsureOptionsRegistered()
     AceConfig:RegisterOptionsTable("KastaCD", BuildKastaCDOptions())
     AceConfigDialog:SetDefaultSize("KastaCD", 860, 620)
     AceConfigDialog:AddToBlizOptions("KastaCD", "KastaCD")
-    -- No forced default-tab selection - the sidebar naturally lands on
-    -- whichever entry sorts first by `order`, which is "Info" (order=5).
 end
 
--- =============================================================
--- RefreshKastaCDOptionsTable  –  rebuilds the ENTIRE registered options
--- table from scratch and forces any open dialog to re-render.
---
--- AceConfig's `args` on a group must be a plain table, never a function
--- (AceConfigRegistry's validator enforces this), so a group whose row
--- count actually changes at runtime - like KastaPlates' per-dungeon,
--- per-NPC list, which grows/shrinks as the user adds/removes entries -
--- can't just rely on `hidden`/`get`/`set` closures re-evaluating (that
--- only updates EXISTING rows, e.g. the CC Tracker's class filter
--- buttons). The whole table has to be thrown away and rebuilt fresh from
--- the current SavedVariables, then re-registered under the same name -
--- AceConfig:RegisterOptionsTable simply replaces whatever was already
--- registered for that name. Call this after any add/remove to a dynamic
--- list, not after a plain value change (toggles/sliders/etc. already
--- update live via their own get/set - this is comparatively expensive
--- and only needed when the SHAPE of the table changed).
--- =============================================================
+-- Rebuilds the entire registered options table and forces any open
+-- dialog to re-render. AceConfig's `args` must be a plain table, so a
+-- group whose row count changes at runtime (e.g. KastaPlates' per-NPC
+-- list) has to be thrown away and rebuilt, not just re-evaluated via
+-- get/set closures. Call after add/remove to a dynamic list, not after
+-- a plain value change (those already update live).
 function RefreshKastaCDOptionsTable()
     if not optionsRegistered then return end
     local AceConfig       = LibStub("AceConfig-3.0")
@@ -122,9 +80,7 @@ function RefreshKastaCDOptionsTable()
     AceConfigRegistry:NotifyChange("KastaCD")
 end
 
--- =============================================================
--- CreateKastaCDMenu  –  materialize the /kcd standalone popup (once)
--- =============================================================
+-- Materializes the /kcd standalone popup (once).
 function CreateKastaCDMenu()
     if kcdMenu then return end
 
@@ -132,30 +88,16 @@ function CreateKastaCDMenu()
 
     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
-    -- AceConfigDialog's standalone "Frame" window releases its underlying
-    -- AceGUI widget back into the shared widget pool the instant it's
-    -- hidden (AceGUIContainer-Frame.lua wires the real frame's OnHide
-    -- script straight to that release), so holding on to a raw widget
-    -- reference across repeated show/hide cycles isn't safe - it can be
-    -- silently handed off to a completely different widget afterwards.
-    -- kcdMenu is instead a thin shim over AceConfigDialog's documented
-    -- Open/Close API, which re-creates the frame on demand. The /kcd
-    -- slash handler in KastaCD_Events.lua only ever calls
-    -- :IsShown()/:Hide()/:Show() on it, so this swap is transparent.
+    -- AceConfigDialog's standalone Frame window releases its widget back
+    -- into the shared pool on hide, so holding a raw reference isn't
+    -- safe. kcdMenu is a thin shim over AceConfigDialog's Open/Close API instead.
     kcdMenu = {
         IsShown = function() return AceConfigDialog.OpenFrames["KastaCD"] ~= nil end,
-        -- Reverted: passing "settings" as a path here made AceConfigDialog
-        -- drop straight into that sub-page instead of opening the full
-        -- app (with its sidebar tree of Info/Party Cooldowns/Tracker
-        -- Bars/Misc/Profiles) - a completely different, broken-looking
-        -- window compared to the normal /kcd experience. Back to the
-        -- plain call; the sidebar's first entry by order (now "Info")
-        -- is selected on open, same as it's always worked.
         Show    = function() AceConfigDialog:Open("KastaCD") end,
         Hide    = function() AceConfigDialog:Close("KastaCD") end,
     }
 end
 
--- Registers the options table (and the Interface Options AddOns-list
--- entry) immediately, so the category exists even if /kcd is never typed.
+-- Registers the options table (and Interface Options entry) immediately,
+-- so the category exists even if /kcd is never typed.
 EnsureOptionsRegistered()

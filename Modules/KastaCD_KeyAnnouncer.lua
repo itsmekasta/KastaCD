@@ -1,32 +1,10 @@
--- =============================================================
--- KastaCD_KeyAnnouncer.lua
---
--- Backported from the standalone "MythicKeyAnnouncer" addon (Anahkas) -
--- responds to "keys please" in party/raid/instance/guild chat (or /kcdkeys)
--- by announcing your currently-owned Mythic Keystone's dungeon and
--- level. Lives in the Keystone Helper section (KastaCD_Options.lua)
--- alongside Ready Check/Pull Timer/Mob Count.
---
--- MythicKeyAnnouncer targets modern retail (C_MythicPlus namespace,
--- which doesn't exist in Legion 7.3.5) and detects keystones via the
--- |Hkeystone: link type introduced in a later expansion. Legion's
--- Mythic Keystone is a plain item instead (a shared base item ID with
--- per-dungeon bonus data), so detection reuses
--- KastaCD_Keystone.lua's existing FindKeystoneBagSlot() (name-substring
--- match, not a hardcoded ID) and derives the dungeon name from the
--- item's own display name ("Keystone: <Dungeon>").
---
--- The keystone LEVEL isn't exposed by any Legion API the way retail's
--- C_MythicPlus.GetOwnedKeystoneLevel() does, so it's read from the
--- item's own tooltip text instead (best-effort pattern match on a
--- "Level %d" line, matching the wording shown on the Font of Power
--- keystone frame itself). Run /kcdkeysdebug while holding a keystone to
--- dump every tooltip line if the level ever comes back wrong/missing,
--- so the pattern can be corrected against what this server's client
--- actually shows instead of guessing further.
---
+-- KastaCD_KeyAnnouncer.lua - responds to "keys please" in chat (or
+-- /kcdkeys) by announcing your owned Mythic Keystone's dungeon and level.
+-- Legion's keystone is a plain item (no |Hkeystone: link type), so
+-- detection reuses KastaCD_Keystone.lua's FindKeystoneBagSlot(). Level
+-- isn't exposed by any Legion API, so it's read from the item's tooltip
+-- text via pattern match (/kcdkeysdebug dumps tooltip lines if it's wrong).
 -- Depends on: KastaCD_Keystone.lua (FindKeystoneBagSlot, GetKeystoneDB).
--- =============================================================
 
 function GetKeyAnnouncerDB()
     KastaCDDB = KastaCDDB or {}
@@ -44,29 +22,18 @@ function GetKeyAnnouncerDB()
     return db
 end
 
--- "keys please" (the original MythicKeyAnnouncer trigger) doesn't work on this
--- server - confirmed live: sending it produced a "no such command" reply,
--- meaning the server itself intercepts "!"-prefixed chat as a custom
--- command attempt before it ever reaches other players as normal chat,
--- so nobody's CHAT_MSG_PARTY handler ever saw it. Plain words with no
--- special prefix character pass through fine.
+-- A "!"-prefixed trigger doesn't work on this server (server intercepts
+-- it as a command attempt); plain words pass through fine.
 local TRIGGER_TEXT = "keys please"
 
--- -------------------------------------------------------------
 -- Keystone info (dungeon name + level)
--- -------------------------------------------------------------
 local hiddenTooltip = CreateFrame("GameTooltip", "KastaCDKeyAnnouncerTooltip", nil, "GameTooltipTemplate")
 hiddenTooltip:SetOwner(UIParent, "ANCHOR_NONE")
 
--- Reads BOTH the dungeon name and the level from a single tooltip scan.
--- GetItemInfo(link) was tried first for the name, but it can return nil
--- on a fresh session before the server has answered the async item-info
--- request (a well-known WoW quirk) - confirmed live: the level parsed
--- fine from the tooltip while GetItemInfo's name lookup came back nil at
--- the same moment. The tooltip itself doesn't have that problem (SetBagItem
--- forces a render), so the item's own display name (tooltip line 1,
--- "Keystone: <Dungeon>") is used for the name too instead of relying on
--- a second, less reliable source.
+-- Reads both the dungeon name and level from one tooltip scan.
+-- GetItemInfo(link) can return nil on a fresh session before the server
+-- answers the async item-info request; SetBagItem forces a render, so
+-- the tooltip's own display name (line 1) is used instead.
 local function ScanKeystoneTooltip(bag, slot)
     hiddenTooltip:ClearLines()
     hiddenTooltip:SetBagItem(bag, slot)
@@ -101,9 +68,7 @@ function GetOwnedKeystoneInfo()
     }
 end
 
--- -------------------------------------------------------------
 -- Message building / sending
--- -------------------------------------------------------------
 local function BuildAnnounceMessage()
     local info = GetOwnedKeystoneInfo()
     if not info then
@@ -164,12 +129,8 @@ function AnnounceKeystone(force, preferredChannel)
     SendChatMessage(BuildAnnounceMessage(), chatType)
 end
 
--- -------------------------------------------------------------
--- "keys please" chat trigger + cooldown/spam protection - one combined
--- cooldown applied both globally and per-sender (simpler than the
--- original's three separate cooldown knobs; KastaCD's other trackers
--- follow the same "fewer knobs" convention).
--- -------------------------------------------------------------
+-- "keys please" chat trigger + spam protection: one combined cooldown
+-- applied both globally and per-sender.
 local lastGlobalAnnounce = 0
 local lastSenderAnnounce = {}   -- [senderShort] = time
 
@@ -188,11 +149,8 @@ local function MarkResponded(senderShort)
     lastSenderAnnounce[senderShort] = now
 end
 
--- -------------------------------------------------------------
--- Semi-auto confirmation prompt - shown instead of auto-announcing when
--- Response Mode is "Semi-Auto", so you can confirm before your keystone
--- gets broadcast. Auto-dismisses after 10s.
--- -------------------------------------------------------------
+-- Semi-auto confirmation prompt, shown instead of auto-announcing when
+-- Response Mode is "Semi-Auto". Auto-dismisses after 10s.
 local promptFrame
 
 local function HidePrompt()
@@ -253,12 +211,8 @@ local function ShowPrompt(senderShort)
     end)
 end
 
--- -------------------------------------------------------------
--- Login reminder - the trigger phrase otherwise only appears in options
--- tooltips, which nobody sees without deliberately hovering each one.
--- Printed once per login (not on every zone change) so it's visible
--- without ever having to open the settings menu at all.
--- -------------------------------------------------------------
+-- Login reminder, printed once per login since the trigger phrase
+-- otherwise only appears in options tooltips.
 local remindedThisSession = false
 local function PrintLoginReminder()
     if remindedThisSession then return end
@@ -268,9 +222,7 @@ local function PrintLoginReminder()
     print(("|cff71d5ffKastaCD Key Announcer:|r type |cffffd200%s|r in party/raid/instance/guild chat (no slash, just plain text) to have it announce your Mythic Keystone."):format(TRIGGER_TEXT))
 end
 
--- -------------------------------------------------------------
 -- Events
--- -------------------------------------------------------------
 local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 for _, e in ipairs({
@@ -281,11 +233,8 @@ for _, e in ipairs({
 }) do
     watcher:RegisterEvent(e)
 end
--- Matches "keys please" ANYWHERE in the message (not an exact full-message
--- match) - a private server can relay chat with extra whitespace/
--- punctuation intact, and an exact match would silently miss those.
--- Anything that doesn't contain it at all is ignored completely with no
--- output, so normal chat traffic doesn't get spammed with prints below.
+-- Matches "keys please" anywhere in the message, not an exact match, since
+-- a private server can relay chat with extra whitespace/punctuation intact.
 watcher:SetScript("OnEvent", function(_, event, message, sender)
     if event == "PLAYER_ENTERING_WORLD" then
         PrintLoginReminder()
@@ -296,9 +245,7 @@ watcher:SetScript("OnEvent", function(_, event, message, sender)
     local db = GetKeyAnnouncerDB()
     local senderShort = (Ambiguate and Ambiguate(sender, "short")) or sender
 
-    -- From here on, "keys please" was definitely seen - print WHY it did or
-    -- didn't get a response instead of failing silently, so a "why isn't
-    -- this working" report has an immediate, concrete answer.
+    -- Print why it did or didn't get a response instead of failing silently.
     if not db.enabled or not db.triggerEnabled then
         print(("|cffff8000KastaCD KeyAnnouncer:|r saw \"keys please\" from %s but the announcer or its chat trigger is disabled in Settings."):format(tostring(senderShort)))
         return
@@ -321,13 +268,8 @@ watcher:SetScript("OnEvent", function(_, event, message, sender)
     end
 end)
 
--- -------------------------------------------------------------
--- /kcdkeys - manual announce. /kcdkeys guild forces guild chat.
--- /kcdkeys test previews the message without sending it.
--- /kcdkeys ask actually SENDS the literal "keys please" text to chat, so
--- everyone else's KastaCD trigger fires - plain /kcdkeys only ever
--- announces YOUR OWN key, it was never the thing that asks others.
--- -------------------------------------------------------------
+-- /kcdkeys - manual announce. guild forces guild chat, test previews
+-- without sending, ask sends the literal trigger text so others respond.
 SLASH_KASTACDKEYS1 = "/kcdkeys"
 SlashCmdList["KASTACDKEYS"] = function(msg)
     local arg = (msg or ""):match("^%s*(.-)%s*$"):lower()
@@ -347,12 +289,7 @@ SlashCmdList["KASTACDKEYS"] = function(msg)
     end
 end
 
--- =============================================================
--- Debug helper: /kcdkeysdebug - dumps every line of the owned
--- keystone's tooltip, so the level-parsing pattern above can be
--- corrected against what this server's client actually shows instead of
--- guessing further.
--- =============================================================
+-- /kcdkeysdebug - dumps every line of the owned keystone's tooltip.
 SLASH_KASTACDKEYSDEBUG1 = "/kcdkeysdebug"
 SlashCmdList["KASTACDKEYSDEBUG"] = function()
     local bag, slot = FindKeystoneBagSlot()

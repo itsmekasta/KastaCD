@@ -1,28 +1,11 @@
--- =============================================================
--- KastaCD_AffixCallouts.lua
---
--- Warns about time-critical Mythic+ affix mechanics: Explosive orb
--- spawns and the Quaking debuff. Detects by matching the in-game UNIT
--- NAME / aura NAME text rather than a hardcoded numeric spell/NPC ID -
--- checked both GottaGoFast and ExRT directly for a reusable spell-ID
--- table (the way LibObjectiveProgress-1.0 supplied one for Mob Count)
--- and neither has one; GottaGoFast only reads which affixes are active
--- this week via Blizzard's own API, never individual mechanics. Display
--- names ("Explosive Orb", "Quaking") are what's actually shown in-game
--- and reliable; numeric IDs guessed from memory are not - this project
--- has already been burned by that once (KastaCD_Keystone.lua's frame
--- name mixup).
---
--- Only active during a real Mythic Keystone run (difficulty ID 8 +
--- C_ChallengeMode.GetActiveChallengeMapID()), matching
--- KastaCD_MobCount.lua's same gate.
---
--- Ship small, verify, expand: starts with just these two mechanics.
--- Run /kcdaffixdebug to dump exactly what's currently detected (nearby
--- unit names, your own aura names) so any mismatch against what Blizzard
--- actually calls things on this server is obvious immediately instead of
--- silently never firing.
--- =============================================================
+-- KastaCD_AffixCallouts.lua - warns about time-critical Mythic+ affix
+-- mechanics: Explosive orb spawns and the Quaking debuff. Detects by
+-- matching in-game unit/aura NAME text rather than a numeric spell/NPC
+-- ID, since no addon has a reusable ID table for these and names are
+-- reliable while guessed IDs aren't.
+-- Only active during a real Mythic Keystone run (difficulty 8 +
+-- C_ChallengeMode.GetActiveChallengeMapID()).
+-- Run /kcdaffixdebug to dump exactly what's currently detected.
 
 function GetAffixCalloutDB()
     KastaCDDB = KastaCDDB or {}
@@ -43,8 +26,7 @@ local function IsInMythicPlus()
     return difficultyID == 8 and C_ChallengeMode.GetActiveChallengeMapID() ~= nil
 end
 
--- Big centered screen text, same mechanism boss-mod addons (BigWigs/DBM)
--- use for raid warnings - standard, always-available Blizzard frame.
+-- Big centered screen text, same mechanism boss-mod addons use for raid warnings.
 local function BigWarning(msg)
     if RaidNotice_AddMessage and RaidWarningFrame then
         RaidNotice_AddMessage(RaidWarningFrame, msg, ChatTypeInfo["RAID_WARNING"])
@@ -55,11 +37,8 @@ local function BigWarning(msg)
     print("|cffff4444KastaCD Affix:|r " .. msg)
 end
 
--- -------------------------------------------------------------
--- Explosive - watches new nameplate units for the literal name
--- "Explosive Orb". Warns once per orb (tracked by GUID) so it doesn't
--- repeat every time the plate briefly re-adds.
--- -------------------------------------------------------------
+-- Explosive: watches new nameplate units for the literal name "Explosive
+-- Orb". Warns once per orb (tracked by GUID).
 local warnedExplosiveGUIDs = {}
 
 local function CheckExplosiveUnit(unitToken)
@@ -76,12 +55,8 @@ local function CheckExplosiveUnit(unitToken)
     BigWarning("Explosive Orb!")
 end
 
--- -------------------------------------------------------------
--- Quaking - watches the player's own aura list for a debuff literally
--- named "Quaking". When it pops it deals damage split among everyone
--- within range and interrupts their casts, so the warning tells you to
--- spread out.
--- -------------------------------------------------------------
+-- Quaking: watches the player's own aura list for a debuff named
+-- "Quaking", which deals split damage and interrupts casts.
 local hasQuaking = false
 
 local function CheckOwnQuaking()
@@ -105,9 +80,7 @@ local function CheckOwnQuaking()
     end
 end
 
--- -------------------------------------------------------------
 -- Events
--- -------------------------------------------------------------
 local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 watcher:RegisterEvent("UNIT_AURA")
@@ -127,15 +100,7 @@ watcher:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
--- =============================================================
--- Debug helper: /kcdaffixdebug - dumps every nearby nameplate unit's
--- name (to confirm "Explosive Orb" really is the literal name this
--- server uses) and every debuff currently on the player (to confirm
--- "Quaking" really is the literal aura name) - run this while actually
--- looking at an Explosive orb / while Quaking is active on you, so any
--- mismatch is immediately visible instead of the callout just silently
--- never firing.
--- =============================================================
+-- /kcdaffixdebug - dumps nearby nameplate names and player debuffs.
 SLASH_KASTACDAFFIXDEBUG1 = "/kcdaffixdebug"
 SlashCmdList["KASTACDAFFIXDEBUG"] = function()
     print("|cff00ff00KastaCD Affix Debug|r -- IsInMythicPlus: " .. tostring(IsInMythicPlus()))

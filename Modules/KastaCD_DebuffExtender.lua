@@ -1,25 +1,13 @@
--- =============================================================
--- KastaCD_DebuffExtender.lua
--- Extends Blizzard's own CompactUnitFrame debuff row from 3 up to 12
--- icons (two stacked rows of 6) on party frames (including raid-style
--- party layout), reusing the native CompactDebuffTemplate buttons so
--- cooldown swipes, tooltips, dispel coloring, and stack text all keep
--- working exactly like the default 3-icon row.
+-- KastaCD_DebuffExtender.lua - extends Blizzard's CompactUnitFrame
+-- debuff row from 3 to 12 icons (two stacked rows of 6) on party frames,
+-- reusing native CompactDebuffTemplate buttons.
 -- Depends on: KastaCD_DB.lua (KastaCDDB must exist)
 --
--- RUNTIME DISABLED: confirmed live that writing to f.maxDebuffs/
--- f.debuffFrames on a real CompactRaidFrame taints it even as a plain
--- field write (not a function call) - Blizzard's own protected raid-
--- frame layout code (FlowContainer_DoLayout) later reads that same data
--- to decide how to reposition the frame, and gets blocked from calling
--- ClearAllPoints() on frames this feature had touched. Modifying data a
--- protected code path later acts on is apparently enough to taint it,
--- regardless of how the modification happens - this feature's whole
--- approach (writing into Blizzard's own CompactUnitFrame debuff-tracking
--- fields) needs a fundamentally different design (e.g. an addon-owned
--- overlay drawn next to the frame, never touching frame.debuffFrames at
--- all) before it can be safely re-enabled.
--- =============================================================
+-- RUNTIME DISABLED: writing to f.maxDebuffs/f.debuffFrames on a real
+-- CompactRaidFrame taints it even as a plain field write - Blizzard's
+-- protected raid-frame layout code later reads that data and gets
+-- blocked from calling ClearAllPoints(). Needs a different design (an
+-- addon-owned overlay, never touching frame.debuffFrames) before re-enabling.
 local KCD_DEBUFF_EXTENDER_RUNTIME_DISABLED = true
 
 function GetDebuffExtenderDB()
@@ -109,9 +97,7 @@ hooksecurefunc("CompactUnitFrame_UpdateDebuffs", function(f)
     ApplyExtendedDebuffs(f)
 end)
 
--- Re-apply immediately on toggle/roster change - calls ApplyExtendedDebuffs
--- directly (KastaCD's own function, not Blizzard's), never
--- CompactUnitFrame_UpdateDebuffs itself.
+-- Re-apply immediately on toggle/roster change.
 function RefreshDebuffExtender()
     if KCD_DEBUFF_EXTENDER_RUNTIME_DISABLED then return end
     local db = GetDebuffExtenderDB()

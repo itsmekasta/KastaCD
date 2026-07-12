@@ -1,23 +1,13 @@
--- =============================================================
--- KastaCD_DebuffDisplay.lua
--- User-defined DEBUFF watch list - same mechanism as
--- KastaCD_BuffDisplay.lua (tracks real aura PRESENCE via UnitAura rather
--- than a curated spell database or a witnessed cast), scoped to HARMFUL
--- auras only. Debuffs don't map cleanly onto a caster's class the way
--- buffs mostly do (a DoT/boss mechanic isn't "a Warlock spell" the way
--- Ironbark is "a Druid spell"), so instead of auto-sorted class tabs this
--- uses user-created, freely renamable categories - the user organizes
--- their own watch list however makes sense to them.
--- Depends on: KastaCD_DB.lua, KastaCD_Tracking.lua (FindUnitFrames,
--- ShowProcGlow/HideProcGlow, HasGroup, IsRaidUnit)
--- =============================================================
+-- KastaCD_DebuffDisplay.lua - user-defined HARMFUL-aura watch list, same
+-- UnitAura-presence mechanism as KastaCD_BuffDisplay.lua. Debuffs don't
+-- map cleanly to a caster's class, so this uses user-created renamable
+-- categories instead of auto-sorted class tabs.
+-- Depends on: KastaCD_DB.lua, KastaCD_Tracking.lua
 
 local PARTY_UNITS = { "player", "party1", "party2", "party3", "party4" }
 
--- Party by default; raid1-N instead while genuinely in a raid AND the
--- user has opted in via this feature's OWN "Show in Raid Groups" toggle -
--- independent of both the main tracker's and Buff Display's own toggles
--- of the same name.
+-- Party by default; raid1-N while in a raid and this feature's own
+-- "Show in Raid Groups" toggle is on (independent of the other trackers').
 local function GetDebuffDisplayUnits()
     local db = GetDebuffDisplayDB()
     if IsInRaid and IsInRaid() and db.showInRaidGroups then
@@ -46,15 +36,10 @@ function GetDebuffDisplayDB()
     if db.showInRaidGroups == nil then db.showInRaidGroups = false end
     if db.growDirection == nil then db.growDirection = "CENTER" end
     if db.showIconBorders == nil then db.showIconBorders = false end
-    -- User-managed categories (no auto class-detection for debuffs - see
-    -- file header) - id-keyed so renaming a category never has to touch
-    -- every entry that references it. id=0 is reserved ("Uncategorized",
-    -- always exists, never removable) for anything not yet sorted into a
-    -- real category.
+    -- User-managed categories, id-keyed. id=0 is reserved ("Uncategorized").
     if type(db.categories) ~= "table" then db.categories = {} end
     if db.nextCategoryId == nil then db.nextCategoryId = 1 end
-    -- Backfill entries added before aura-matching switched to name-based
-    -- (see ScanUnitAura) - a no-op once every entry has a name.
+    -- Backfill entries added before name-based aura matching (ScanUnitAura).
     for spellId, entry in pairs(db.list) do
         if not entry.name and GetSpellInfo then
             entry.name = GetSpellInfo(spellId)
@@ -82,9 +67,7 @@ function RenameDebuffDisplayCategory(id, newName)
     if db.categories[id] then db.categories[id] = newName end
 end
 
--- Only removes an EMPTY category (no watched spell currently assigned to
--- it) - simpler and safer than silently reassigning its spells somewhere
--- else. Returns true on success, false + reason on failure.
+-- Only removes an empty category. Returns true on success, false + reason.
 function RemoveDebuffDisplayCategory(id)
     local db = GetDebuffDisplayDB()
     if not db.categories[id] then return false, "Category doesn't exist." end
@@ -105,28 +88,12 @@ function SetDebuffDisplaySpellCategory(spellId, categoryId)
     entry.categoryId = categoryId
 end
 
--- =============================================================
--- Rename-a-category-tab-by-clicking-it
---
--- KASTACD_TabRenameClick is a generic hook the KastaCD-local patch in
--- AceGUIContainer-TabGroup.lua calls whenever an ALREADY-selected tab
--- gets left-clicked again (stock AceGUI does nothing for that click) -
--- see that file's Tab_OnClick for the full rationale. It passes through
--- the clicked tab's raw arg-table key (e.g. "category_5", matching
--- BuildDebuffDisplayCategoryTab's args["category_" .. id] in
--- KastaCD_Options.lua) with no KastaCD-specific knowledge on the widget
--- side - this function is what actually interprets it and only reacts
--- when it's a real, renamable Debuff Display category (not id 0/
--- Uncategorized, and not some other addon section's tab, which simply
--- won't match the pattern below).
--- -------------------------------------------------------------
--- Registration deferred to the moment it's actually needed (inside
--- KASTACD_TabRenameClick) rather than unconditionally at file load -
--- writing this entry into Blizzard's own StaticPopupDialogs global table
--- at load time caused a persistent taint report blocking unrelated
--- protected actions. Registering it lazily, only the first time a
--- category is actually renamed, avoids that while keeping the feature
--- fully intact.
+-- Rename-a-category-tab-by-clicking-it. KASTACD_TabRenameClick is called
+-- by the KastaCD-local AceGUIContainer-TabGroup.lua patch whenever an
+-- already-selected tab is clicked again; only reacts to a real,
+-- renamable category (not id 0/Uncategorized or another section's tab).
+-- Popup registration is deferred to first use, not file load - writing
+-- into StaticPopupDialogs at load time caused a persistent taint report.
 local kastaRenamePopupRegistered = false
 local function EnsureRenamePopupRegistered()
     if kastaRenamePopupRegistered then return end
@@ -167,17 +134,9 @@ function KASTACD_TabRenameClick(tabValue)
     StaticPopup_Show("KASTACD_RENAME_DEBUFF_CATEGORY", nil, nil, { categoryId = id, currentName = currentName })
 end
 
--- GetSpellInfo(name) only resolves a NAME the client has already cached
--- locally (from the player's own spellbook, or having tooltip-scanned it
--- this session) - it's not a real search. That's fine for most buffs
--- (usually cast by someone, so their client at least has seen it), but a
--- lot of debuffs are pure side-effects nobody ever "casts" (Forbearance
--- from Divine Shield/Lay on Hands/Hand of Protection, Weakened Soul from
--- Power Word: Shield, Bloodlust's exhaustion debuff, etc.) and the name
--- lookup can fail even though the spellId itself works fine. Small
--- curated fallback so typing the plain name for these still works instead
--- of forcing "type the exact ID instead" - not exhaustive, just the
--- common ones someone would realistically type without knowing the ID.
+-- GetSpellInfo(name) only resolves names the client has already cached
+-- locally, which fails for pure side-effect debuffs nobody ever casts
+-- (Forbearance, Weakened Soul, etc.). Curated fallback for common ones.
 local COMMON_DEBUFF_IDS = {
     ["forbearance"]      = 25771,
     ["weakened soul"]    = 6788,
@@ -187,20 +146,15 @@ local COMMON_DEBUFF_IDS = {
     ["weakened blows"]   = 115798,
 }
 
--- Resolves a user-typed spell ID or exact spell name to a real spellId,
--- and adds it to the watch list with sensible defaults. Returns
--- true, name on success or false, errorMessage on failure - callers
--- (the options UI) show errorMessage back to the user rather than
--- silently no-op'ing on a bad entry.
+-- Resolves a user-typed spell ID/name and adds it to the watch list.
+-- Returns true, name on success or false, errorMessage on failure.
 function AddDebuffDisplaySpell(input)
     input = strtrim and strtrim(tostring(input or "")) or tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if input == "" then return false, "Enter a spell ID or name." end
 
     if not GetSpellInfo then return false, "Spell lookup unavailable." end
-    -- Deliberately NOT "GetSpellInfo and GetSpellInfo(input)" here - the
-    -- `and` short-circuit idiom collapses a multi-return call down to
-    -- just its first value, which would silently leave spellId (the 7th
-    -- return) nil on every single call.
+    -- Not "GetSpellInfo and GetSpellInfo(input)" - `and` would collapse
+    -- the multi-return call down to just its first value.
     local name, _, _, _, _, _, spellId = GetSpellInfo(input)
     if not name or not spellId then
         local fallbackId = COMMON_DEBUFF_IDS[input:lower()]
@@ -239,11 +193,7 @@ function RemoveDebuffDisplaySpell(spellId)
     end
 end
 
--- -------------------------------------------------------------
--- Icon frames  –  one per (unit, spellId) pair, created lazily and
--- reused for the lifetime of the session (cheap to keep around, just
--- Hide()/Show()'d as auras come and go).
--- -------------------------------------------------------------
+-- Icon frames: one per (unit, spellId) pair, created lazily and reused.
 ddIcons  = {}   -- [unit][spellId] = frame
 local ddActive = {}   -- [unit][spellId] = { expirationTime, duration } - only while shown
 
@@ -298,24 +248,10 @@ function HideAllDebuffDisplayIcons()
     end
 end
 
--- Scans one unit's DEBUFFS only (unlike Buff Display, which checks both
--- HELPFUL and HARMFUL - this feature is deliberately debuff-only, see
--- file header) for the given spell. Matches by NAME first when
--- available - this server can report a different spellId on the live
--- UnitAura than GetSpellInfo resolved when the entry was added.
---
--- This client's UnitAura returns the OLDER (pre-Legion-trim) signature:
--- name, rank, icon, count, debuffType, duration, expirationTime, caster,
--- isStealable, shouldConsolidate, spellId (confirmed via
--- KastaCD_BuffDisplay.lua's /kcdbuffdebug investigation) - the extra
--- "rank" return shifts every value after name up by one compared to the
--- modern signature.
---
--- Returns expirationTime, duration, found - found is true whenever a
--- matching debuff was located, even if expirationTime/duration came back
--- as 0/nil (some debuffs are genuinely permanent/no-duration). Distinct
--- from expirationTime itself so callers can tell "found, but no real
--- timer data" apart from "not present at all".
+-- Scans one unit's HARMFUL auras only for the given spell. Matches by
+-- name first when available. This client's UnitAura uses the older
+-- signature with an extra "rank" return, shifting later values by one.
+-- Returns expirationTime, duration, found.
 local function ScanUnitDebuff(unit, spellId, watchName)
     for i = 1, 40 do
         local auraName, _, _, _, _, duration, expirationTime, _, _, _, sid = UnitAura(unit, i, "HARMFUL")
@@ -370,11 +306,7 @@ local function LayoutUnitDebuffIcons(mf, shown, offsetX, offsetY, growDirection)
     end
 end
 
--- -------------------------------------------------------------
--- RefreshDebuffDisplay  –  full re-scan of every watched spell against
--- every tracked unit. Same self-heal philosophy as
--- KastaCD_BuffDisplay.lua's RefreshBuffDisplay.
--- -------------------------------------------------------------
+-- Full re-scan of every watched spell against every tracked unit.
 function RefreshDebuffDisplay()
     local db = GetDebuffDisplayDB()
     if not db.enabled or not next(db.list) or not HasGroup() then
@@ -440,9 +372,7 @@ function RefreshDebuffDisplay()
     end
 end
 
--- -------------------------------------------------------------
--- Timer text ticker (0.2s) - purely cosmetic, mirrors Buff Display's own.
--- -------------------------------------------------------------
+-- Timer text ticker (0.2s) - cosmetic, mirrors Buff Display's own.
 C_Timer.NewTicker(0.2, function()
     local db = GetDebuffDisplayDB()
     if not db.enabled then return end
@@ -469,10 +399,7 @@ C_Timer.NewTicker(0.2, function()
     end
 end)
 
--- -------------------------------------------------------------
--- Self-heal ticker (1s) + UNIT_AURA - same cadence/philosophy as Buff
--- Display's own.
--- -------------------------------------------------------------
+-- Self-heal ticker (1s) + UNIT_AURA, mirrors Buff Display's own.
 C_Timer.NewTicker(1.0, function()
     if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
 end)
@@ -492,9 +419,7 @@ ddWatcher:SetScript("OnEvent", function(_, event, arg1)
     if type(RefreshDebuffDisplay) == "function" then RefreshDebuffDisplay() end
 end)
 
--- =============================================================
 -- /kcddebuffdebug - mirrors KastaCD_BuffDisplay.lua's /kcdbuffdebug.
--- =============================================================
 SLASH_KASTACDDEBUFFDEBUG1 = "/kcddebuffdebug"
 SlashCmdList["KASTACDDEBUFFDEBUG"] = function()
     local db = GetDebuffDisplayDB()

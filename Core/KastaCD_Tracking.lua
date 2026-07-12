@@ -1,25 +1,14 @@
--- =============================================================
--- KastaCD_Tracking.lua
--- Icon frame creation, grid layout, position anchoring,
--- icon-cluster rebuild, and the 0.1 s update ticker.
+-- KastaCD_Tracking.lua - icon frame creation, grid layout, position
+-- anchoring, icon-cluster rebuild, and the 0.1s update ticker.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua
--- =============================================================
 
--- -------------------------------------------------------------
--- Module-level state
--- -------------------------------------------------------------
 trackerState   = {}   -- [unit][spellId] = { frame, phase, endTime }
 memberGUIDs    = {}   -- [unit] = GUID
 iconContainers = {}   -- [unit] = { container, icons={} }
 
--- -------------------------------------------------------------
--- Draggable anchor frames (one per party slot)
---
--- Icons always attach to these anchors — no unit-frame detection
--- required. TrySnapAnchor() tries to position each anchor near its
--- real unit frame, but icons appear regardless. User can unlock and
--- drag them via Settings > Unlock Anchors when auto-snap fails.
--- -------------------------------------------------------------
+-- Draggable anchors (one per party slot). Icons always attach to these -
+-- TrySnapAnchor tries to snap near the real unit frame, but icons show
+-- regardless. Unlock/drag via Settings > Unlock Anchors.
 local PARTY_UNITS = { "player", "party1", "party2", "party3", "party4" }
 local kcdAnchors  = {}   -- [unit] = frame
 
@@ -27,14 +16,7 @@ function IsRaidUnit(unit)
     return unit ~= nil and unit:match("^raid%d+$") ~= nil
 end
 
--- Returns the unit tokens for the current group shape: the fixed
--- player/party1-4 list normally, or raid1-N (N = actual roster size)
--- while genuinely in a raid AND the user has opted in via Settings >
--- "Show in Raid Groups" (KastaCDDB.showInRaidGroups - off by default,
--- since a 40-member raid showing full cooldown icon clusters for
--- everyone is a deliberate, heavier opt-in, not the normal case).
--- Centralised here so every anchor/relayout/rebuild loop stays in sync
--- with whichever shape is actually active.
+-- player/party1-4 normally, or raid1-N while in a raid with "Show in Raid Groups" on.
 function GetGroupUnits()
     if IsInRaid and IsInRaid() and KastaCDDB and KastaCDDB.showInRaidGroups then
         local units = {}
@@ -47,11 +29,7 @@ function GetGroupUnits()
     return PARTY_UNITS
 end
 
--- Party members get KastaCDDB's normal offsetX/offsetY/iconSize/
--- iconsPerRow; raid members (see IsRaidUnit above) get their own
--- separate raidOffsetX/raidOffsetY/raidIconSize/raidIconsPerRow instead
--- - a 40-person raid usually wants smaller icons/different placement
--- than a 5-person party, so these are deliberately not shared.
+-- Raid members use their own separate raidOffsetX/raidIconSize/etc.
 function GetIconSettingsFor(unit)
     if IsRaidUnit(unit) then
         return KastaCDDB.raidIconSize, KastaCDDB.raidIconsPerRow,
@@ -64,10 +42,6 @@ end
 local function GetOrMakeAnchor(unit)
     if kcdAnchors[unit] then return kcdAnchors[unit] end
 
-    -- player = slot 0 (above party1 in default stacking); raidN uses the
-    -- same numbering scheme as partyN so the shared idx-based fallback
-    -- layout below (wrapped into columns of 8) still makes sense at
-    -- raid scale instead of just falling back to a single shared slot 1.
     local idx = unit == "player" and 0
         or (tonumber(unit:match("party(%d)")) or tonumber(unit:match("raid(%d+)")) or 1)
     local a   = CreateFrame("Frame", nil, UIParent)
@@ -91,9 +65,7 @@ local function GetOrMakeAnchor(unit)
         end
     end)
 
-    -- Orange square and label shown only when anchors are unlocked.
-    -- Hidden by default so newly created anchors don't appear unlocked
-    -- when KastaCDDB.anchorsLocked is true (e.g. on every fresh login).
+    -- Orange square/label shown only when anchors are unlocked.
     local dot = a:CreateTexture(nil, "BACKGROUND")
     dot:SetAllPoints()
     dot:SetColorTexture(1, 0.5, 0, 0.9)
@@ -115,12 +87,7 @@ local function GetOrMakeAnchor(unit)
         a:ClearAllPoints()
         a:SetPoint("TOPLEFT", UIParent, "TOPLEFT", saved.x / esc, saved.y / esc)
     else
-        -- Fallback spread, only used until a real frame is found to snap
-        -- to (TrySnapAnchor) or the user manually drags it. Wraps into a
-        -- new column every 8 rows so up to 40 raid anchors don't shoot
-        -- forty rows off-screen before ever getting a chance to
-        -- auto-snap - for idx 0-4 (the original party-sized case) col is
-        -- always 0, so this produces the exact same positions as before.
+        -- Fallback spread until a real frame is found or the user drags it.
         local col = math.floor(idx / 8)
         local row = idx % 8
         a:SetPoint("CENTER", UIParent, "CENTER", -130 + col * 160, (3 - row) * 55)
@@ -140,14 +107,11 @@ function ShowKastaCDAnchors()
             local a = GetOrMakeAnchor(u)
             a.dot:Show(); a.lbl:Show(); a:Show()
         else
-            -- Hide any stale anchor for this empty slot
             local a = kcdAnchors[u]
             if a then a:Hide() end
         end
     end
-    -- Hide dot/label left over from a different group shape (e.g.
-    -- switching from raid-mode back to a normal party) - GetGroupUnits()
-    -- above only returns whichever shape is CURRENTLY active.
+    -- Hide dot/label left over from a different group shape.
     for u, a in pairs(kcdAnchors) do
         if not wanted[u] then
             a.dot:Hide(); a.lbl:Hide()
@@ -180,21 +144,10 @@ function ApplyIconBorders()
     end
 end
 
--- Always tries to find the real unit frame and snap the anchor to it.
--- Falls back to saved/default position only when no frame is found.
---
--- Uses FindUnitFrames() as the sole detection path (ElvUI > CompactRaid >
--- vanilla > broad scan) rather than checking PartyMemberFrame1..4 first.
--- Those vanilla globals still exist even when ElvUI is active (just hidden),
--- so the old early-out was silently snapping to the wrong, off-screen frames.
--- Anchors directly to the found frame instead of computing absolute pixel
--- coords — direct SetPoint means the anchor follows the frame automatically
--- if it ever moves.
--- Returns true if a real unit frame was found and the anchor snapped to
--- it, false if it fell back to a saved/default position. RebuildIcons
--- uses this to hide the player's own icons entirely when their frame
--- can't be found (e.g. ElvUI's "show player in party frame" disabled) -
--- see the comment there for why that's player-specific.
+-- Snaps the anchor to the real unit frame (FindUnitFrames: ElvUI >
+-- CompactRaid > vanilla), falling back to saved/default position if none
+-- found. Returns true if it snapped - RebuildIcons uses this to hide the
+-- player's own icons when their frame can't be found.
 local function TrySnapAnchor(unit)
     local a = kcdAnchors[unit]
     if not a then return false end
@@ -206,16 +159,8 @@ local function TrySnapAnchor(unit)
         if pair.unit == unit then mf = pair.frame; break end
     end
 
-    -- For the player slot, fall back to the dedicated PlayerFrame global
-    -- when no unit-frame addon covers it (vanilla UI with no raid-style
-    -- frames) - but NEVER when ElvUI is active. ElvUI hides Blizzard's
-    -- default frames itself, and that hide isn't guaranteed to re-fire
-    -- identically on a same-session /reload vs a fresh login (a known
-    -- class of addon-interaction quirk) - so PlayerFrame:IsShown() can
-    -- read "true" after a reload even though ElvUI's actual config still
-    -- says "don't show player." When ElvUI owns unit frames, its own
-    -- detection above is the only source of truth for the player slot;
-    -- if it says no frame, that means no frame, full stop.
+    -- Fall back to PlayerFrame for the player slot, but never when ElvUI
+    -- is active - its own detection above is the only source of truth then.
     if not mf and unit == "player" and not _G.ElvUI then
         local pf = _G["PlayerFrame"]
         if pf and pf.IsShown and pf:IsShown() and pf.GetRight then mf = pf end
@@ -250,18 +195,12 @@ local function TrySnapAnchor(unit)
     return false
 end
 
--- -------------------------------------------------------------
--- Helpers
--- -------------------------------------------------------------
 function HasGroup()
     if IsInGroup then return IsInGroup() end
     return GetNumGroupMembers and GetNumGroupMembers() > 0
 end
 
--- Icons are hidden in raid groups by default (there'd normally be too
--- many members to anchor them to usefully), unless the user has
--- explicitly opted in via Settings > "Show in Raid Groups"
--- (KastaCDDB.showInRaidGroups, a global toggle - see KastaCD_DB.lua).
+-- Icons are hidden in raid groups by default unless "Show in Raid Groups" is on.
 function IsInPartyOnly()
     if IsInRaid and IsInRaid() then
         return KastaCDDB and KastaCDDB.showInRaidGroups == true
@@ -269,17 +208,10 @@ function IsInPartyOnly()
     return HasGroup()
 end
 
--- Glow helpers - shared by every glow in the addon (this tracker's own
--- icons, Buff Display, Debuff Display), so a single Settings > Glow Color
--- choice controls all of them.
---
--- Uses libs\LibCustomGlow-1.0's "Action Button Glow" - a recolorable
--- clone of Blizzard's own stock gold ActionButton_ShowOverlayGlow (same
--- textures/animation), visually IDENTICAL to stock when no custom color
--- is set. Deliberately NOT using that library's animated "Proc Glow"
--- style - it was tried first and reverted, since its flipbook loop
--- visibly restarts on a fixed cycle no matter how that cycle length was
--- tuned, which read as the glow "constantly refreshing".
+-- Glow helpers shared by every glow in the addon, controlled by one
+-- Settings > Glow Color choice. Uses LibCustomGlow's "Action Button
+-- Glow" (not the animated "Proc Glow" style - its flipbook loop visibly
+-- restarted on a fixed cycle, tried and reverted).
 function ShowProcGlow(f)
     if not f then return end
     local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
@@ -305,48 +237,14 @@ local function GetIconForSpell(spellId, fallbackIcon)
     return fallbackIcon or FALLBACK_ICON
 end
 
--- =============================================================
--- FindUnitFrames
---
--- THE PROBLEM THIS FIXES: KastaCD only ever looked for Blizzard's
--- default CompactRaidFrame1..40 globals. Unit-frame replacement
--- addons like ElvUI build their party/raid frames through the oUF
--- framework instead, so those globals are never populated the way
--- KastaCD expected, and it found zero usable frames.
---
--- THE FIX (verified against actual ElvUI source, not guessed):
--- ElvUI deliberately exposes its internal engine table as a GLOBAL
--- named "ElvUI" specifically so other addons can hook into it — this
--- is ElvUI's own documented integration pattern, the same one its
--- official plugin template uses:
---     local E = unpack(ElvUI)
---     local UF = E:GetModule('UnitFrames')
--- UF.headers is a live table keyed by group name ("party", "raid")
--- pointing at the real header frame for that group. Party's header
--- has no "Group" suffix (ElvUI spawns it directly via CreateHeader
--- with no sub-groups, since headerstoload.party has no numGroups
--- value); Raid's header in turn owns up to 3 child sub-headers
--- (.groups[1], .groups[2], .groups[3]) for its raid-group buckets.
--- Each individual member button is a secure-template child of
--- whichever of those header frames is relevant, with its `.unit`
--- attribute set by oUF's own header-spawning code — the same
--- attribute Blizzard's frames and every other unit-frame addon use.
---
--- Reading UF.headers directly means KastaCD doesn't need to guess
--- ElvUI's internal frame names at all, and won't break if a future
--- ElvUI version changes its naming scheme, since this goes through
--- ElvUI's own supported module/engine access point instead.
--- =============================================================
+-- FindUnitFrames locates party/raid member frames across unit-frame
+-- addons. ElvUI's globals aren't populated the way stock CompactRaidFrame
+-- ones are, so this reads its exposed engine table (E:GetModule
+-- ('UnitFrames').headers) instead of guessing frame names.
 
--- Walks every child (and grandchild) of a header frame, collecting
--- any with a valid, currently-shown unit. Capped at 2 levels deep,
--- which covers header -> sub-group -> member-button nesting.
---
--- NOTE: this only ever READS frame state (GetChildren/IsShown/unit
--- field access). Plain reads on a Blizzard-owned frame don't taint
--- it. What WOULD taint it is calling a setter (SetPoint/Show/Hide/
--- SetSize/etc.) targeting that frame — which is exactly what we
--- avoid everywhere in this file. See PositionIconCluster below.
+-- Walks children/grandchildren of a header frame collecting shown units
+-- (capped 2 levels deep). Only ever READS frame state - plain reads
+-- don't taint a Blizzard-owned frame, only setters would (never used here).
 local function CollectUnitChildren(frame, out, depth)
     if not frame or not frame.GetChildren then return end
     depth = depth or 0
@@ -362,37 +260,22 @@ local function CollectUnitChildren(frame, out, depth)
     end
 end
 
--- Best-effort fallback for OTHER unit-frame replacement addons
--- (Grid, Grid2, Shadowed Unit Frames) that, unlike ElvUI, don't
--- expose a documented external API to fetch their header frames by
--- name. These prefixes are not independently verified against each
--- addon's current source the way the ElvUI path above is — treat
--- this tier as a reasonable guess, not a guarantee.
+-- Best-effort fallback for other unit-frame addons (Grid, Grid2, SUF)
+-- that don't expose a documented API - unverified guesses, not a guarantee.
 local OTHER_HEADER_PREFIXES = {
     "SUFHeaderraid", "SUFHeaderparty",
     "GridLayoutHeader1", "Grid2LayoutHeader1",
 }
 
--- Returns an array of { unit=<unitId>, frame=<frame> } for every
--- currently visible party/raid member frame KastaCD can find, no
--- matter which unit-frame addon (if any) is in use.
+-- Returns { unit=<unitId>, frame=<frame> } for every visible party/raid
+-- member frame, whatever unit-frame addon is in use.
 function FindUnitFrames()
     local unitFramePairs = {}
 
-    -- Step 1: ElvUI – checked FIRST because on this server ElvUI and
-    -- Blizzard CompactRaidFrames are both visible simultaneously.
-    -- ElvUI frames must win so icons attach to the visible ones.
-    --
-    -- Only check ONE of party-style / raid-style buttons, matching
-    -- whichever group type is actually active - not both unconditionally.
-    -- ElvUI's raid-style header (ElvUF_RaidGroup*) can end up populated
-    -- and :IsShown()==true even while genuinely in a 5-man party (seen
-    -- specifically after /reload, not after a fresh login - some
-    -- transient ElvUI re-initialization state, not a real raid display),
-    -- and unlike the party header its buttons aren't gated by the
-    -- "show player" setting - so merging both blindly let a spurious
-    -- raid-frame match for "player" through even with party frames
-    -- correctly configured to hide them.
+    -- ElvUI checked first (visible alongside Blizzard CompactRaidFrames
+    -- on this server). Only checks whichever group type is actually
+    -- active - the raid-style header can spuriously read shown in a
+    -- 5-man party after a /reload.
     if _G.ElvUI then
         local found = {}
         if IsInRaid and IsInRaid() then
@@ -421,16 +304,8 @@ function FindUnitFrames()
         if #found > 0 then return found end
     end
 
-    -- Step 1b: VuhDo. Unlike every other addon handled here, VuhDo doesn't
-    -- need any frame-name guessing or child-walking at all - it maintains
-    -- its own genuine global table, VUHDO_UNIT_BUTTONS[unit], that already
-    -- lists every one of ITS OWN button frames currently assigned to that
-    -- real unit token (VuhDoPanel.lua's VUHDO_addUnitButton, fed by
-    -- VuhDoKeySetup.lua's VUHDO_setupAllHealButtonAttributes - the same
-    -- place VuhDo stamps both the secure "unit" attribute AND a plain
-    -- button.raidid field with the unit). The table is wiped and rebuilt
-    -- on every VuhDo redraw/refresh, so reading it always reflects live
-    -- state - confirmed by reading VuhDo's own source, not guessed.
+    -- VuhDo exposes its own VUHDO_UNIT_BUTTONS[unit] table directly - no
+    -- frame-name guessing needed, confirmed against its source.
     if _G.VUHDO_UNIT_BUTTONS then
         local found = {}
         for _, unit in ipairs(GetGroupUnits()) do
@@ -447,11 +322,7 @@ function FindUnitFrames()
         if #found > 0 then return found end
     end
 
-    -- Step 2: Blizzard CompactRaidFrames (raid / raid-style party). Range
-    -- extended to 90 (confirmed against OmniCD's own raid-frame detection
-    -- list, Modules/Party/Position.lua's COMPACT_RAID) - 40 covers a full
-    -- default-layout raid, but there's no reason to cap it lower than
-    -- another cooldown-tracking addon already found necessary.
+    -- Blizzard CompactRaidFrames. Range extended to 90 (matches OmniCD's own list).
     for i = 1, 90 do
         local f = _G["CompactRaidFrame" .. i]
         if not f then break end
@@ -462,15 +333,7 @@ function FindUnitFrames()
     end
     if #unitFramePairs > 0 then return unitFramePairs end
 
-    -- Step 2b: CompactRaidGroup<N>Member<M> - the OTHER Blizzard raid frame
-    -- naming scheme, used when the raid frame layout is set to "Keep
-    -- Groups Together" instead of the flat sorted list Step 2 above
-    -- checks. Without this, raid members simply have no frame found at
-    -- all under that layout mode - TrySnapAnchor then falls back to a
-    -- static position that never applies offsetX/offsetY, which is why
-    -- only Icon Size (unaffected by anchor-snap success) visibly did
-    -- anything while raid Offset X/Y appeared to do nothing. Confirmed
-    -- naming against OmniCD's own COMPACT_RAID_KGT list, not guessed.
+    -- CompactRaidGroup<N>Member<M> - the "Keep Groups Together" raid layout naming.
     for g = 1, 8 do
         for m = 1, 5 do
             local f = _G["CompactRaidGroup" .. g .. "Member" .. m]
@@ -484,9 +347,7 @@ function FindUnitFrames()
     end
     if #unitFramePairs > 0 then return unitFramePairs end
 
-    -- Step 2b: CompactPartyFrame – Legion default UI with "Use Raid-Style
-    -- Party Frames" enabled. Members live as children of this container
-    -- rather than as individually-named CompactRaidFrame globals.
+    -- CompactPartyFrame - "Use Raid-Style Party Frames" enabled.
     local cpf = _G["CompactPartyFrame"]
     if cpf then
         CollectUnitChildren(cpf, unitFramePairs)
@@ -505,9 +366,8 @@ function FindUnitFrames()
     end
     if #unitFramePairs > 0 then return unitFramePairs end
 
-    -- Step 4: classic PartyMemberFrame fallback (vanilla party frames,
-    -- "Use Raid-Style Party Frames" disabled). Drop IsShown() – on some
-    -- private-server clients these frames report hidden even while visible.
+    -- Classic PartyMemberFrame fallback. Skips IsShown() - some private
+    -- server clients report these hidden even while visible.
     for i = 1, 4 do
         local f = _G["PartyMemberFrame" .. i]
         local unit = "party" .. i
@@ -517,10 +377,7 @@ function FindUnitFrames()
     end
     if #unitFramePairs > 0 then return unitFramePairs end
 
-    -- Step 5: broad _G scan – last resort for private-server clients where
-    -- party frames exist visually but aren't registered under their expected
-    -- global names. Scans every global table for a .unit / .displayedUnit
-    -- matching an active party slot and a GetWidth method (i.e. it's a frame).
+    -- Broad _G scan, last resort - matches any .unit/.displayedUnit frame.
     local needed = {}
     for i = 1, 4 do
         local u = "party" .. i
@@ -543,40 +400,17 @@ function FindUnitFrames()
     return unitFramePairs
 end
 
--- NOTE: "Hide Blizzard Buffs/Debuffs on Party Frames" (hooksecurefunc on
--- CompactUnitFrame_UpdateAuras/UpdateBuffs/UpdateDebuffs, calling :Hide()
--- on frame.buffFrames/debuffFrames) used to live here. Removed - after a
--- live ADDON_ACTION_FORBIDDEN taint report (KastaCD blamed for Blizzard's
--- own UseToy()/SpellStopCasting(), triggered by totally unrelated actions
--- like using a toy or opening the ESC menu) that persisted even after
--- fixing two confirmed direct-call taint sources elsewhere in the addon,
--- this was the last remaining suspect and got removed outright rather
--- than gated further, matching how the other confirmed sources were
--- handled (removed, not just guarded - guarding alone didn't fully solve
--- it for combat lockdown either). If this is revisited, it needs a
--- taint-free approach that never calls a setter on a Blizzard-owned
--- frame at all (e.g. an addon-owned overlay drawn on top, never touching
--- frame.buffFrames/debuffFrames directly).
+-- NOTE: "Hide Blizzard Buffs/Debuffs on Party Frames" used to live here -
+-- removed after a live taint report; needs a taint-free overlay approach
+-- (never a setter on a Blizzard-owned frame) before it can come back.
 
--- -------------------------------------------------------------
--- ClearIcons  –  destroy all icon frames and reset state
--- -------------------------------------------------------------
--- Graveyard: every container ever created, so ClearIcons can always
--- find and hide them even across multiple rapid rebuild cycles.
+-- Graveyard of every container ever created, so ClearIcons always finds them.
 local _allContainers = {}
-
--- Declared here (above ClearIcons) so ClearIcons can reset it.
--- RebuildIcons uses this to skip full rebuilds when nothing changed.
 local lastBuildSignature = nil
 
--- keepFrames (optional): [unit][spellId] = true for icons the caller is
--- about to reuse this same rebuild pass (see RebuildIcons Pass 2) - those
--- are left completely untouched (not hidden, glow not stopped) instead of
--- being torn down like every other icon. Without this, an icon mid-uptime
--- glow got its glow explicitly stopped here and then restarted from
--- scratch a moment later on a brand new frame, which is what caused the
--- glow to visibly flicker/refresh on every rebuild even though the
--- underlying cooldown timer itself was never actually reset.
+-- keepFrames (optional): [unit][spellId] = true for icons being reused
+-- this rebuild - left untouched instead of torn down, so a mid-uptime
+-- glow doesn't visibly flicker/restart.
 function ClearIcons(keepFrames)
     for _, container in ipairs(_allContainers) do
         container:Hide()
@@ -592,32 +426,17 @@ function ClearIcons(keepFrames)
             end
         end
     end
-    -- Wipe in-place — never reassign globals to new tables.
-    -- Reassigning taints Blizzard protected frames causing SetHeight / UnitIsConnected errors.
+    -- Wipe in-place - reassigning taints Blizzard protected frames.
     for k in pairs(iconContainers) do iconContainers[k] = nil end
     for k in pairs(trackerState)   do trackerState[k]   = nil end
     for k in pairs(memberGUIDs)    do memberGUIDs[k]    = nil end
-    -- NOTE: deliberately does NOT call ClearSpecCache() here. ClearIcons()
-    -- runs on every full rebuild (RebuildIcons Pass 2 whenever the desired
-    -- spell set changes), which includes the moment a spec just resolved
-    -- and a new spec-gated icon should appear. Wiping UNIT_SPEC_CACHE at
-    -- that exact point immediately forgot the just-learned spec, sending
-    -- spec-gated spells back to "unknown" (hidden) until the next poll or
-    -- cast re-resolved it - a self-perpetuating flicker loop. The cache is
-    -- keyed by GUID, not party slot, so stale entries from members who left
-    -- are harmless and don't need clearing here.
-    -- Force the next RebuildIcons to do a full rebuild regardless of
-    -- whether the desired spell set looks the same as before. Without
-    -- this, an external ClearIcons() call (e.g. from GROUP_ROSTER_UPDATE)
-    -- leaves lastBuildSignature pointing at the now-destroyed frames,
-    -- and the next RebuildIcons() call sees a matching signature and
-    -- calls RelayoutAllIcons() on dead containers instead of rebuilding.
+    -- Deliberately doesn't clear UNIT_SPEC_CACHE (keyed by GUID, stale
+    -- entries are harmless) - clearing here would forget a just-learned
+    -- spec and cause a flicker loop.
+    -- Forces the next RebuildIcons to do a full rebuild, not a relayout.
     lastBuildSignature = nil
 end
 
--- -------------------------------------------------------------
--- MakeIconFrame  –  create a single spell icon widget
--- -------------------------------------------------------------
 local function MakeIconFrame(spellId, spellData, parent, size)
     size = size or KastaCDDB.iconSize
     local f = CreateFrame("Frame", nil, parent or UIParent)
@@ -699,13 +518,7 @@ local function MakeIconFrame(spellId, spellData, parent, size)
     return f
 end
 
--- -------------------------------------------------------------
--- PositionIconCluster  –  anchor a container to a kcdAnchor frame
---
--- kcdAnchors are addon-owned frames, so SetPoint is taint-free.
--- Groups stack vertically above the anchor (group 1 at the bottom,
--- group 2 above, etc.) with a small gap between each row.
--- -------------------------------------------------------------
+-- kcdAnchors are addon-owned frames, so SetPoint here is taint-free.
 function PositionIconCluster(containerFrame, anchorFrame)
     if not containerFrame or not anchorFrame then return end
     containerFrame:ClearAllPoints()
@@ -716,9 +529,6 @@ function PositionIconCluster(containerFrame, anchorFrame)
     end
 end
 
--- -------------------------------------------------------------
--- LayoutIconRow  –  arrange icons in a grid inside their container
--- -------------------------------------------------------------
 function LayoutIconRow(container, icons, size, ipr)
     size = size or KastaCDDB.iconSize
     ipr  = ipr  or KastaCDDB.iconsPerRow
@@ -734,37 +544,23 @@ function LayoutIconRow(container, icons, size, ipr)
     end
 end
 
--- -------------------------------------------------------------
--- RebuildIcons  –  full rebuild of all icon clusters
--- Called on group roster changes, zone transitions, and settings changes.
--- -------------------------------------------------------------
--- Tracks what the last successful RebuildIcons actually produced, so a
--- call that wouldn't change anything can bail out before touching any
--- frames. Without this, RebuildIcons() — which gets invoked very often
--- (roster ticks, spec re-checks, SPELLS_CHANGED, zone changes, etc.) —
--- was destroying and recreating every icon frame each time even when
--- the unit/spell list was identical. A brand new frame always starts
--- with glowing = nil, so the glow restarted on every single call,
--- which is what caused the nonstop flashing.
-
+-- Full rebuild of all icon clusters, called on roster changes, zone
+-- transitions, and settings changes. Tracks the last build's signature
+-- (see below) so a no-op call bails before touching any frames - a
+-- brand new frame always starts with glowing=nil, so rebuilding
+-- unconditionally caused nonstop glow flashing.
 function RebuildIcons()
     PersistActiveProfile()
 
-    -- Master switch (Party Cooldowns > Enable) - hides every icon
-    -- entirely. Unlike the other early-bail gates below, this one calls
-    -- ClearIcons() unconditionally (not just on the signature-changed
-    -- transition) - it's the one path where "still visible after
-    -- disabling" absolutely cannot be tolerated, so every single call
-    -- while disabled re-asserts the hidden state instead of trusting
-    -- that a previous call already got it right.
+    -- Master switch - unconditionally re-asserts hidden state every call
+    -- while disabled, since "still visible after disabling" can't happen.
     if KastaCDDB.iconsEnabled == false then
         lastBuildSignature = nil
         ClearIcons()
         return
     end
 
-    -- Hide in raids — too many frames to be useful, and CompactRaidFrames
-    -- are protected and harder to anchor to reliably at raid scale.
+    -- Hide in raids - too many frames, CompactRaidFrames are harder to anchor to.
     if not IsInPartyOnly() then
         if lastBuildSignature ~= nil then lastBuildSignature = nil; ClearIcons() end
         return
@@ -779,14 +575,7 @@ function RebuildIcons()
         return
     end
 
-    -- ── Collect active party slots directly (anchor frames, no unit-frame detection) ──
-    -- UnitExists alone stays true for an offline party member - WoW keeps
-    -- their slot occupied (shown as a grayed-out "ghost" frame) instead of
-    -- removing them, so also requiring UnitIsConnected is what actually
-    -- makes their icons disappear while they're offline. "player" is
-    -- unaffected (can't be looking at this UI while your own client is
-    -- offline), and they reappear automatically the moment they log back
-    -- in, since the very next rebuild re-evaluates this same check.
+    -- UnitIsConnected (not just UnitExists) is what hides an offline member's icons.
     local activeUnits = {}
     for _, u in ipairs(GetGroupUnits()) do
         if UnitExists(u) and UnitIsConnected(u) then
@@ -799,23 +588,16 @@ function RebuildIcons()
         return
     end
 
-    -- Best-effort: snap anchors to any discoverable unit frames. Result is
-    -- tracked per-unit so Pass 1 below can hide the player's own icons
-    -- entirely when their frame can't be found at all (e.g. ElvUI's "show
-    -- player in party frame" option disabled) - unlike other party
-    -- members, there's no useful fallback position for the player's own
-    -- icons: they'd just float at a default centre-screen spot with
-    -- nothing to visually anchor them to, which reads as a stray/broken
-    -- floating cluster rather than "cooldowns near my frame."
+    -- Snap anchors to any discoverable unit frame; tracked per-unit so
+    -- Pass 1 can hide the player's own icons entirely if no frame is
+    -- found (no useful fallback position for just the player).
     local snapped = {}
     for _, u in ipairs(activeUnits) do snapped[u] = TrySnapAnchor(u) end
 
-    -- ── Pass 1: figure out what SHOULD be shown, without touching any frames ──
+    -- Pass 1: figure out what SHOULD be shown, without touching any frames.
     local desired = {}   -- [unit] = { spells = { {sid,data}, ... } }
-    -- Includes BOTH party and raid settings (not just whichever shape is
-    -- currently active) so a change to the one NOT currently in use still
-    -- forces a rebuild the moment the group shape switches to it, instead
-    -- of silently rendering with a stale signature match.
+    -- Includes both party and raid settings so a change to the inactive
+    -- shape still forces a rebuild once the group shape switches to it.
     local sigParts = {
         tostring(KastaCDDB.iconSize), tostring(KastaCDDB.iconsPerRow),
         tostring(KastaCDDB.offsetX), tostring(KastaCDDB.offsetY),
@@ -824,28 +606,18 @@ function RebuildIcons()
     }
 
     for _, unit in ipairs(activeUnits) do
-        -- Player-only: skip entirely if no real frame was found to snap
-        -- to - see the comment on `snapped` above.
+        -- Player-only: skip if no real frame was found to snap to.
         if UnitExists(unit) and not (unit == "player" and not snapped[unit]) then
             local _, unitClass = UnitClass(unit)
             if unitClass then
                 local spells = {}
                 for sid, data in pairs(enabled) do
-                    -- A spell actually mid-uptime/cooldown right now (a real
-                    -- witnessed cast) always counts as "known" here, even if
-                    -- IsSpellKnownForUnit's talent-scan read is transiently
-                    -- false this exact poll - see the SpecPollTicker comment
-                    -- in KastaCD_Events.lua acknowledging those reads are
-                    -- "never trusted for more than ~1 second" and can flip
-                    -- briefly. That's fine for a static idle icon (it just
-                    -- reappears within a second), but for an isTalent spell
-                    -- like Ravager whose whole uptime window is only ~6s, one
-                    -- of the once-a-second RebuildIcons() polls landing on a
-                    -- stale "false" read was enough to tear the live timer
-                    -- down mid-flight (ClearIcons dropping it from the
-                    -- "desired" set, since it never got a chance at
-                    -- keepFrames). An actual witnessed cast is stronger
-                    -- evidence than a polled talent-scan hiccup, so trust it.
+                    -- A spell actually mid-uptime/cooldown counts as "known"
+                    -- even if IsSpellKnownForUnit's talent-scan is transiently
+                    -- false this poll - a real witnessed cast is stronger
+                    -- evidence than a polling hiccup (matters for short-uptime
+                    -- talents like Ravager, where one stale read could tear
+                    -- the live timer down mid-flight).
                     local activeState = trackerState[unit] and trackerState[unit][sid]
                     local isActive = activeState and activeState.phase ~= nil
                     if (data.class == unitClass or data.class == "ALL") and (IsSpellKnownForUnit(unit, sid) or isActive) then
@@ -884,18 +656,14 @@ function RebuildIcons()
 
     local signature = table.concat(sigParts, "|")
     if signature == lastBuildSignature then
-        -- Nothing actually changed — just reposition in case frames moved,
-        -- and leave every existing icon (and its glow/timer) untouched.
+        -- Nothing changed - just reposition, leave every icon untouched.
         RelayoutAllIcons()
         return
     end
     lastBuildSignature = signature
 
-    -- ── Pass 2: snapshot live timers, then do the real rebuild ──
-    -- `local oldState = trackerState` would NOT be a real copy — it's just
-    -- another reference to the SAME table, so when ClearIcons() wipes
-    -- trackerState in-place, it would wipe oldState too. Build an actual
-    -- shallow copy instead.
+    -- Pass 2: snapshot live timers (a real shallow copy - trackerState
+    -- itself gets wiped in-place by ClearIcons below), then rebuild.
     local oldState = {}
     for unit, spells in pairs(trackerState) do
         oldState[unit] = {}
@@ -913,16 +681,9 @@ function RebuildIcons()
         end
     end
 
-    -- Snapshot which existing (unit, spellId) icon frames can be carried
-    -- straight into the new build - anything present in both the old
-    -- iconContainers and the new `desired` set. Reusing the same frame
-    -- object (instead of destroying it and calling MakeIconFrame again)
-    -- means f.glowing survives the rebuild untouched, so an icon that's
-    -- actively mid-uptime glow just keeps glowing instead of visibly
-    -- flickering off and back on - which is what happened every time
-    -- *anything* elsewhere in the party changed the build signature,
-    -- forcing a full teardown/recreate of every icon regardless of
-    -- whether that specific icon actually needed to change.
+    -- Which existing (unit, spellId) frames carry over to the new build -
+    -- reusing the same frame object keeps f.glowing intact so a mid-uptime
+    -- glow doesn't flicker off/on when anything else changes the signature.
     local keepFrames, reusedFrame = {}, {}
     for unit, iconList in pairs(iconContainers) do
         for _, ico in ipairs(iconList.icons or {}) do
@@ -961,20 +722,13 @@ function RebuildIcons()
                 local iconList = { container=container, icons={} }
                 iconContainers[unit] = iconList
 
-                -- Raid members use their own raidIconSize/raidIconsPerRow
-                -- instead of the party ones - see GetIconSettingsFor.
                 local unitSize, unitIpr = GetIconSettingsFor(unit)
 
                 for _, entry in ipairs(entries) do
                     local reused = reusedFrame[unit] and reusedFrame[unit][entry.sid]
                     local ico
                     if reused then
-                        -- Carry the existing frame over instead of making a
-                        -- new one - preserves f.glowing (see the comment on
-                        -- the keepFrames snapshot above). Re-apply anything
-                        -- MakeIconFrame would normally set fresh, since size/
-                        -- border settings may have changed since this frame
-                        -- was first created.
+                        -- Preserves f.glowing; re-applies size/border in case settings changed.
                         ico = reused
                         ico:SetParent(container)
                         ico:SetSize(unitSize, unitSize)
@@ -1016,16 +770,11 @@ function RebuildIcons()
                             state.endTime = prev.endTime
                             if state.phase == "uptime" then
                                 if not reused then
-                                    -- Don't call ShowProcGlow directly here - calling it on
-                                    -- every rebuild while glow is active restarts the flipbook
-                                    -- animation, causing visible flicker. Leave glowing=false
-                                    -- so the 0.1s update ticker calls ShowProcGlow once on its
-                                    -- next pass through the same guard it uses during normal play.
+                                    -- Don't call ShowProcGlow here - it'd restart the flipbook
+                                    -- animation. Leave glowing=false; the 0.1s ticker starts it.
                                     ico.glowing = false
                                 end
-                                -- Reused frames already carry the correct
-                                -- f.glowing from before this rebuild - leave
-                                -- it alone so an active glow just keeps playing.
+                                -- Reused frames keep their existing f.glowing untouched.
                                 ico.bar:Show()
                             elseif state.phase == "cooldown" then
                                 ico.desat:Show()
@@ -1052,10 +801,7 @@ function RebuildIcons()
         end
     end
 
-    -- Enforce correct anchor visual state after every rebuild.
-    -- ShowKastaCDAnchors/HideKastaCDAnchors only toggle dot+label,
-    -- so calling either on every rebuild is cheap and ensures newly
-    -- created anchor frames always match the saved lock state.
+    -- Enforce correct anchor visual state - cheap, just toggles dot+label.
     if KastaCDDB and not KastaCDDB.anchorsLocked then
         ShowKastaCDAnchors()
     else
@@ -1063,13 +809,9 @@ function RebuildIcons()
     end
 end
 
--- -------------------------------------------------------------
--- RelayoutAllIcons  –  reposition existing clusters without a full rebuild
--- Called every ~0.5 s in case frames have moved or the window was resized.
--- -------------------------------------------------------------
+-- Repositions existing clusters without a full rebuild; called every ~0.5s.
 local function RelayoutAllIcons()
     local groupUnits = GetGroupUnits()
-    -- Re-snap anchors to unit frames where discoverable
     for _, u in ipairs(groupUnits) do
         if kcdAnchors[u] then TrySnapAnchor(u) end
     end
@@ -1086,10 +828,7 @@ local function RelayoutAllIcons()
     end
 end
 
--- -------------------------------------------------------------
--- Update ticker  –  runs every 0.1 s
--- Drives uptime bars, cooldown countdown text, and periodic relayout.
--- -------------------------------------------------------------
+-- Runs every 0.1s: uptime bars, cooldown countdown text, periodic relayout.
 local relayoutElapsed = 0
 
 C_Timer.NewTicker(0.1, function()
@@ -1122,21 +861,14 @@ C_Timer.NewTicker(0.1, function()
                             state.phase = nil   -- still has charges, icon stays ready
                         end
                     else
-                        -- Use the cooldown end time computed from the
-                        -- original cast (see state.cdEndTime in
-                        -- KastaCD_CombatLog.lua) rather than restarting a
-                        -- fresh full-length cooldown from "now" - the
-                        -- cooldown started the moment the spell was cast,
-                        -- not when its uptime/duration window ended.
+                        -- Use the cooldown end time from the original cast
+                        -- (state.cdEndTime), not a fresh timer from "now".
                         local cd = SPELL_DB[sid].cooldown
                         if state.cdEndTime and state.cdEndTime > now then
                             state.phase   = "cooldown"
                             state.endTime = state.cdEndTime
                         elseif cd and cd > 0 and not state.cdEndTime then
-                            -- No precomputed cooldown end (shouldn't
-                            -- normally happen once cast via combat log, but
-                            -- kept as a safe fallback) - best we can do is
-                            -- start a fresh timer here.
+                            -- Safe fallback if no precomputed cooldown end exists.
                             state.phase = "cooldown"
                             state.endTime = now + cd
                         else
@@ -1144,11 +876,7 @@ C_Timer.NewTicker(0.1, function()
                         end
                     end
                 else
-                    -- Only (re)trigger the glow animation once when uptime
-                    -- starts, not on every tick — ActionButton_ShowOverlayGlow
-                    -- restarts its flipbook animation each call, so calling it
-                    -- every 0.1s made the glow visibly flash/reset instead of
-                    -- playing continuously.
+                    -- Trigger glow once on uptime start, not every tick (restarts the flipbook).
                     if not f.glowing then
                         ShowProcGlow(f)
                         f.glowing = true

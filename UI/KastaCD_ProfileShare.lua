@@ -1,37 +1,19 @@
--- =============================================================
--- KastaCD_ProfileShare.lua
--- "Post to Chat" profile sharing: posts a short chat message ("type
--- /kcdimport <name> to get it", plus a best-effort clickable link)
--- instead of the full export string, which is far too long to fit in a
--- single chat message (WoW caps chat messages at 255 characters). The
--- instant it's posted, the full profile is broadcast as a series of
--- hidden addon messages to that same channel - every KastaCD client
--- listening on it silently caches the data, keyed by the sender's name,
--- so /kcdimport (even after the sender has logged off) imports instantly
--- from that local cache rather than needing to ask the sender live.
---
--- /kcdimport, not the chat hyperlink, is the primary/guaranteed path:
--- some servers strip or mangle |H...|h escape sequences out of chat text
--- before relaying it (anti-exploit sanitization), which silently turns
--- the clickable link into inert plain text with no way for the addon to
--- detect that happened. Plain text always survives, so the link is only
--- ever a nicer bonus for servers where it isn't stripped.
---
--- No channel picker - it posts to whatever chat type the player actually
--- last used (Say, Party, Whisper, etc.), tracked via a SendChatMessage
--- wrap, since there's no reliable way to read "the active channel" at
--- the moment a Settings-panel button is clicked (the chat edit box isn't
--- open/focused then). Say/Yell/Emote can carry the visible message but
--- have no addon-message equivalent, so the profile data itself can't
--- ride along on those specifically - see ResolveAddonChannel below.
---
--- This is purely an ADDITIONAL transport on top of the existing plain
--- Export/Import text boxes in KastaCD_Options.lua (SerializeProfile /
--- DeserializeProfile) - the copy-paste string used outside WoW (Discord,
--- Pastebin, etc.) is completely unchanged.
+-- KastaCD_ProfileShare.lua - "Post to Chat" profile sharing: posts a
+-- short chat message with a /kcdimport instruction and a best-effort
+-- clickable link, since the full export string is too long for one chat
+-- message. The full profile is broadcast as chunked addon messages
+-- alongside it, cached locally by every listening KastaCD client so
+-- /kcdimport works even after the sender logs off.
+-- /kcdimport is the guaranteed path - some servers strip |H...|h escape
+-- sequences, silently turning the link into inert text.
+-- No channel picker - posts to whatever chat type was last used
+-- (tracked via a SendChatMessage hook). Say/Yell/Emote have no
+-- addon-message equivalent, so they fall back to a group/guild channel
+-- for the data itself (see ResolveAddonChannel).
+-- Purely additional to the existing plain Export/Import text boxes in
+-- KastaCD_Options.lua - that copy-paste flow is unchanged.
 -- Depends on: KastaCD_DB.lua, KastaCD_Options.lua (SerializeProfile /
 --             DeserializeProfile must be global)
--- =============================================================
 
 local ADDON_PREFIX = "KASTACD"
 local CHUNK_SIZE    = 200   -- chars per addon message, safely under the ~255 limit
@@ -49,36 +31,20 @@ if RegisterAddonMessagePrefix then
     RegisterAddonMessagePrefix(ADDON_PREFIX)
 end
 
--- -------------------------------------------------------------
 -- Sending
--- -------------------------------------------------------------
--- Tracks whichever chat type/target the player actually last sent a real
--- message to (SAY, PARTY, WHISPER + target, etc.) by observing
--- SendChatMessage - this is the only reliable way to know "whatever they
--- have active", since the chat edit box itself isn't open/focused at the
--- moment a Settings-panel button is clicked. Defaults to SAY, matching
--- the game's own default chat type before anything's ever been sent.
---
--- Deliberately hooksecurefunc, not a reassignment of the global -
--- overwriting SendChatMessage outright would replace it for every future
--- caller, including chat commands issued from secure macros.
+
+-- Tracks the last chat type/target the player actually sent to, since
+-- the chat edit box isn't open/focused when a Settings button is clicked.
+-- hooksecurefunc, not a reassignment, so secure-macro callers still work.
 local lastChatType, lastChatTarget = "SAY", nil
 hooksecurefunc("SendChatMessage", function(msg, chatType, language, target)
     lastChatType   = chatType or "SAY"
     lastChatTarget = target
 end)
 
--- Not every chat type has an addon-message equivalent: SAY/YELL/EMOTE are
--- position-based broadcasts to whoever's nearby, which has no defined
--- "recipient set" SendAddonMessage could target. PARTY/RAID/INSTANCE_CHAT/
--- GUILD/OFFICER/WHISPER/CHANNEL all map straight across.
---
--- For anything unmapped (Say/Yell/Emote), fall back to whatever group
--- channel is actually available instead of just giving up - the visible
--- link still goes out over the original channel, but the data itself
--- rides along on Raid/Party/Guild so people there can still import it.
--- Returns a third value (isFallback=true) when this happened, so the
--- caller can word its confirmation message accordingly.
+-- SAY/YELL/EMOTE have no addon-message equivalent (no defined recipient
+-- set); the rest map straight across. Unmapped types fall back to
+-- whatever group channel is available so the data still rides along.
 local function ResolveAddonChannel(chatType, target)
     if chatType == "PARTY" or chatType == "RAID" or chatType == "INSTANCE_CHAT"
     or chatType == "GUILD" or chatType == "OFFICER" then
@@ -93,11 +59,9 @@ local function ResolveAddonChannel(chatType, target)
     return nil
 end
 
--- Broadcasts the given profile's serialized data as chunked addon
--- messages to whatever channel the player last actually chatted in, then
--- posts the short clickable link to that same channel/target. Returns
--- true on success (with a warning string if the channel can't carry the
--- actual data, e.g. Say/Yell), or false + an error string on failure.
+-- Broadcasts the profile as chunked addon messages, then posts the
+-- short clickable link. Returns true on success (with a warning if the
+-- channel can't carry the data), or false + error string on failure.
 function BroadcastProfileToChat(profile)
     if type(profile) ~= "table" then return false, "No profile data." end
     if type(SerializeProfile) ~= "function" then return false, "Export unavailable." end
@@ -113,8 +77,7 @@ function BroadcastProfileToChat(profile)
     end
 
     if addonChannel then
-        -- transferId: cheap per-send uniqueness so two posts in quick
-        -- succession from the same player don't get their chunks mixed up.
+        -- transferId: cheap uniqueness so quick successive posts don't mix chunks.
         local transferId = tostring(math.random(100000, 999999))
         SendAddonMessage(ADDON_PREFIX, "H:" .. transferId .. ":" .. total, addonChannel, addonTarget)
         for i = 1, total do
@@ -123,13 +86,8 @@ function BroadcastProfileToChat(profile)
         end
     end
 
-    -- The clickable hyperlink is included as a best-effort bonus, but the
-    -- /kcdimport slash command is the message's real, guaranteed-to-work
-    -- payload - some servers strip/mangle |H...|h escape sequences out of
-    -- chat text before relaying it (anti-exploit sanitization), which
-    -- silently turns the link into inert plain text with no way to know
-    -- from the addon side whether that happened. Plain text always
-    -- survives, so it's the primary instruction, not a fallback footnote.
+    -- /kcdimport is the guaranteed payload; the link is a best-effort bonus
+    -- since some servers strip |H...|h escape sequences from chat text.
     local playerName = UnitName("player")
     local link = string.format(
         "|cff71d5ff|Hkastacd:%s|h[Click to Import]|h|r", playerName)
@@ -145,22 +103,14 @@ function BroadcastProfileToChat(profile)
             "group or guild to fall back to - clicking the link won't import anything unless you " ..
             "share the profile another way too."
     end
-    -- isFallback (e.g. Say/Yell with a group/guild to fall back to) used
-    -- to also print "Posted to X - X can't carry the profile data itself,
-    -- so it was also sent via Y..." here - dropped per request, since the
-    -- addon data silently rides along on the fallback channel regardless
-    -- and didn't need its own extra confirmation line.
     return true
 end
 
--- -------------------------------------------------------------
 -- Receiving
--- -------------------------------------------------------------
+
 local function HandleAddonMessage(prefix, message, _, sender)
     if prefix ~= ADDON_PREFIX then return end
-    -- Strip realm suffix ("Kasta-RealmName") to match UnitName("player")'s
-    -- unqualified form, so a link clicked by someone on the same realm
-    -- resolves against the cache key we actually stored it under.
+    -- Strip realm suffix to match UnitName("player")'s unqualified form.
     local senderShort = sender and sender:match("^([^-]+)") or sender
 
     local kind, transferId, rest = message:match("^(%a):([^:]+):?(.*)$")
@@ -182,13 +132,8 @@ local function HandleAddonMessage(prefix, message, _, sender)
             receivedProfiles[senderShort] = { data = full, receivedAt = GetTime() }
             lastReceivedSender = senderShort
             byTransfer[transferId] = nil
-            -- Addon messages never show up in the chat window (that's the
-            -- entire point - only the short link is meant to be visible),
-            -- so without this print there's otherwise no confirmation a
-            -- transfer actually completed. Note this only ever fires on
-            -- OTHER players' clients, never your own - you don't receive
-            -- an echo of your own SendAddonMessage broadcast, so testing
-            -- solo on one character will never show this.
+            -- Addon messages never show in chat, so print a confirmation.
+            -- Only fires on other players' clients - no self-echo.
             print("|cff71d5ffKastaCD:|r Received " .. tostring(senderShort) ..
                 "'s shared profile - type |cffffd200/kcdimport|r to import it (or |cffffd200/kcdimport " ..
                 tostring(senderShort) .. "|r if you've received more than one).")
@@ -202,18 +147,14 @@ shareFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "CHAT_MSG_ADDON" then HandleAddonMessage(...) end
 end)
 
--- -------------------------------------------------------------
 -- Click handling
--- -------------------------------------------------------------
--- Imports whatever profile data was broadcast by senderName, naming the
--- new profile after them (deduped with a numeric suffix, same pattern
--- the plain-paste import box already uses for "Imported"/"Imported 2").
+
+-- Imports the profile data broadcast by senderName, naming the new
+-- profile after them (deduped with a numeric suffix).
 function ImportProfileFromChatShare(senderName)
     local entry = receivedProfiles[senderName]
     if not entry then
-        -- Debug aid: list whatever names ARE cached, so a mismatch (case,
-        -- stray whitespace, realm suffix, etc.) is visible immediately
-        -- instead of just "nothing happened".
+        -- Debug aid: list cached names so a mismatch is visible immediately.
         local known = {}
         for k in pairs(receivedProfiles) do table.insert(known, "[" .. k .. "]") end
         print("|cffff0000KastaCD:|r No profile data received from [" .. tostring(senderName) .. "]" ..
@@ -247,17 +188,11 @@ function ImportProfileFromChatShare(senderName)
     print("|cff44ff44KastaCD:|r Imported " .. senderName .. "'s profile as '" .. nm .. "'.")
 end
 
--- Intercepts clicks on our custom "kastacd:<name>" chat links. This is
--- the standard pattern for handling non-Blizzard link types - SetItemRef
--- isn't a protected function, so wrapping it is safe. Any link we don't
--- recognize is passed straight through to the original.
+-- Intercepts clicks on our custom "kastacd:<name>" chat links.
+-- Unrecognized links pass straight through to the original.
 local origSetItemRef = SetItemRef
 SetItemRef = function(link, text, button, chatFrame)
-    -- Debug aid: shows exactly what raw link data made it through the
-    -- click, in case chat filtering/sanitization on this server ever
-    -- mangles the |H...|h payload in transit - if this print never
-    -- appears at all when clicking a KastaCD link, the click isn't
-    -- reaching this hook in the first place.
+    -- Debug aid: shows the raw link data that made it through the click.
     if link:find("kastacd", 1, true) then
         print("|cff71d5ffKastaCD debug:|r clicked link = [" .. tostring(link) .. "]")
     end
@@ -269,15 +204,8 @@ SetItemRef = function(link, text, button, chatFrame)
     origSetItemRef(link, text, button, chatFrame)
 end
 
--- -------------------------------------------------------------
--- /kcdimport [name] - guaranteed-to-work alternative to clicking the
--- chat link, since some servers strip |H...|h hyperlink escape
--- sequences out of chat text before relaying it, silently turning the
--- link into plain inert text with no way for the addon to detect that
--- happened. Plain text always survives, so this is the reliable path;
--- the chat link is just a nicer bonus for servers where it works.
--- No argument = import whoever's data arrived most recently.
--- -------------------------------------------------------------
+-- /kcdimport [name] - reliable alternative to clicking the chat link
+-- (some servers strip |H...|h escape sequences). No argument = most recent.
 SLASH_KASTACDIMPORT1 = "/kcdimport"
 SlashCmdList["KASTACDIMPORT"] = function(msg)
     local name = msg and msg:match("^%s*(.-)%s*$")

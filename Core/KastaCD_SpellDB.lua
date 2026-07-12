@@ -1,16 +1,9 @@
--- =============================================================
--- KastaCD_SpellDB.lua
--- Shared constants, class metadata, and position/UI config tables.
+-- KastaCD_SpellDB.lua - shared constants, class metadata, UI config tables.
+-- Class abilities live in Classes\*.lua, loaded right after this file;
+-- they all write into the global SPELL_DB declared below.
 --
--- IMPORTANT: this file no longer contains spell entries directly.
--- Each class's abilities live in their own file under Classes\,
--- loaded right after this one (see KastaCD.toc). Those files all
--- read/write the same global SPELL_DB table declared below, so load
--- order only matters in that this file must load first.
---
--- specs field (set per-spell in the Classes\ files): list of spec
--- IDs that have this ability. nil/absent = shared by all specs of
--- that class.
+-- specs field: list of spec IDs that have this ability. nil = shared by
+-- all specs of that class.
 -- Spec IDs (7.3.5):
 --   WARRIOR:     71=Arms, 72=Fury, 73=Protection
 --   PALADIN:     65=Holy, 66=Protection, 70=Retribution
@@ -25,24 +18,13 @@
 --   DRUID:      102=Balance, 103=Feral, 104=Guardian, 105=Restoration
 --   DEMONHUNTER:577=Havoc, 581=Vengeance
 --
--- minLevel: the character level at which this spell is learned in
--- 7.3.5. Present = baseline ability for the listed spec(s)/class,
+-- minLevel: level the spell is learned at in 7.3.5. Baseline ability,
 -- gated by level + (if specs is set) confirmed current spec.
 --
--- isTalent: present (true) on abilities that depend on an actual
--- talent choice rather than being guaranteed baseline. These are
--- gated ENTIRELY differently (see IsSpellKnownForUnit in DB.lua):
--- they are never shown just because the unit's spec/level matches -
--- they only appear once a combat-log sighting (KNOWN_UNIT_SPELLS)
--- has actually confirmed that exact unit casting that exact spell.
--- This sidesteps spec-detection-reliability problems entirely for
--- talent rows by requiring ground truth (a witnessed cast) instead
--- of guessing from spec data alone.
--- =============================================================
+-- isTalent: true means gated entirely differently (see
+-- IsSpellKnownForUnit in DB.lua) - only shown once a combat-log sighting
+-- has confirmed that unit casting that spell, ground truth over guessing.
 
--- Declared here so every Classes\*.lua file can safely do
--- `SPELL_DB = SPELL_DB or {}` and then assign into it without caring
--- about load order beyond "this file loads first."
 SPELL_DB = SPELL_DB or {}
 
 -- class="ALL": applies to every unit regardless of class.
@@ -119,10 +101,7 @@ SPELL_DB[86659]  = { name="Guardian of Ancient Kings", class="PALADIN",         
 SPELL_DB[105809] = { name="Holy Avenger",           class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={70},  isTalent=true }
 SPELL_DB[210294] = { name="Divine Favor",           class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={65},  isTalent=true }
 SPELL_DB[216331] = { name="Avenging Crusader",      class="PALADIN",             duration=20, cooldown=120, category="OFFENSIVE", specs={70},  isTalent=true }
--- Guardian of the Forgotten Queen - unverified: not confident this is a
--- real baseline/talent ability in this server's Legion 7.3.5 Paladin kit
--- (may be an artifact trait or custom addition). Placeholder data -
--- please confirm in-game (tooltip cooldown/duration) before relying on it.
+-- Guardian of the Forgotten Queen - unverified, placeholder data.
 SPELL_DB[228049] = { name="Guardian of the Forgotten Queen", class="PALADIN",    duration=20, cooldown=180, category="OFFENSIVE", isTalent=true }
 
 -- ── HUNTER ───────────────────────────────────────────────────
@@ -153,10 +132,7 @@ SPELL_DB[185313] = { name="Shadow Dance",           class="ROGUE", icon=458726, 
 SPELL_DB[198529] = { name="Plunder Armor",          class="ROGUE",             duration=0,  cooldown=90,  category="OFFENSIVE", specs={260}, isTalent=true }
 SPELL_DB[114018] = { name="Shroud of Concealment",  class="ROGUE",             duration=15, cooldown=360, category="UTILITY" }
 SPELL_DB[213981] = { name="Cold Blood",             class="ROGUE",             duration=0,  cooldown=60,  category="OFFENSIVE", specs={259} }
--- Riposte is Outlaw's own defensive cooldown - the Evasion equivalent for
--- that spec (Evasion above is Assassination/Subtlety only, confirmed by
--- the user). Cooldown/duration below are still unverified placeholders -
--- please confirm in-game (tooltip) before relying on the exact numbers.
+-- Riposte is Outlaw's defensive cooldown equivalent to Evasion. Cooldown/duration unverified.
 SPELL_DB[199754] = { name="Riposte",                class="ROGUE",             duration=0,  cooldown=60,  category="DEFENSIVE", specs={260}, isTalent=true }
 
 -- ── PRIEST ────────────────────────────────────────────────────
@@ -185,20 +161,14 @@ SPELL_DB[49039]  = { name="Lichborne",              class="DEATHKNIGHT", icon=13
 SPELL_DB[48707]  = { name="Anti-Magic Shell",       class="DEATHKNIGHT", icon=136120, duration=5,  cooldown=60,  category="IMMUNITY",               minLevel=55 }
 SPELL_DB[55233]  = { name="Vampiric Blood",         class="DEATHKNIGHT", icon=136168, duration=10, cooldown=90,  category="DEFENSIVE", specs={250}, minLevel=55 }
 SPELL_DB[49028]  = { name="Dancing Rune Weapon",    class="DEATHKNIGHT", icon=135277, duration=8,  cooldown=120, category="OFFENSIVE", specs={250}, minLevel=55 }
--- Anti-Magic Zone is a Legion PvP (Honor) talent, not a normal
--- spec-restricted talent - same rule as the Shaman/Mage Honor talents
--- further down this file (only active while flagged/in a PvP instance,
--- available regardless of spec, so no specs={} restriction here).
+-- Anti-Magic Zone is a Legion PvP (Honor) talent, active regardless of spec.
 SPELL_DB[51052]  = { name="Anti-Magic Zone",        class="DEATHKNIGHT", icon=136176, duration=10, cooldown=120, category="DEFENSIVE", isTalent=true }
 SPELL_DB[207289] = { name="Unholy Frenzy",          class="DEATHKNIGHT", icon=136224, duration=30, cooldown=75,  category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[42650]  = { name="Army of the Dead",       class="DEATHKNIGHT", icon=237511, duration=0,  cooldown=480, category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[49206]  = { name="Summon Gargoyle",        class="DEATHKNIGHT", icon=458967, duration=30, cooldown=180, category="OFFENSIVE", specs={252}, minLevel=55 }
 SPELL_DB[77606]  = { name="Dark Simulacrum",        class="DEATHKNIGHT",             duration=0,  cooldown=20,  category="UTILITY",                minLevel=55 }
 SPELL_DB[51271]  = { name="Pillar of Frost",        class="DEATHKNIGHT",             duration=12, cooldown=60,  category="OFFENSIVE", specs={251}, minLevel=55 }
--- Dark Arbiter - unverified: not confident this is a real baseline/talent
--- ability in this server's Legion 7.3.5 kit (may be an artifact trait or
--- custom addition) - cooldown/duration below are placeholders, correct
--- via the in-game tooltip if this shows up wrong.
+-- Dark Arbiter - unverified, placeholder cooldown/duration.
 SPELL_DB[207349] = { name="Dark Arbiter",           class="DEATHKNIGHT",             duration=20, cooldown=120, category="OFFENSIVE", specs={251}, isTalent=true }
 
 -- ── SHAMAN ────────────────────────────────────────────────────
@@ -211,16 +181,12 @@ SPELL_DB[51533]  = { name="Feral Spirit",               class="SHAMAN", icon=237
 SPELL_DB[192077] = { name="Wind Rush Totem",            class="SHAMAN", icon=538568, duration=15, cooldown=120, category="UTILITY",  isTalent=true }
 SPELL_DB[207399] = { name="Ancestral Protection Totem", class="SHAMAN", icon=839977, duration=30, cooldown=300, category="DEFENSIVE", specs={264}, isTalent=true }
 -- Grounding/Windfury/Counterstrike/Skyfury Totem are Legion PvP (Honor)
--- talents - only active while flagged/in a PvP instance, never in PvE
--- dungeons. Cooldowns below are placeholders (not yet confirmed against
--- this server) - correct via in-game tooltip.
+-- talents. Cooldowns are unconfirmed placeholders.
 SPELL_DB[204336] = { name="Grounding Totem",            class="SHAMAN",             duration=15, cooldown=30,  category="UTILITY",   isTalent=true }
 SPELL_DB[204332] = { name="Windfury Totem",              class="SHAMAN",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
 SPELL_DB[204331] = { name="Counterstrike Totem",         class="SHAMAN",             duration=15, cooldown=60,  category="DEFENSIVE", isTalent=true }
 SPELL_DB[204330] = { name="Skyfury Totem",               class="SHAMAN",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
--- Ethereal Form / Voodoo Totem - unverified: not confident these exist as
--- described in this server's Shaman kit. Placeholder data - please
--- confirm in-game (tooltip cooldown/duration) before relying on these.
+-- Ethereal Form / Voodoo Totem - unverified, placeholder data.
 SPELL_DB[210918] = { name="Ethereal Form",               class="SHAMAN",             duration=0,  cooldown=90,  category="DEFENSIVE", isTalent=true }
 SPELL_DB[196932] = { name="Voodoo Totem",                class="SHAMAN",             duration=15, cooldown=180, category="UTILITY",   isTalent=true }
 
@@ -233,11 +199,8 @@ SPELL_DB[190319] = { name="Combustion",             class="MAGE", icon=135824, d
 SPELL_DB[12472]  = { name="Icy Veins",              class="MAGE", icon=135838, duration=20, cooldown=180, category="OFFENSIVE", specs={64}, minLevel=10 }
 SPELL_DB[113724] = { name="Ring of Frost",          class="MAGE", icon=464484, duration=10, cooldown=45,  category="UTILITY",  isTalent=true }
 SPELL_DB[235219] = { name="Cold Snap",              class="MAGE", icon=135865, duration=0,  cooldown=300, category="DEFENSIVE", specs={64}, isTalent=true }
--- Temporal Shield / Mass Invisibility are Legion PvP (Honor) talents -
--- only active while flagged/in a PvP instance. "Mass Invincility" in the
--- request is almost certainly a typo for "Mass Invisibility" (198158 is
--- that spell's real ID) - named accordingly here; correct if wrong.
--- Cooldowns are placeholders - please confirm in-game.
+-- Temporal Shield / Mass Invisibility are Legion PvP (Honor) talents.
+-- Cooldowns are unconfirmed placeholders.
 SPELL_DB[198111] = { name="Temporal Shield",        class="MAGE",             duration=4,  cooldown=45,  category="DEFENSIVE", isTalent=true }
 SPELL_DB[198158] = { name="Mass Invisibility",      class="MAGE",             duration=3,  cooldown=120, category="UTILITY",   isTalent=true }
 
@@ -249,11 +212,8 @@ SPELL_DB[152108] = { name="Cataclysm",              class="WARLOCK", icon=452693
 SPELL_DB[108416] = { name="Dark Pact",              class="WARLOCK", icon=538569, duration=20, cooldown=60,  category="DEFENSIVE", isTalent=true }
 SPELL_DB[196098] = { name="Soul Harvest",           class="WARLOCK",             duration=15, cooldown=90,  category="OFFENSIVE"                }
 SPELL_DB[212295] = { name="Nether Ward",            class="WARLOCK",             duration=3,  cooldown=45,  category="DEFENSIVE", specs={267}, isTalent=true }
--- Summon Doomguard/Summon Infernal are the same talent row (pick one) -
--- both listed since either could be the one a given player has chosen;
--- there's no mutual-exclusion enforcement for the main Party Cooldowns
--- tracker the way CC_SPELLS' talentGroup does, so both may show as
--- "available" until one is actually cast.
+-- Summon Doomguard/Summon Infernal are the same talent row - both listed
+-- since either could be picked; no mutual-exclusion here like CC_SPELLS.
 SPELL_DB[18540]  = { name="Summon Doomguard",       class="WARLOCK",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
 SPELL_DB[1122]   = { name="Summon Infernal",        class="WARLOCK",             duration=15, cooldown=180, category="OFFENSIVE", isTalent=true }
 
@@ -288,13 +248,7 @@ SPELL_DB[33891]  = { name="Incarnation: Tree of Life",         class="DRUID",   
 SPELL_DB[77761]  = { name="Stampeding Roar",                   class="DRUID",    duration=8,  cooldown=120, category="UTILITY",   specs={103,104} }
 
 -- ── DEMON HUNTER ─────────────────────────────────────────────
--- 183752 was previously mislabeled "Consume Magic" (a Battle for Azeroth
--- ability that doesn't exist in Legion 7.3.5) - it's actually Disrupt, the
--- DH interrupt, which is why it never showed up under the Interrupt subtab
--- despite already being wired into KastaCD_Interrupts.lua's standalone bar
--- tracker (INT_SPELLS/INT_DEFAULT) under the same ID. No icon fallback is
--- hardcoded here - GetSpellTexture(sid) already resolves it live wherever
--- this entry's icon is used, same as every other spell in this table.
+-- 183752 is Disrupt, the DH interrupt (was previously mislabeled "Consume Magic").
 SPELL_DB[183752] = { name="Disrupt",                class="DEMONHUNTER",               duration=0,  cooldown=15,  category="INTERRUPT",             minLevel=98 }
 SPELL_DB[179057] = { name="Chaos Nova",             class="DEMONHUNTER", icon=1247261, duration=5,  cooldown=60,  category="UTILITY",               minLevel=98 }
 SPELL_DB[198589] = { name="Blur",                   class="DEMONHUNTER", icon=1305150, duration=10, cooldown=60,  category="DEFENSIVE", specs={577}, minLevel=98 }

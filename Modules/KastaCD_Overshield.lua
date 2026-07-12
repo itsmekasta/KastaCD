@@ -1,37 +1,17 @@
--- =============================================================
--- KastaCD_Overshield.lua
--- Ported from Derangement's Shield Meters (originally a standalone
--- Mists of Pandaria addon, interface 50420 - see
--- DerangementShieldMeters.lua/.toc in this same folder for the
--- original reference source).
---
--- Blizzard's default absorb/shield overlay (the bar shown for things
--- like Power Word: Shield, Ice Barrier, etc.) is clipped to the unit's
--- health bar width - once a unit is at full HP, any remaining shield
--- amount beyond max HP ("overshield") becomes invisible even though
--- it's still absorbing damage. This hooks the same four Blizzard
--- functions the original addon did to re-anchor/resize that overlay so
--- it always reflects the FULL absorb amount, on both compact frames
--- (party/raid) and standalone frames (player/target/focus/pet).
---
--- Unlike the original, this is toggleable (Misc > Overshield Display)
--- - every hook below checks IsOvershieldEnabled() first and does
--- nothing when disabled, leaving Blizzard's own already-applied
--- (vanilla) behavior untouched. hooksecurefunc hooks themselves can't
--- be uninstalled once registered, so "disabled" means "installed but
--- inert", not "not hooked".
+-- KastaCD_Overshield.lua - ported from Derangement's Shield Meters.
+-- Blizzard's absorb overlay is clipped to the health bar width, so any
+-- shield beyond max HP ("overshield") becomes invisible even while
+-- still absorbing. Hooks the same four Blizzard functions the original
+-- addon did to re-anchor/resize the overlay to the full absorb amount,
+-- on both compact and standalone frames. Toggleable (Misc > Overshield
+-- Display) - hooks can't be uninstalled, so "disabled" means inert, not
+-- unhooked.
 -- Depends on: KastaCD_DB.lua (KastaCDDB must exist)
--- =============================================================
 
 local ABSORB_GLOW_ALPHA  = 0.6
 local ABSORB_GLOW_OFFSET = -5
 
--- -------------------------------------------------------------
--- DB accessor with lazy defaults - same pattern as GetIntDB/GetCCDB/
--- GetAnnounceDB elsewhere in this addon. On by default (the user asked
--- for shields to just always be visible, not an opt-in they'd have to
--- remember to enable).
--- -------------------------------------------------------------
+-- DB accessor with lazy defaults, on by default.
 function GetOvershieldDB()
     if type(KastaCDDB) ~= "table" then
         return { enabled = true, alwaysShowGlow = false }
@@ -49,11 +29,8 @@ local function IsOvershieldEnabled()
     return GetOvershieldDB().enabled == true
 end
 
--- -------------------------------------------------------------
--- Standalone frames (player/target/focus/pet/party-in-frame-mode) -
--- frame.totalAbsorbBar / frame.totalAbsorbBarOverlay / frame.healthbar
--- (lowercase b), matching Blizzard's UnitFrame.lua naming.
--- -------------------------------------------------------------
+-- Standalone frames (player/target/focus/pet) - frame.totalAbsorbBar /
+-- totalAbsorbBarOverlay / healthbar (lowercase b), Blizzard's UnitFrame.lua naming.
 hooksecurefunc("UnitFrame_Update",
 	function(frame)
 		if not IsOvershieldEnabled() then return end
@@ -63,13 +40,8 @@ hooksecurefunc("UnitFrame_Update",
 		local absorbOverlay = frame.totalAbsorbBarOverlay
 		if not absorbOverlay then return end
 
-		-- Deliberately NOT calling absorbOverlay:SetParent(...) here -
-		-- reparenting a Blizzard-owned frame taints it. SetPoint anchors
-		-- visually to any frame regardless of literal parent-child
-		-- relationship, so this overlay never actually needed to be
-		-- reparented onto the health bar to begin with - only
-		-- ClearAllPoints is needed here; positioning itself happens in
-		-- the heal-prediction hook below.
+		-- Not SetParent - reparenting a Blizzard-owned frame taints it.
+		-- SetPoint anchors visually regardless of literal parentage.
 		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow
@@ -82,12 +54,8 @@ hooksecurefunc("UnitFrame_Update",
 	end
 )
 
--- -------------------------------------------------------------
--- Compact frames (party/raid) - frame.totalAbsorb / frame.totalAbsorbOverlay
--- / frame.healthBar (uppercase B), matching Blizzard's
--- CompactUnitFrame.lua naming - deliberately different casing from the
--- standalone-frame hook above, this isn't a typo.
--- -------------------------------------------------------------
+-- Compact frames (party/raid) - frame.totalAbsorb / totalAbsorbOverlay /
+-- healthBar (uppercase B), Blizzard's CompactUnitFrame.lua naming.
 hooksecurefunc("CompactUnitFrame_UpdateAll",
 	function(frame)
 		if not IsOvershieldEnabled() then return end
@@ -97,7 +65,6 @@ hooksecurefunc("CompactUnitFrame_UpdateAll",
 		local absorbOverlay = frame.totalAbsorbOverlay
 		if not absorbOverlay then return end
 
-		-- See the matching comment in UnitFrame_Update above - no SetParent.
 		absorbOverlay:ClearAllPoints()
 
 		local absorbGlow = frame.overAbsorbGlow
@@ -110,12 +77,8 @@ hooksecurefunc("CompactUnitFrame_UpdateAll",
 	end
 )
 
--- -------------------------------------------------------------
--- Standalone frames: the actual overshield sizing/positioning, driven
--- by UnitGetTotalAbsorbs (the unit's REAL total absorb amount,
--- uncapped by max HP - this is what makes the "beyond full HP" portion
--- visible at all).
--- -------------------------------------------------------------
+-- Standalone frames: overshield sizing/positioning, driven by
+-- UnitGetTotalAbsorbs (real total absorb, uncapped by max HP).
 hooksecurefunc("UnitFrameHealPredictionBars_Update",
 	function(frame)
 		if not IsOvershieldEnabled() then return end
@@ -142,11 +105,8 @@ hooksecurefunc("UnitFrameHealPredictionBars_Update",
 				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthbar, "BOTTOMRIGHT", 0, 0)
 			end
 
-			-- tileSize isn't a stock Texture property - it's only ever set
-			-- by Blizzard's own FrameXML template for this exact overlay,
-			-- which some dynamically-generated compact frames don't carry.
-			-- Bail rather than error - this frame just keeps Blizzard's
-			-- default (clipped-at-max-hp) shield display for this update.
+			-- tileSize isn't a stock Texture property - some dynamically
+			-- generated compact frames don't carry it. Bail rather than error.
 			if not absorbOverlay.tileSize then return end
 
 			local totalWidth, totalHeight = frame.healthbar:GetSize()
@@ -163,11 +123,8 @@ hooksecurefunc("UnitFrameHealPredictionBars_Update",
 	end
 )
 
--- -------------------------------------------------------------
--- Compact frames: same as above but for party/raid frames, using
--- UnitGetTotalAbsorbs(frame.displayedUnit) since compact frames track
--- displayedUnit separately from unit (e.g. raid pets/vehicle swaps).
--- -------------------------------------------------------------
+-- Compact frames: same as above, using frame.displayedUnit since compact
+-- frames track it separately from unit (raid pets/vehicle swaps).
 hooksecurefunc("CompactUnitFrame_UpdateHealPrediction",
 	function(frame)
 		if not IsOvershieldEnabled() then return end
@@ -194,9 +151,6 @@ hooksecurefunc("CompactUnitFrame_UpdateHealPrediction",
 				absorbOverlay:SetPoint("BOTTOMRIGHT", frame.healthBar, "BOTTOMRIGHT", 0, 0)
 			end
 
-			-- See the matching guard in UnitFrameHealPredictionBars_Update
-			-- above - tileSize is missing on some dynamically-generated
-			-- compact frames.
 			if not absorbOverlay.tileSize then return end
 
 			local totalWidth, totalHeight = frame.healthBar:GetSize()

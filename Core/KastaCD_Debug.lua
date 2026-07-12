@@ -1,16 +1,6 @@
--- =============================================================
--- KastaCD_Debug.lua
--- Developer slash commands for inspecting addon state.
--- Loaded last — depends on everything else.
---
---   /kcddebug   – dump icon containers, tracker state, profile info
---   /kcdlevel   – check level-gate visibility for all group members
---                 /kcdlevel 871  (filter to one spellID)
--- =============================================================
+-- KastaCD_Debug.lua - developer slash commands for inspecting addon
+-- state. Loaded last, depends on everything else.
 
--- -------------------------------------------------------------
--- /kcddebug
--- -------------------------------------------------------------
 SLASH_KASTACDDEBUG1 = "/kcddebug"
 SlashCmdList["KASTACDDEBUG"] = function()
     local cc, tc, ec, dbc = 0, 0, 0, 0
@@ -47,9 +37,7 @@ SlashCmdList["KASTACDDEBUG"] = function()
     end
 end
 
--- -------------------------------------------------------------
--- /kcdlevel [spellID]
--- -------------------------------------------------------------
+-- /kcdlevel [spellID] - check level-gate visibility for all group members.
 SLASH_KASTACDLEVEL1 = "/kcdlevel"
 SlashCmdList["KASTACDLEVEL"] = function(msg)
     local filterSid = tonumber(msg)
@@ -82,13 +70,8 @@ SlashCmdList["KASTACDLEVEL"] = function(msg)
         end
     end
 end
--- -------------------------------------------------------------
--- /kcdspec [spellID]
--- Diagnoses exactly why a spec-locked spell isn't showing for the
--- player, by printing each piece IsSpellKnownForUnit actually checks:
--- resolved specId, IsPlayerSpell/IsSpellKnown results, and whether
--- the spell's data.specs list contains that specId.
--- -------------------------------------------------------------
+-- /kcdspec [spellID] - diagnoses why a spec-locked spell isn't showing,
+-- printing each piece IsSpellKnownForUnit checks.
 SLASH_KASTACDSPEC1 = "/kcdspec"
 SlashCmdList["KASTACDSPEC"] = function(msg)
     local sid = tonumber(msg)
@@ -141,15 +124,7 @@ SlashCmdList["KASTACDSPEC"] = function(msg)
 
     print("  Final IsSpellKnownForUnit(\"player\", " .. sid .. "):", tostring(IsSpellKnownForUnit("player", sid)))
 end
--- -------------------------------------------------------------
--- /kcdpoll
--- Dumps the live UNIT_SPEC_CACHE state for the player and all
--- present party members, as currently maintained by the 1s
--- SpecPollTicker in KastaCD_Events.lua. Useful for confirming the
--- polling architecture is actually keeping spec data fresh (run it
--- a few times a couple seconds apart to watch it self-correct after
--- a spec change or a transient bad read).
--- -------------------------------------------------------------
+-- /kcdpoll - dumps live UNIT_SPEC_CACHE state for player and party.
 SLASH_KASTACDPOLL1 = "/kcdpoll"
 SlashCmdList["KASTACDPOLL"] = function()
     print("KastaCD live spec cache:")
@@ -166,14 +141,9 @@ SlashCmdList["KASTACDPOLL"] = function()
     end
 end
 
--- -------------------------------------------------------------
--- /kcdcast
--- Toggles a raw combat-log listener that prints every SPELL_CAST_SUCCESS
--- the player triggers (spellId + name), regardless of SPELL_DB membership.
--- Private servers frequently remap spell IDs, so this is the fastest way
--- to confirm the real ID logged for an ability that "won't track" -
--- cast it once with this on and read the printed ID off chat.
--- -------------------------------------------------------------
+-- /kcdcast - toggles a raw listener printing every SPELL_CAST_SUCCESS the
+-- player triggers, to confirm the real spell ID for an ability that
+-- "won't track" (private servers frequently remap IDs).
 local castLogFrame
 SLASH_KASTACDCAST1 = "/kcdcast"
 SlashCmdList["KASTACDCAST"] = function()
@@ -188,8 +158,7 @@ SlashCmdList["KASTACDCAST"] = function()
                 subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
             end
 
-            -- Fallback: pserver passed args directly via the event, same as
-            -- the main HandleCombatLog handler in KastaCD_CombatLog.lua.
+            -- Fallback: pserver passed args directly via the event.
             if not subEvent then
                 local _, se, _, sGUID, _, _, _, _, _, _, _, sId, sName = ...
                 subEvent, sourceGUID, spellId, spellName = se, sGUID, sId, sName
@@ -210,14 +179,8 @@ SlashCmdList["KASTACDCAST"] = function()
     end
 end
 
--- -------------------------------------------------------------
--- /kcdcc
--- Dumps the crowd-control tracker's saved settings, group/instance
--- state, and the live anchor frame's geometry after forcing a rebuild.
--- Use this when the CC bar/anchor isn't appearing and it's not obvious
--- why - it isolates whether the DB state, the group gate, or the frame
--- itself is the problem.
--- -------------------------------------------------------------
+-- /kcdcc - dumps the CC tracker's saved settings, group/instance state,
+-- and anchor geometry, to isolate why a bar/anchor isn't appearing.
 SLASH_KASTACDCC1 = "/kcdcc"
 SlashCmdList["KASTACDCC"] = function()
     print("KastaCD CC tracker debug:")
@@ -262,16 +225,8 @@ SlashCmdList["KASTACDCC"] = function()
     end
 end
 
--- -------------------------------------------------------------
--- /kcdanchor
--- Dumps exactly what FindUnitFrames() (KastaCD_Tracking.lua) returns
--- right now, plus the raw state of every candidate "player" frame source
--- it checks along the way (ElvUI party buttons, PlayerFrame, whether
--- ElvUI is even detected). Run this once right after login, and again
--- after /reload in the same session, to see exactly which source flips
--- from "not a match" to "match" for the player slot - that's what's
--- actually deciding whether the player's icons show up or not.
--- -------------------------------------------------------------
+-- /kcdanchor - dumps what FindUnitFrames() returns plus the raw state
+-- of every candidate "player" frame source it checks.
 SLASH_KASTACDANCHOR1 = "/kcdanchor"
 SlashCmdList["KASTACDANCHOR"] = function()
     print("KastaCD anchor debug:")
@@ -319,15 +274,8 @@ SlashCmdList["KASTACDANCHOR"] = function()
     end
 end
 
--- -------------------------------------------------------------
--- /kcdrace
--- Prints UnitRace()'s raw return values for the player and every party
--- member. Used to verify the exact non-localized race token a private
--- server reports (e.g. "BloodElf" vs "Blood Elf") against what
--- RACIAL_DEFAULT in KastaCD_Interrupts.lua expects - a mismatch here
--- means a race-based default (like Arcane Torrent) never shows up
--- automatically, even though a real witnessed cast still tracks fine.
--- -------------------------------------------------------------
+-- /kcdrace - prints UnitRace()'s raw return values, to verify the exact
+-- race token this server reports against RACIAL_DEFAULT's expectations.
 SLASH_KASTACDRACE1 = "/kcdrace"
 SlashCmdList["KASTACDRACE"] = function()
     print("KastaCD race token debug:")

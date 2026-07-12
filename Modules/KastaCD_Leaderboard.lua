@@ -1,22 +1,9 @@
--- =============================================================
--- KastaCD_Leaderboard.lua
---
--- Personal Mythic+ best-time tracker. Deliberately NOT synced between
--- players - a real cross-player leaderboard needs either a central
--- server or continuous addon-comm sync with every KastaCD user who's
--- ever run a given dungeon, which is a much bigger and less reliable
--- undertaking than this (and was explicitly deferred - see session
--- discussion). This just records YOUR OWN best completion per dungeon,
--- viewable via /kcdboard.
---
--- Time from C_ChallengeMode.GetCompletionInfo() is in milliseconds
--- (Blizzard's standard convention for this API family) - divided by
--- 1000 before formatting. Legion 7.3.5 predates the Mythic+ rating
--- system (a BfA addition), so this only reads the first four return
--- values (mapID, level, time, onTime) and ignores anything after that,
--- staying safe regardless of exactly what (if anything) trails them on
--- this specific patch/server.
--- =============================================================
+-- KastaCD_Leaderboard.lua - personal Mythic+ best-time tracker,
+-- deliberately not synced between players. Records your own best
+-- completion per dungeon, viewable via /kcdboard.
+-- Time from GetCompletionInfo() is in milliseconds. Legion 7.3.5
+-- predates the BfA rating system, so only the first four return values
+-- (mapID, level, time, onTime) are read.
 
 function GetLeaderboardDB()
     KastaCDDB = KastaCDDB or {}
@@ -66,10 +53,7 @@ local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 watcher:SetScript("OnEvent", RecordCompletion)
 
--- -------------------------------------------------------------
--- /kcdboard - prints your personal best time per dungeon, sorted
--- alphabetically. /kcdboard reset wipes all recorded data.
--- -------------------------------------------------------------
+-- /kcdboard - prints your best time per dungeon. reset wipes recorded data.
 SLASH_KASTACDBOARD1 = "/kcdboard"
 SlashCmdList["KASTACDBOARD"] = function(msg)
     local db = GetLeaderboardDB()
