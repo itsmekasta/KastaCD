@@ -601,8 +601,9 @@ function RebuildCCBars()
     else
         units[1] = "player"
         for i = 1, 4 do
-            if UnitExists("party" .. i) then
-                units[#units + 1] = "party" .. i
+            local u = "party" .. i
+            if UnitExists(u) and UnitIsConnected(u) then
+                units[#units + 1] = u
             end
         end
     end
