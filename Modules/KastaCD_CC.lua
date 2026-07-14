@@ -65,7 +65,7 @@ CC_SPELLS = {
     [31661]  = { class="MAGE",        cooldown=20,  specs={63}      },                    -- Dragon's Breath (Fire only, baseline)
 
     -- PRIEST
-    [88625]  = { class="PRIEST",      cooldown=30,  specs={257}     },                    -- Holy Word: Chastise (Holy, baseline)
+    [88625]  = { class="PRIEST",      cooldown=60,  specs={257}     },                    -- Holy Word: Chastise (Holy, baseline)
     [205369] = { class="PRIEST",      cooldown=45,  isTalent=true   },                    -- Mind Bomb (PvP talent, approx CD)
 
     -- WARLOCK
@@ -98,6 +98,39 @@ CC_SPELLS = {
     -- Arcane Torrent (Blood Elf racial) moved to KastaCD_Interrupts.lua's INT_SPELLS.
 }
 
+-- [triggerSpellId] = { targetSpellId, reduction seconds }
+local CC_COOLDOWN_REDUCERS = {}
+
+local SMITE_SPELL_ID    = 585
+local CHASTISE_SPELL_ID = 88625
+local CHASTISE_REDUCTION_BASE        = 6
+local CHASTISE_REDUCTION_NAARU_BONUS = 2
+local CHASTISE_REDUCTION_APOTHEOSIS_BONUS = 12
+local LIGHT_OF_THE_NAARU_SPELL_ID = 196985
+local APOTHEOSIS_BUFF_NAME = "Apotheosis"
+
+local hasApotheosis = false
+
+local function RefreshApotheosisBuff()
+    for i = 1, 40 do
+        local name = UnitAura("player", i, "HELPFUL")
+        if not name then break end
+        if name == APOTHEOSIS_BUFF_NAME then
+            hasApotheosis = true
+            return
+        end
+    end
+    hasApotheosis = false
+end
+
+local apotheosisWatcher = CreateFrame("Frame")
+apotheosisWatcher:RegisterEvent("UNIT_AURA")
+apotheosisWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+apotheosisWatcher:SetScript("OnEvent", function(_, event, unit)
+    if event == "UNIT_AURA" and unit ~= "player" then return end
+    RefreshApotheosisBuff()
+end)
+
 -- Clears every other spellId sharing spellId's talentGroup from guid's
 -- KNOWN_UNIT_SPELLS - confirming one pick proves the alternative isn't
 -- selected. Called from every site that confirms a CC_SPELLS pick.
@@ -129,7 +162,7 @@ local TEST_FAKE_UNITS = {
     { token="KCDTESTCC1", name="Test Warrior",     class="WARRIOR",     spellId=46968,  cooldown=40 },
     { token="KCDTESTCC2", name="Test Rogue",       class="ROGUE",       spellId=6770,   cooldown=20 },
     { token="KCDTESTCC3", name="Test Mage",        class="MAGE",        spellId=122,    cooldown=25 },
-    { token="KCDTESTCC4", name="Test Priest",      class="PRIEST",      spellId=88625,  cooldown=30 },
+    { token="KCDTESTCC4", name="Test Priest",      class="PRIEST",      spellId=88625,  cooldown=60 },
     { token="KCDTESTCC5", name="Test DemonHunter", class="DEMONHUNTER", spellId=217832, cooldown=90 },
 }
 local TEST_FAKE_LOOKUP = {}
@@ -811,6 +844,46 @@ function HandleCCCast(sourceGUID, spellId)
     if not bf or not bf.row:IsShown() then
         RebuildCCBars()
     end
+end
+
+function HandleCCCooldownReducer(sourceGUID, spellId)
+    local targetSpellId, reduction
+    if spellId == SMITE_SPELL_ID then
+        targetSpellId = CHASTISE_SPELL_ID
+        reduction = CHASTISE_REDUCTION_BASE
+        if IsPlayerSpell and IsPlayerSpell(LIGHT_OF_THE_NAARU_SPELL_ID) then
+            reduction = reduction + CHASTISE_REDUCTION_NAARU_BONUS
+        end
+        if hasApotheosis then
+            reduction = reduction + CHASTISE_REDUCTION_APOTHEOSIS_BONUS
+        end
+    else
+        local reducer = CC_COOLDOWN_REDUCERS[spellId]
+        if not reducer then return end
+        targetSpellId, reduction = reducer.targetSpellId, reducer.reduction
+    end
+
+    local unit = nil
+    if UnitGUID("player") == sourceGUID then
+        unit = "player"
+    else
+        for i = 1, 4 do
+            local u = "party" .. i
+            if UnitGUID(u) == sourceGUID then
+                unit = u
+                break
+            end
+        end
+    end
+    if not unit then return end
+
+    local st = ccBarState[unit] and ccBarState[unit][targetSpellId]
+    if not st or not st.endTime then return end
+
+    local now = GetTime()
+    if st.endTime <= now then return end
+
+    st.endTime = math.max(now, st.endTime - reduction)
 end
 
 C_Timer.NewTicker(0.1, function()

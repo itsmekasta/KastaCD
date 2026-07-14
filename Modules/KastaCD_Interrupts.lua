@@ -673,6 +673,14 @@ function HandleInterruptCast(sourceGUID, spellId)
     end
 end
 
+function ReduceInterruptCooldown(unit, spellId, seconds)
+    local st = intBarState[unit]
+    if not st or st.spellId ~= spellId or not st.endTime then return end
+    local now = GetTime()
+    if st.endTime <= now then return end
+    st.endTime = math.max(now, st.endTime - seconds)
+end
+
 C_Timer.NewTicker(0.1, function()
     if type(KastaCDDB) ~= "table" then return end
     local db = GetIntDB()

@@ -3,6 +3,70 @@
 -- phase transitions on tracked icons.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua
 
+-- [guid] = { name, notInterruptible } of the unit's last cast/channel.
+local castInterruptCache = {}
+
+function TrackCastInterruptible(unit)
+    local guid = unit and UnitGUID(unit)
+    if not guid then return end
+    local name, notInterruptible
+    if UnitCastingInfo then
+        name, _, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
+    end
+    if not name and UnitChannelInfo then
+        name, _, _, _, _, _, _, notInterruptible = UnitChannelInfo(unit)
+    end
+    if not name then return end
+    castInterruptCache[guid] = { name = name, notInterruptible = notInterruptible }
+end
+
+local function ReduceTrackerCooldown(unit, spellId, seconds)
+    local state = trackerState[unit] and trackerState[unit][spellId]
+    if not state then return end
+    local now = GetTime()
+    if state.phase == "uptime" and state.cdEndTime then
+        state.cdEndTime = math.max(now, state.cdEndTime - seconds)
+    elseif state.phase == "cooldown" and state.endTime then
+        state.endTime = math.max(now, state.endTime - seconds)
+    end
+end
+
+local ODYNS_CHAMPION_BUFF_NAME = "Champion of the Valarjar"
+local RAMPAGE_SPELL_ID         = 184367
+local RECKLESSNESS_SPELL_ID    = 1719
+local ODYNS_CHAMPION_REDUCTION = 1
+
+local SOLAR_BEAM_SPELL_ID       = 78675
+local LIGHT_OF_THE_SUN_SPELL_ID = 202918
+local LIGHT_OF_THE_SUN_REDUCTION = 15
+
+local hasOdynsChampion = false
+
+local function RefreshOdynsChampionBuff()
+    for i = 1, 40 do
+        local name = UnitAura("player", i, "HELPFUL")
+        if not name then break end
+        if name == ODYNS_CHAMPION_BUFF_NAME then
+            hasOdynsChampion = true
+            return
+        end
+    end
+    hasOdynsChampion = false
+end
+
+local odynWatcher = CreateFrame("Frame")
+odynWatcher:RegisterEvent("UNIT_AURA")
+odynWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+odynWatcher:SetScript("OnEvent", function(_, event, unit)
+    if event == "UNIT_AURA" and unit ~= "player" then return end
+    RefreshOdynsChampionBuff()
+end)
+
+SLASH_KASTACDODYNDEBUG1 = "/kcdodyndebug"
+SlashCmdList["KASTACDODYNDEBUG"] = function()
+    print("|cff00ff00KastaCD Odyn's Champion Debug|r -- hasOdynsChampion=" .. tostring(hasOdynsChampion))
+end
+
 function HandleCombatLog(...)
     -- Some private servers pass fields as direct event args instead of
     -- via CombatLogGetCurrentEventInfo(). Try the API first, fall back.
@@ -30,10 +94,21 @@ function HandleCombatLog(...)
     end
 
     -- Interrupt announcement - extraSpellName is the interrupted spell,
-    -- not the interrupt ability. Player's own interrupts only.
+    -- not the interrupt ability. Player's own interrupts only. Skipped
+    -- when castInterruptCache confirms that cast wasn't interruptible.
     if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
-        if type(AnnounceInterrupt) == "function" then
+        local cached = destGUID and castInterruptCache[destGUID]
+        local blocked = cached and cached.notInterruptible and cached.name == extraSpellName
+        if not blocked and type(AnnounceInterrupt) == "function" then
             AnnounceInterrupt(spellName, extraSpellName, destName, extraSpellId, spellId)
+        end
+
+        -- Light of the Sun: Solar Beam interrupt refunds its own cooldown.
+        if spellId == SOLAR_BEAM_SPELL_ID and IsPlayerSpell and IsPlayerSpell(LIGHT_OF_THE_SUN_SPELL_ID) then
+            ReduceTrackerCooldown("player", SOLAR_BEAM_SPELL_ID, LIGHT_OF_THE_SUN_REDUCTION)
+            if type(ReduceInterruptCooldown) == "function" then
+                ReduceInterruptCooldown("player", SOLAR_BEAM_SPELL_ID, LIGHT_OF_THE_SUN_REDUCTION)
+            end
         end
     end
 
@@ -46,20 +121,32 @@ function HandleCombatLog(...)
 
         -- Racial fallback (Arcane Torrent): SPELL_INTERRUPT doesn't
         -- reliably fire for it, so approximate the interrupted spell from
-        -- whatever the target is currently casting/channeling.
+        -- whatever the target is currently casting/channeling. Only
+        -- announces if that cast is actually interruptible.
         if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
         and type(AnnounceInterrupt) == "function" then
-            local castName, castSpellId
+            local castName, castSpellId, notInterruptible
             if UnitCastingInfo then
-                castName, _, _, _, _, _, _, _, castSpellId = UnitCastingInfo("target")
+                castName, _, _, _, _, _, notInterruptible, castSpellId = UnitCastingInfo("target")
             end
             if not castName and UnitChannelInfo then
-                castName, _, _, _, _, _, _, _, castSpellId = UnitChannelInfo("target")
+                castName, _, _, _, _, _, _, notInterruptible, castSpellId = UnitChannelInfo("target")
             end
-            if castName then
+            if castName and not notInterruptible then
                 AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
             end
         end
+    end
+
+    -- Cross-spell cooldown reduction (e.g. Smite -> Chastise)
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId and sourceGUID and type(HandleCCCooldownReducer) == "function" then
+        HandleCCCooldownReducer(sourceGUID, spellId)
+    end
+
+    -- Odyn's Champion: Rampage cast while buffed shaves 1s off Recklessness.
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId == RAMPAGE_SPELL_ID
+    and sourceGUID == UnitGUID("player") and hasOdynsChampion then
+        ReduceTrackerCooldown("player", RECKLESSNESS_SPELL_ID, ODYNS_CHAMPION_REDUCTION)
     end
 
     -- Crowd-control tracker hook - same rationale as above, checked

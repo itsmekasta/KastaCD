@@ -15,6 +15,8 @@ kcdEvent:RegisterEvent("CHARACTER_POINTS_CHANGED")
 kcdEvent:RegisterEvent("PLAYER_TALENT_UPDATE")
 kcdEvent:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 kcdEvent:RegisterEvent("INSPECT_READY")
+kcdEvent:RegisterEvent("UNIT_SPELLCAST_START")
+kcdEvent:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
 
 -- Shared helper: populate memberGUIDs from CompactRaidFrames + direct unit tokens.
 local function RefreshMemberGUIDs()
@@ -177,6 +179,11 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
 
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCombatLog(...)
+        return
+    end
+
+    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+        if type(TrackCastInterruptible) == "function" then TrackCastInterruptible(...) end
         return
     end
 
