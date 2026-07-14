@@ -154,8 +154,29 @@ end
 -- spell - casting one doesn't erase another's in-progress cooldown.
 local ccBarState  = {}   -- [unit][spellId] = { spellId, cooldown, endTime, class }
 local ccBarFrames = {}   -- [unit][spellId] = { row, sb, ico, nameText, cdText }
+local ccGridFrames = {}  -- [unit][spellId] = { cell, ico, nameText, cdText } - icon-mode display
 local ccAnchorFrame = nil
 local ccBarsParent  = nil
+
+-- Corner/center anchor points for icon-mode name/timer text. "outside"
+-- (name only) sits below the icon instead of on top of it.
+local GRID_TEXT_ANCHORS = {
+    topleft     = "TOPLEFT",
+    topright    = "TOPRIGHT",
+    center      = "CENTER",
+    bottomleft  = "BOTTOMLEFT",
+    bottomright = "BOTTOMRIGHT",
+}
+
+local function PositionGridText(fs, ico, position, ox, oy)
+    fs:ClearAllPoints()
+    if position == "outside" then
+        fs:SetPoint("TOP", ico, "BOTTOM", ox, -1 + oy)
+    else
+        local point = GRID_TEXT_ANCHORS[position] or "CENTER"
+        fs:SetPoint(point, ico, point, ox, oy)
+    end
+end
 
 -- Five fake party members for Test Mode while solo.
 local TEST_FAKE_UNITS = {
@@ -187,6 +208,27 @@ local function GetCCDB()
     if db.maxNameChars == nil then db.maxNameChars = 0 end
     -- growUp: false/nil = bars stack down from a fixed top edge, true = stack up from bottom.
     if db.growUp      == nil then db.growUp      = false end
+    -- iconOnRight: false/nil = icon on the left (default), true = icon on the right.
+    if db.iconOnRight == nil then db.iconOnRight = false end
+    -- displayStyle: "bar" (default, one row per spell) or "icon" (wrapping grid of icons+names).
+    if db.displayStyle    == nil then db.displayStyle    = "bar" end
+    if db.iconGridSize    == nil then db.iconGridSize    = 36 end
+    if db.iconGridPerRow  == nil then db.iconGridPerRow  = 4 end
+    if db.iconGridBorder  == nil then db.iconGridBorder  = false end
+    if db.iconGridGap     == nil then db.iconGridGap     = 4 end
+    -- iconGridGrowLeft: false/nil = columns grow right (default), true = grow left.
+    if db.iconGridGrowLeft == nil then db.iconGridGrowLeft = false end
+    if db.iconGridNameFont == nil then db.iconGridNameFont = "Fonts\\FRIZQT__.TTF" end
+    -- iconGridNamePosition: "outside" (default, below the icon) or a corner/center anchor on top of it.
+    if db.iconGridNamePosition == nil then db.iconGridNamePosition = "outside" end
+    if db.iconGridNameX    == nil then db.iconGridNameX    = 0 end
+    if db.iconGridNameY    == nil then db.iconGridNameY    = 0 end
+    if db.iconGridNameSize == nil then db.iconGridNameSize = 10 end
+    -- iconGridTimerPosition: a corner/center anchor on top of the icon (no "outside").
+    if db.iconGridTimerPosition == nil then db.iconGridTimerPosition = "center" end
+    if db.iconGridTimerX    == nil then db.iconGridTimerX    = 0 end
+    if db.iconGridTimerY    == nil then db.iconGridTimerY    = 0 end
+    if db.iconGridTimerSize == nil then db.iconGridTimerSize = 10 end
     if db.contentTypes == nil then
         db.contentTypes = {
             ["Open World"]=true, ["Dungeon"]=true,
@@ -294,22 +336,26 @@ local function PickGuessCC(unit, class, specId, raceToken)
         table.insert(guesses, { spellId = sid, cooldown = CC_SPELLS[sid].cooldown })
     end
 
-    local fallback, exactMatch = nil, nil
+    -- Every qualifying non-talent entry gets its own guess - a baseline,
+    -- unrestricted ability (e.g. Frost Nova) and a spec-restricted one
+    -- (e.g. Dragon's Breath) aren't mutually exclusive, both are usable
+    -- at once. Only isTalent/talentGroup entries above are exclusive picks.
     for sid, info in pairs(CC_SPELLS) do
         local classOk = info.class == class or info.class == "ALL"
         local raceOk  = not info.race or info.race == raceToken
         if classOk and raceOk and not info.isTalent and IsCCSpellEnabled(sid) then
+            local qualifies
             if not info.specs then
-                fallback = fallback or { spellId = sid, cooldown = info.cooldown }
-            elseif isPlayer and PlayerHasSpellID(sid) then
-                exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
-            elseif SpecInList(info.specs, specId) then
-                exactMatch = exactMatch or { spellId = sid, cooldown = info.cooldown }
+                qualifies = true
+            elseif isPlayer then
+                qualifies = PlayerHasSpellID(sid) or SpecInList(info.specs, specId)
+            else
+                qualifies = SpecInList(info.specs, specId)
+            end
+            if qualifies then
+                table.insert(guesses, { spellId = sid, cooldown = info.cooldown })
             end
         end
-    end
-    if exactMatch or fallback then
-        table.insert(guesses, exactMatch or fallback)
     end
 
     return guesses
@@ -320,8 +366,17 @@ local HEADER_H = 18
 local BORDER_THICKNESS = 2  -- px, thickness of the bar outline strips
 
 -- TOPLEFT for "grow down" (default), BOTTOMLEFT for "grow up".
+-- Icon mode's horizontal grow direction also flips which edge the whole
+-- tracker (not just each cell) is anchored/grows from, so the saved
+-- position stays visually fixed on the side you actually snapped it to.
+local function CCIsHorizRight(db)
+    return db.displayStyle == "icon" and db.iconGridGrowLeft
+end
+
 local function CCAnchorPoint(db)
-    return db.growUp and "BOTTOMLEFT" or "TOPLEFT"
+    local v = db.growUp and "BOTTOM" or "TOP"
+    local h = CCIsHorizRight(db) and "RIGHT" or "LEFT"
+    return v .. h
 end
 
 -- Positions the header/bars container per the current grow direction.
@@ -329,23 +384,17 @@ local function ApplyCCGrowLayout()
     local a, bp = ccAnchorFrame, ccBarsParent
     if not a or not bp then return end
     local db = GetCCDB()
+    local vPoint = db.growUp and "BOTTOM" or "TOP"
+    local hPoint = CCIsHorizRight(db) and "RIGHT" or "LEFT"
 
     a.hdrBg:ClearAllPoints()
     a.hdrLbl:ClearAllPoints()
     bp:ClearAllPoints()
-    if db.growUp then
-        a.hdrBg:SetPoint("BOTTOMLEFT",  a, "BOTTOMLEFT",  0, 0)
-        a.hdrBg:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
-        a.hdrLbl:SetPoint("BOTTOMLEFT",  a, "BOTTOMLEFT",  0, 0)
-        a.hdrLbl:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
-        bp:SetPoint("BOTTOMLEFT", a, "BOTTOMLEFT", 0, HEADER_H)
-    else
-        a.hdrBg:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
-        a.hdrBg:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
-        a.hdrLbl:SetPoint("TOPLEFT",  a, "TOPLEFT",  0, 0)
-        a.hdrLbl:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
-        bp:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -HEADER_H)
-    end
+    a.hdrBg:SetPoint(vPoint .. "LEFT",  a, vPoint .. "LEFT",  0, 0)
+    a.hdrBg:SetPoint(vPoint .. "RIGHT", a, vPoint .. "RIGHT", 0, 0)
+    a.hdrLbl:SetPoint(vPoint .. "LEFT",  a, vPoint .. "LEFT",  0, 0)
+    a.hdrLbl:SetPoint(vPoint .. "RIGHT", a, vPoint .. "RIGHT", 0, 0)
+    bp:SetPoint(vPoint .. hPoint, a, vPoint .. hPoint, 0, db.growUp and HEADER_H or -HEADER_H)
 end
 
 local function EnsureCCAnchor()
@@ -370,7 +419,8 @@ local function EnsureCCAnchor()
         local db2  = GetCCDB()
         local esc  = self:GetEffectiveScale()
         local usc  = UIParent:GetEffectiveScale()
-        db2.savedX = self:GetLeft() * esc
+        local refX = CCIsHorizRight(db2) and self:GetRight() or self:GetLeft()
+        db2.savedX = refX * esc
         local refY = db2.growUp and self:GetBottom() or self:GetTop()
         db2.savedY = (refY * esc) - (UIParent:GetTop() * usc)
     end)
@@ -478,7 +528,8 @@ function GetCCAnchorPos()
     end
     local esc = ccAnchorFrame:GetEffectiveScale()
     local usc = UIParent:GetEffectiveScale()
-    local x = ccAnchorFrame:GetLeft() * esc
+    local refX = CCIsHorizRight(db) and ccAnchorFrame:GetRight() or ccAnchorFrame:GetLeft()
+    local x = refX * esc
     local refY = db.growUp and ccAnchorFrame:GetBottom() or ccAnchorFrame:GetTop()
     local y = (refY * esc) - (UIParent:GetTop() * usc)
     return x, y
@@ -500,6 +551,14 @@ local function HideAllCCBarRows()
     end
 end
 
+local function HideAllCCGridCells()
+    for _, unitFrames in pairs(ccGridFrames) do
+        for _, gf in pairs(unitFrames) do
+            gf.cell:Hide()
+        end
+    end
+end
+
 function RebuildCCBars()
     local db = GetCCDB()
 
@@ -512,6 +571,7 @@ function RebuildCCBars()
     if db.locked and not IsInGroup() and not db.testMode then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         HideAllCCBarRows()
+        HideAllCCGridCells()
         return
     end
 
@@ -519,6 +579,7 @@ function RebuildCCBars()
     if db.locked and instanceType == "raid" then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         HideAllCCBarRows()
+        HideAllCCGridCells()
         return
     end
 
@@ -526,6 +587,7 @@ function RebuildCCBars()
     if db.locked and not db.testMode and type(IsContentEnabledFor) == "function" and not IsContentEnabledFor(db.contentTypes) then
         if ccAnchorFrame then ccAnchorFrame:Hide() end
         HideAllCCBarRows()
+        HideAllCCGridCells()
         return
     end
 
@@ -570,11 +632,21 @@ function RebuildCCBars()
     local ICO = BH  -- icon is square, matches bar height
     local ROW = ICO + BW  -- total row width
 
-    -- Hide all rows; we re-show only the ones that are active
+    local iconMode = (db.displayStyle == "icon")
+    local GICO   = db.iconGridSize
+    local GCOLS  = math.max(1, db.iconGridPerRow)
+    local NAME_H = math.max(10, math.floor(GICO * 0.35))
+    local CELL_W = GICO
+    local CELL_H = (db.iconGridNamePosition == "outside") and (GICO + NAME_H) or GICO
+    local GAP    = db.iconGridGap or 4
+
+    -- Hide all rows/cells; we re-show only the ones that are active
     HideAllCCBarRows()
+    HideAllCCGridCells()
 
     local yOff   = 0
     local anyBar = false
+    local gridIndex = 0
 
     for i, unit in ipairs(units) do
         local fakeInfo = TEST_FAKE_LOOKUP[unit]
@@ -628,8 +700,120 @@ function RebuildCCBars()
                     end
                 end
             end
+        end
+    end
 
+    -- Flatten every unit's spells into one list, sorted so the same
+    -- spell from different units sits together (e.g. every Frost Nova,
+    -- then every Dragon's Breath) instead of grouped per-unit.
+    local classOrder = {}
+    for i, ci in ipairs(CLASS_INFO or {}) do classOrder[ci.key] = i end
+    local origIndex = {}
+    for i, u in ipairs(units) do origIndex[u] = i end
+
+    local entries = {}
+    for _, unit in ipairs(units) do
+        local fakeInfo = TEST_FAKE_LOOKUP[unit]
+        local class = fakeInfo and fakeInfo.class or select(2, UnitClass(unit))
+        local unitState = ccBarState[unit]
+        if class and unitState then
             for sid, st in pairs(unitState) do
+                entries[#entries + 1] = { unit = unit, sid = sid, st = st, class = class, fakeInfo = fakeInfo }
+            end
+        end
+    end
+    table.sort(entries, function(a, b)
+        if a.sid ~= b.sid then return a.sid < b.sid end
+        local oa = classOrder[a.class] or math.huge
+        local ob = classOrder[b.class] or math.huge
+        if oa ~= ob then return oa < ob end
+        return (origIndex[a.unit] or math.huge) < (origIndex[b.unit] or math.huge)
+    end)
+
+    for _, entry in ipairs(entries) do
+        local unit, sid, st, class, fakeInfo = entry.unit, entry.sid, entry.st, entry.class, entry.fakeInfo
+              if iconMode then
+                -- Get or create grid cell
+                ccGridFrames[unit] = ccGridFrames[unit] or {}
+                local gf = ccGridFrames[unit][sid]
+                if not gf then
+                    local cell = CreateFrame("Frame", nil, ccBarsParent)
+                    cell:EnableMouse(true)
+
+                    local ico = cell:CreateTexture(nil, "ARTWORK")
+                    ico:SetPoint("TOP", cell, "TOP", 0, 0)
+
+                    local nameText = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    nameText:SetJustifyH("CENTER")
+                    nameText:SetJustifyV("TOP")
+
+                    local cdText = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    cdText:SetTextColor(1, 1, 0.7)
+
+                    cell:SetScript("OnEnter", function(self)
+                        local liveSt = ccBarState[unit] and ccBarState[unit][sid]
+                        if not liveSt then return end
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        local ok = pcall(function() GameTooltip:SetSpellByID(sid) end)
+                        if not ok then
+                            local fake = TEST_FAKE_LOOKUP[unit]
+                            GameTooltip:SetText((fake and fake.name) or UnitName(unit) or unit, 1, 1, 1)
+                        end
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddDoubleLine("Cooldown:",
+                            (liveSt.cooldown or 0) .. "s", 0.7, 0.7, 0.7, 1, 1, 1)
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                    gf = { cell = cell, ico = ico, nameText = nameText, cdText = cdText }
+                    ccGridFrames[unit][sid] = gf
+                end
+
+                gf.cell:SetSize(CELL_W, CELL_H)
+                gf.ico:SetSize(GICO, GICO)
+                if db.iconGridBorder then
+                    gf.ico:SetTexCoord(0, 1, 0, 1)
+                else
+                    gf.ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+
+                local tex = GetSpellTexture and GetSpellTexture(sid)
+                if tex then gf.ico:SetTexture(tex) end
+
+                local gfp = db.iconGridNameFont or "Fonts\\FRIZQT__.TTF"
+                gf.nameText:SetFont(gfp, db.iconGridNameSize or 10, "OUTLINE")
+                gf.cdText:SetFont(gfp, db.iconGridTimerSize or 10, "OUTLINE")
+
+                PositionGridText(gf.nameText, gf.ico, db.iconGridNamePosition,
+                    db.iconGridNameX or 0, db.iconGridNameY or 0)
+                PositionGridText(gf.cdText, gf.ico, db.iconGridTimerPosition,
+                    db.iconGridTimerX or 0, db.iconGridTimerY or 0)
+
+                local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+                local displayName = (fakeInfo and fakeInfo.name) or UnitName(unit) or unit
+                if db.maxNameChars and db.maxNameChars > 0 then
+                    displayName = displayName:sub(1, db.maxNameChars)
+                end
+                gf.nameText:SetText(displayName)
+                if cc then gf.nameText:SetTextColor(cc.r, cc.g, cc.b) end
+
+                local col    = gridIndex % GCOLS
+                local rowIdx = math.floor(gridIndex / GCOLS)
+                local gx     = col * (CELL_W + GAP)
+                local vPoint = db.growUp and "BOTTOM" or "TOP"
+                local hPoint = db.iconGridGrowLeft and "RIGHT" or "LEFT"
+                local point  = vPoint .. hPoint
+                local gxOff  = db.iconGridGrowLeft and -gx or gx
+                local gyOff  = db.growUp and (rowIdx * (CELL_H + GAP)) or -(rowIdx * (CELL_H + GAP))
+                gf.cell:ClearAllPoints()
+                gf.cell:SetPoint(point, ccBarsParent, point, gxOff, gyOff)
+
+                st.class = class
+                gf.cell:Show()
+                gridIndex = gridIndex + 1
+                anyBar = true
+              else
                 -- Get or create bar frames
                 ccBarFrames[unit] = ccBarFrames[unit] or {}
                 local bf = ccBarFrames[unit][sid]
@@ -668,10 +852,9 @@ function RebuildCCBars()
                     bRight:SetColorTexture(0, 0, 0, 1)
                     border[#border + 1] = bRight
 
-                    -- Icon frame
+                    -- Icon frame (anchored left or right per-rebuild, see db.iconOnRight)
                     local iconF = CreateFrame("Frame", nil, row)
                     iconF:SetSize(ICO, ICO)
-                    iconF:SetPoint("LEFT", row, "LEFT", 0, 0)
                     iconF:EnableMouse(true)
 
                     local ico = iconF:CreateTexture(nil, "ARTWORK")
@@ -696,8 +879,6 @@ function RebuildCCBars()
                     iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                     local sb = CreateFrame("StatusBar", nil, row)
-                    sb:SetPoint("LEFT",  iconF, "RIGHT",  0, 0)
-                    sb:SetPoint("RIGHT", row,   "RIGHT",  0, 0)
                     sb:SetHeight(BH)
                     sb:SetMinMaxValues(0, 1)
                     sb:SetValue(1)
@@ -734,6 +915,17 @@ function RebuildCCBars()
 
                 -- Icon always matches bar height
                 bf.iconF:SetSize(ICO, ICO)
+                bf.iconF:ClearAllPoints()
+                bf.sb:ClearAllPoints()
+                if db.iconOnRight then
+                    bf.iconF:SetPoint("RIGHT", bf.row, "RIGHT", 0, 0)
+                    bf.sb:SetPoint("LEFT",  bf.row,   "LEFT",  0, 0)
+                    bf.sb:SetPoint("RIGHT", bf.iconF, "LEFT",  0, 0)
+                else
+                    bf.iconF:SetPoint("LEFT", bf.row, "LEFT", 0, 0)
+                    bf.sb:SetPoint("LEFT",  bf.iconF, "RIGHT", 0, 0)
+                    bf.sb:SetPoint("RIGHT", bf.row,   "RIGHT", 0, 0)
+                end
 
                 -- Resize status bar (in case barWidth changed)
                 bf.sb:SetHeight(BH)
@@ -780,13 +972,21 @@ function RebuildCCBars()
                 bf.row:Show()
                 yOff   = yOff + BH
                 anyBar = true
-            end
-        end
+              end
     end
 
     -- Resize bars container
-    ccBarsParent:SetSize(math.max(1, ROW), math.max(1, yOff))
-    ccAnchorFrame:SetWidth(ROW)
+    if iconMode then
+        local totalCols = math.min(gridIndex, GCOLS)
+        local totalRows = gridIndex > 0 and math.ceil(gridIndex / GCOLS) or 0
+        local gridWidth  = totalCols > 0 and (totalCols * CELL_W + (totalCols - 1) * GAP) or 1
+        local gridHeight = totalRows > 0 and (totalRows * CELL_H + (totalRows - 1) * GAP) or 1
+        ccBarsParent:SetSize(gridWidth, gridHeight)
+        ccAnchorFrame:SetWidth(gridWidth)
+    else
+        ccBarsParent:SetSize(math.max(1, ROW), math.max(1, yOff))
+        ccAnchorFrame:SetWidth(ROW)
+    end
 
     -- Header space is always reserved (whether locked or not) so the bars never
     -- shift position when the header strip is shown/hidden by locking/unlocking.
@@ -833,15 +1033,16 @@ function HandleCCCast(sourceGUID, spellId)
     st.class      = class or st.class
     st.isPreview  = nil  -- real cast is ground truth, overrides any prior spec-based guess
 
-    -- Update icon immediately if bar already exists
+    -- Update icon immediately if a bar or grid cell already exists
     local bf = ccBarFrames[unit] and ccBarFrames[unit][spellId]
-    if bf then
-        local tex = GetSpellTexture and GetSpellTexture(spellId)
-        if tex then bf.ico:SetTexture(tex) end
-    end
+    local gf = ccGridFrames[unit] and ccGridFrames[unit][spellId]
+    local tex = GetSpellTexture and GetSpellTexture(spellId)
+    if bf and tex then bf.ico:SetTexture(tex) end
+    if gf and tex then gf.ico:SetTexture(tex) end
 
-    -- First-seen (unit, spellId) → need a new bar row
-    if not bf or not bf.row:IsShown() then
+    -- First-seen (unit, spellId) → need a new row/cell
+    local alreadyShown = (bf and bf.row:IsShown()) or (gf and gf.cell:IsShown())
+    if not alreadyShown then
         RebuildCCBars()
     end
 end
@@ -893,10 +1094,11 @@ C_Timer.NewTicker(0.1, function()
 
     local now = GetTime()
     for unit, spells in pairs(ccBarState) do
-        local unitFrames = ccBarFrames[unit]
-        if unitFrames then
+        local unitFrames     = ccBarFrames[unit]
+        local unitGridFrames = ccGridFrames[unit]
+        if unitFrames or unitGridFrames then
             for sid, st in pairs(spells) do
-                local bf = unitFrames[sid]
+                local bf = unitFrames and unitFrames[sid]
                 if bf and bf.row:IsShown() then
                     local cd = st.cooldown or 1
                     local cc = RAID_CLASS_COLORS and st.class and RAID_CLASS_COLORS[st.class]
@@ -930,6 +1132,22 @@ C_Timer.NewTicker(0.1, function()
                         if st.isFake then
                             st.endTime = now + cd
                         end
+                    end
+                end
+
+                local gf = unitGridFrames and unitGridFrames[sid]
+                if gf and gf.cell:IsShown() then
+                    if st.endTime and st.endTime > now then
+                        local remaining = st.endTime - now
+                        gf.ico:SetDesaturated(true)
+                        local secs = math.ceil(remaining)
+                        gf.cdText:SetText(secs >= 60
+                            and (math.floor(secs / 60) .. "m" .. string.format("%02d", secs % 60))
+                            or (secs .. "s"))
+                    else
+                        gf.ico:SetDesaturated(false)
+                        gf.cdText:SetText("")
+                        if st.isFake then st.endTime = now + (st.cooldown or 1) end
                     end
                 end
             end

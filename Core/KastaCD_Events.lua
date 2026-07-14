@@ -203,7 +203,8 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
                     local specChanged = GetUnitSpec(unit) ~= oldSpec
                     -- Also confirm talent picks via the same inspect data.
                     local talentsLearned = type(ScanUnitTalents) == "function" and ScanUnitTalents(unit)
-                    if specChanged or talentsLearned then
+                    local sephuzChanged = type(RefreshSephuzEquipped) == "function" and RefreshSephuzEquipped(unit)
+                    if specChanged or talentsLearned or sephuzChanged then
                         RebuildIcons()
                         if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                         if type(RebuildCCBars) == "function" then RebuildCCBars() end

@@ -1732,7 +1732,7 @@ end
 
 -- Interrupt/CC Tracker - one builder, opts.dbField picks intAnchor/ccAnchor.
 local function BuildAnchorGroup(opts)
-    -- opts: { name, order, dbField, RebuildFn, GetPos, SetPos, LockFn, UnlockFn }
+    -- opts: { name, order, dbField, RebuildFn, GetPos, SetPos, LockFn, UnlockFn, BarOnlyHidden }
     local dbField = opts.dbField
 
     local function GetAnchorDB()
@@ -1740,9 +1740,16 @@ local function BuildAnchorGroup(opts)
         return KastaCDDB[dbField]
     end
 
+    -- Bar-only fields (irrelevant to a tracker's icon-grid display style,
+    -- if it has one) - opts.BarOnlyHidden is only supplied by trackers
+    -- with that concept (e.g. Crowd Control); no-op for everyone else.
+    local function barOnlyHidden()
+        return (GetAnchorDB().enabled == false) or (type(opts.BarOnlyHidden) == "function" and opts.BarOnlyHidden())
+    end
+
     local positionArgs = {
         barWidth = {
-            type = "range", order = 10, name = "Bar Width", min = 100, max = 400, step = 1,
+            type = "range", order = 10, name = "Bar Width", min = 100, max = 400, step = 1, hidden = barOnlyHidden,
             get = function() return GetAnchorDB().barWidth or 200 end,
             set = function(_, v)
                 GetAnchorDB().barWidth = v
@@ -1750,7 +1757,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         barHeight = {
-            type = "range", order = 20, name = "Bar Height", min = 14, max = 40, step = 1,
+            type = "range", order = 20, name = "Bar Height", min = 14, max = 40, step = 1, hidden = barOnlyHidden,
             get = function() return GetAnchorDB().barHeight or 20 end,
             set = function(_, v)
                 GetAnchorDB().barHeight = v
@@ -1818,7 +1825,7 @@ local function BuildAnchorGroup(opts)
 
     local customizeArgs = {
         font = {
-            type = "select", order = 10, name = "Font",
+            type = "select", order = 10, name = "Font", hidden = barOnlyHidden,
             dialogControl = "LSM30_Font",
             values = LSM:HashTable(LSM.MediaType.FONT),
             get = function()
@@ -1834,7 +1841,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         texture = {
-            type = "select", order = 20, name = "Texture",
+            type = "select", order = 20, name = "Texture", hidden = barOnlyHidden,
             dialogControl = "LSM30_Statusbar",
             values = LSM:HashTable(LSM.MediaType.STATUSBAR),
             get = function()
@@ -1850,7 +1857,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         fontSize = {
-            type = "range", order = 30, name = "Font Size", min = 8, max = 18, step = 1,
+            type = "range", order = 30, name = "Font Size", min = 8, max = 18, step = 1, hidden = barOnlyHidden,
             get = function() return GetAnchorDB().fontSize or 10 end,
             set = function(_, v)
                 GetAnchorDB().fontSize = v
@@ -1858,7 +1865,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         hideBorder = {
-            type = "toggle", order = 40, name = "Hide Border",
+            type = "toggle", order = 40, name = "Hide Border", hidden = barOnlyHidden,
             get = function() return GetAnchorDB().hideBorder == true end,
             set = function(_, v)
                 GetAnchorDB().hideBorder = v and true or false
@@ -1866,7 +1873,7 @@ local function BuildAnchorGroup(opts)
             end,
         },
         showReady = {
-            type = "toggle", order = 50, name = "Show \"READY\" Text",
+            type = "toggle", order = 50, name = "Show \"READY\" Text", hidden = barOnlyHidden,
             desc = "Shows green \"READY\" text on the bar when off cooldown. Turn off to leave that side of the bar blank instead.",
             get = function() return GetAnchorDB().showReady ~= false end,
             set = function(_, v) GetAnchorDB().showReady = v and true or false end,
@@ -2314,6 +2321,16 @@ function BuildKastaCDOptions()
                                 if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
                             end,
                         },
+                        sephuzPosition = {
+                            type = "select", order = 5, name = "Sephuz Icon Position", hidden = isHidden,
+                            desc = "Which side of the bar the Sephuz's Secret icon sits on, when shown. Only affects the Sephuz icon - the interrupt icon itself always stays on the left.",
+                            values = { left = "Left", right = "Right" },
+                            get = function() return GetAnchorDB().sephuzOnLeft and "left" or "right" end,
+                            set = function(_, v)
+                                GetAnchorDB().sephuzOnLeft = (v == "left")
+                                if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
+                            end,
+                        },
                     }
                 end,
             },
@@ -2322,6 +2339,203 @@ function BuildKastaCDOptions()
                     name = "Crowd Control", order = 20, dbField = "ccAnchor",
                     RebuildFn = RebuildCCBars, GetPos = GetCCAnchorPos, SetPos = SetCCAnchorPos,
                     LockFn = LockCCAnchor, UnlockFn = UnlockCCAnchor,
+                    BarOnlyHidden = function() return KastaCDDB.ccAnchor and KastaCDDB.ccAnchor.displayStyle == "icon" end,
+                    BuildExtraArgs = function(GetAnchorDB, isHidden)
+                        local function isBarHidden() return isHidden() or GetAnchorDB().displayStyle == "icon" end
+                        local function isIconHidden() return isHidden() or GetAnchorDB().displayStyle ~= "icon" end
+
+                        local displayArgs = {
+                            displayStyle = {
+                                type = "select", order = 1, name = "Display Style",
+                                desc = "Bar shows one status-bar row per spell. Icon shows a wrapping grid of icons with the owner's name underneath, like the main Party Cooldowns tracker.",
+                                values = { bar = "Bar", icon = "Icon" },
+                                get = function() return GetAnchorDB().displayStyle == "icon" and "icon" or "bar" end,
+                                set = function(_, v)
+                                    GetAnchorDB().displayStyle = v
+                                    GetAnchorDB().savedX, GetAnchorDB().savedY = nil, nil
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconOnRight = {
+                                type = "select", order = 2, name = "Icon Position", hidden = isBarHidden,
+                                values = { left = "Left", right = "Right" },
+                                get = function() return GetAnchorDB().iconOnRight and "right" or "left" end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconOnRight = (v == "right")
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                        }
+
+                        local iconStyleArgs = {
+                            iconGridSize = {
+                                type = "range", order = 1, name = "Icon Size",
+                                min = 20, max = 60, step = 1,
+                                get = function() return GetAnchorDB().iconGridSize or 36 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridSize = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridPerRow = {
+                                type = "range", order = 2, name = "Icons Per Row",
+                                min = 1, max = 10, step = 1,
+                                get = function() return GetAnchorDB().iconGridPerRow or 4 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridPerRow = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridGap = {
+                                type = "range", order = 3, name = "Icon Spacing",
+                                min = 0, max = 30, step = 1,
+                                get = function() return GetAnchorDB().iconGridGap or 4 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridGap = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridBorder = {
+                                type = "toggle", order = 4, name = "Icon Border",
+                                desc = "Shows the icon texture's full edge art instead of cropping it in.",
+                                get = function() return GetAnchorDB().iconGridBorder == true end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridBorder = v and true or false
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridGrowLeft = {
+                                type = "select", order = 5, name = "Horizontal Direction",
+                                desc = "Which way new columns grow. Right anchors the tracker's left edge and grows rightward; Left anchors its right edge and grows leftward. Combine with Grow Direction (Up/Down) for all four corners. Drag/reposition again after switching to re-anchor from the new corner.",
+                                values = { right = "Right", left = "Left" },
+                                get = function() return GetAnchorDB().iconGridGrowLeft and "left" or "right" end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridGrowLeft = (v == "left")
+                                    GetAnchorDB().savedX, GetAnchorDB().savedY = nil, nil
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                        }
+
+                        local nameTextArgs = {
+                            iconGridNamePosition = {
+                                type = "select", order = 1, name = "Name Position",
+                                values = {
+                                    outside = "Outside (Below)", topleft = "Top Left", topright = "Top Right",
+                                    center = "Center", bottomleft = "Bottom Left", bottomright = "Bottom Right",
+                                },
+                                get = function() return GetAnchorDB().iconGridNamePosition or "outside" end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridNamePosition = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridNameX = {
+                                type = "range", order = 2, name = "Name Offset X",
+                                min = -30, max = 30, step = 1,
+                                get = function() return GetAnchorDB().iconGridNameX or 0 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridNameX = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridNameY = {
+                                type = "range", order = 3, name = "Name Offset Y",
+                                min = -30, max = 30, step = 1,
+                                get = function() return GetAnchorDB().iconGridNameY or 0 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridNameY = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridNameSize = {
+                                type = "range", order = 4, name = "Name Text Size",
+                                min = 6, max = 24, step = 1,
+                                get = function() return GetAnchorDB().iconGridNameSize or 10 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridNameSize = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridNameFont = {
+                                type = "select", order = 5, name = "Name Font",
+                                dialogControl = "LSM30_Font",
+                                values = LSM:HashTable(LSM.MediaType.FONT),
+                                get = function()
+                                    local cur = GetAnchorDB().iconGridNameFont or "Fonts\\FRIZQT__.TTF"
+                                    for name, path in pairs(LSM:HashTable(LSM.MediaType.FONT)) do
+                                        if path == cur then return name end
+                                    end
+                                    return "Friz Quadrata"
+                                end,
+                                set = function(_, name)
+                                    GetAnchorDB().iconGridNameFont = LSM:Fetch(LSM.MediaType.FONT, name)
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                        }
+
+                        local timerTextArgs = {
+                            iconGridTimerPosition = {
+                                type = "select", order = 1, name = "Timer Position",
+                                values = {
+                                    topleft = "Top Left", topright = "Top Right", center = "Center",
+                                    bottomleft = "Bottom Left", bottomright = "Bottom Right",
+                                },
+                                get = function() return GetAnchorDB().iconGridTimerPosition or "center" end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridTimerPosition = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridTimerX = {
+                                type = "range", order = 2, name = "Timer Offset X",
+                                min = -30, max = 30, step = 1,
+                                get = function() return GetAnchorDB().iconGridTimerX or 0 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridTimerX = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridTimerY = {
+                                type = "range", order = 3, name = "Timer Offset Y",
+                                min = -30, max = 30, step = 1,
+                                get = function() return GetAnchorDB().iconGridTimerY or 0 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridTimerY = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                            iconGridTimerSize = {
+                                type = "range", order = 4, name = "Timer Text Size",
+                                min = 6, max = 24, step = 1,
+                                get = function() return GetAnchorDB().iconGridTimerSize or 10 end,
+                                set = function(_, v)
+                                    GetAnchorDB().iconGridTimerSize = v
+                                    if type(RebuildCCBars) == "function" then RebuildCCBars() end
+                                end,
+                            },
+                        }
+
+                        return {
+                            display = {
+                                type = "group", inline = true, order = 4, name = "Display", hidden = isHidden,
+                                args = displayArgs,
+                            },
+                            iconStyle = {
+                                type = "group", inline = true, order = 5, name = "Icon Style", hidden = isIconHidden,
+                                args = iconStyleArgs,
+                            },
+                            nameText = {
+                                type = "group", inline = true, order = 6, name = "Name Text", hidden = isIconHidden,
+                                args = nameTextArgs,
+                            },
+                            timerText = {
+                                type = "group", inline = true, order = 7, name = "Timer Text", hidden = isIconHidden,
+                                args = timerTextArgs,
+                            },
+                        }
+                    end,
                 }
                 g.args.spells = BuildCCSpellToggleGroup()
                 return g

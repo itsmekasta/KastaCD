@@ -66,6 +66,58 @@ local intBarFrames = {}   -- [unit] = { row, sb, ico, nameText, cdText }
 local intAnchorFrame = nil
 local intBarsParent  = nil
 
+local SEPHUZ_BUFF_NAME = "Sephuz's Secret"
+local SEPHUZ_ITEM_ID   = 132452
+local SEPHUZ_COOLDOWN  = 30
+local sephuzState    = {}  -- [unit] = { phase, startTime, endTime, icon }
+local sephuzEquipped = {}  -- [guid] = true/false, refreshed via inspect
+
+local function IsWearingSephuz()
+    return GetInventoryItemID("player", 11) == SEPHUZ_ITEM_ID
+        or GetInventoryItemID("player", 12) == SEPHUZ_ITEM_ID
+end
+
+-- Called from KastaCD_Events.lua's INSPECT_READY handler. Returns true if
+-- the equipped state actually changed, so callers know to rebuild.
+function RefreshSephuzEquipped(unit)
+    local guid = UnitGUID(unit)
+    if not guid then return false end
+    local was = sephuzEquipped[guid]
+    local now = GetInventoryItemID(unit, 11) == SEPHUZ_ITEM_ID
+        or GetInventoryItemID(unit, 12) == SEPHUZ_ITEM_ID
+    sephuzEquipped[guid] = now
+    return was ~= now
+end
+
+local function ScanSephuzBuff(unit)
+    for i = 1, 40 do
+        local name, _, icon, _, _, duration, expirationTime = UnitAura(unit, i, "HELPFUL")
+        if not name then break end
+        if name == SEPHUZ_BUFF_NAME then
+            return icon, duration, expirationTime
+        end
+    end
+end
+
+local function RefreshSephuzState(unit)
+    local icon, duration, expirationTime = ScanSephuzBuff(unit)
+    local st = sephuzState[unit]
+    if icon then
+        sephuzState[unit] = { phase = "uptime", startTime = expirationTime - (duration or 0), endTime = expirationTime, icon = icon }
+    elseif st and st.phase == "uptime" then
+        local now = GetTime()
+        sephuzState[unit] = { phase = "cooldown", startTime = now, endTime = now + SEPHUZ_COOLDOWN, icon = st.icon }
+    end
+end
+
+local sephuzWatcher = CreateFrame("Frame")
+sephuzWatcher:RegisterEvent("UNIT_AURA")
+sephuzWatcher:SetScript("OnEvent", function(_, _, unit)
+    if unit == "player" or (unit and unit:match("^party%d$")) then
+        RefreshSephuzState(unit)
+    end
+end)
+
 -- Five fake party members for Test Mode while solo.
 local TEST_FAKE_UNITS = {
     { token="KCDTESTINT1", name="Test Warrior",     class="WARRIOR",     spellId=6552,   cooldown=15 },
@@ -104,6 +156,8 @@ local function GetIntDB()
     end
     -- One toggle controls every isRacial resource-type variant of Arcane Torrent.
     if db.showArcaneTorrent == nil then db.showArcaneTorrent = true end
+    -- sephuzOnLeft: false/nil = Sephuz icon on the right (default), true = left.
+    if db.sephuzOnLeft == nil then db.sephuzOnLeft = false end
     return db
 end
 
@@ -406,6 +460,7 @@ function RebuildInterruptBars()
 
     local yOff   = 0
     local anyBar = false
+    local maxRowWidth = ROW
 
     for i, unit in ipairs(units) do
         local fakeInfo = TEST_FAKE_LOOKUP[unit]
@@ -497,9 +552,31 @@ function RebuildInterruptBars()
                     bRight:SetColorTexture(0, 0, 0, 1)
                     border[#border + 1] = bRight
 
+                    local sephuzIconF = CreateFrame("Frame", nil, row)
+                    sephuzIconF:SetSize(ICO, ICO)
+                    sephuzIconF:SetFrameStrata("MEDIUM")
+                    sephuzIconF:SetFrameLevel(50)
+                    sephuzIconF:Hide()
+
+                    local sephuzIco = sephuzIconF:CreateTexture(nil, "ARTWORK")
+                    sephuzIco:SetAllPoints()
+                    sephuzIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+                    local sephuzCdText = sephuzIconF:CreateFontString(nil, "OVERLAY")
+                    sephuzCdText:SetPoint("CENTER", sephuzIconF, "CENTER", 0, 0)
+                    sephuzCdText:SetFont("Fonts\\FRIZQT__.TTF", math.max(8, ICO * 0.38), "OUTLINE")
+                    sephuzCdText:SetText("")
+                    sephuzCdText:SetTextColor(1, 1, 1)
+
+                    sephuzIconF:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText("Sephuz's Secret", 1, 1, 1)
+                        GameTooltip:Show()
+                    end)
+                    sephuzIconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
                     local iconF = CreateFrame("Frame", nil, row)
                     iconF:SetSize(ICO, ICO)
-                    iconF:SetPoint("LEFT", row, "LEFT", 0, 0)
                     iconF:EnableMouse(true)
 
                     local ico = iconF:CreateTexture(nil, "ARTWORK")
@@ -525,8 +602,6 @@ function RebuildInterruptBars()
                     iconF:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                     local sb = CreateFrame("StatusBar", nil, row)
-                    sb:SetPoint("LEFT",  iconF, "RIGHT",  0, 0)
-                    sb:SetPoint("RIGHT", row,   "RIGHT",  0, 0)
                     sb:SetHeight(BH)
                     sb:SetMinMaxValues(0, 1)
                     sb:SetValue(1)
@@ -548,12 +623,48 @@ function RebuildInterruptBars()
                     cdText:SetJustifyV("MIDDLE")
                     cdText:SetTextColor(1, 1, 0.7)
 
-                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText, border=border }
+                    bf = { row=row, sb=sb, sbBg=sbBg, ico=ico, iconF=iconF, nameText=nameText, cdText=cdText, border=border,
+                           sephuzIconF=sephuzIconF, sephuzIco=sephuzIco, sephuzCdText=sephuzCdText }
                     intBarFrames[unit] = bf
                 end
 
+                local showSephuz
+                if baseUnit == "player" and not fakeInfo then
+                    showSephuz = IsWearingSephuz()
+                else
+                    local guid = (not fakeInfo) and UnitGUID(baseUnit)
+                    showSephuz = guid and sephuzEquipped[guid]
+                end
+                local rowWidth = showSephuz and (ROW + ICO) or ROW
+                maxRowWidth = math.max(maxRowWidth, rowWidth)
+
+                bf.sephuzIconF:SetShown(showSephuz)
+                bf.sephuzIconF:SetSize(ICO, ICO)
+                if showSephuz and not bf.sephuzIco:GetTexture() then
+                    bf.sephuzIco:SetTexture(GetItemIcon and GetItemIcon(SEPHUZ_ITEM_ID))
+                end
+                bf.sephuzCdText:SetFont("Fonts\\FRIZQT__.TTF", math.max(8, ICO * 0.38), "OUTLINE")
+
+                bf.sephuzIconF:ClearAllPoints()
+                bf.iconF:ClearAllPoints()
+                bf.sb:ClearAllPoints()
+                local sephuzOnLeft = showSephuz and db.sephuzOnLeft
+                if sephuzOnLeft then
+                    bf.sephuzIconF:SetPoint("LEFT", bf.row, "LEFT", 0, 0)
+                    bf.iconF:SetPoint("LEFT", bf.sephuzIconF, "RIGHT", 0, 0)
+                else
+                    bf.iconF:SetPoint("LEFT", bf.row, "LEFT", 0, 0)
+                end
+                bf.sb:SetPoint("LEFT", bf.iconF, "RIGHT", 0, 0)
+                if showSephuz and not sephuzOnLeft then
+                    bf.sephuzIconF:SetPoint("RIGHT", bf.row, "RIGHT", 0, 0)
+                    bf.sb:SetPoint("RIGHT", bf.sephuzIconF, "LEFT", 0, 0)
+                else
+                    bf.sb:SetPoint("RIGHT", bf.row, "RIGHT", 0, 0)
+                end
+
                 -- Stacks down from top (grow down) or up from bottom (grow up).
-                bf.row:SetSize(ROW, BH)
+                bf.row:SetSize(rowWidth, BH)
                 bf.row:ClearAllPoints()
                 if db.growUp then
                     bf.row:SetPoint("BOTTOMLEFT", intBarsParent, "BOTTOMLEFT", 0, yOff)
@@ -617,8 +728,8 @@ function RebuildInterruptBars()
         end
     end
 
-    intBarsParent:SetSize(math.max(1, ROW), math.max(1, yOff))
-    intAnchorFrame:SetWidth(ROW)
+    intBarsParent:SetSize(math.max(1, maxRowWidth), math.max(1, yOff))
+    intAnchorFrame:SetWidth(maxRowWidth)
 
     -- Header space is always reserved so bars don't shift when locking/unlocking.
     intAnchorFrame:SetHeight(HEADER_H + math.max(1, yOff))
@@ -723,6 +834,46 @@ C_Timer.NewTicker(0.1, function()
                     st.endTime = now + cd
                 end
             end
+
+            local baseUnit = unit:match("^(.*)#racial$") or unit
+            local sst = sephuzState[baseUnit]
+            if sst then
+                if sst.icon then bf.sephuzIco:SetTexture(sst.icon) end
+                bf.sephuzIco:SetDesaturated(sst.phase == "cooldown" and sst.endTime > now)
+
+                if sst.endTime > now then
+                    bf.sephuzCdText:SetText(tostring(math.ceil(sst.endTime - now)))
+                else
+                    bf.sephuzCdText:SetText("")
+                end
+
+                local uptime = sst.phase == "uptime" and sst.endTime > now
+                if uptime and not bf.sephuzGlowing then
+                    ShowProcGlow(bf.sephuzIconF)
+                    bf.sephuzGlowing = true
+                elseif not uptime and bf.sephuzGlowing then
+                    HideProcGlow(bf.sephuzIconF)
+                    bf.sephuzGlowing = false
+                end
+            end
         end
     end
 end)
+
+SLASH_KASTACDSEPHUZDEBUG1 = "/kcdsephuzdebug"
+SlashCmdList["KASTACDSEPHUZDEBUG"] = function()
+    print("|cff00ff00KastaCD Sephuz Debug|r -- IsWearingSephuz=" .. tostring(IsWearingSephuz()))
+    local units = { "player" }
+    for i = 1, 4 do units[#units + 1] = "party" .. i end
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            local guid = UnitGUID(unit)
+            local sst  = sephuzState[unit]
+            local bf   = intBarFrames[unit]
+            print(string.format("  %s (%s): equipped=%s state=%s shown=%s",
+                unit, tostring(guid), tostring(guid and sephuzEquipped[guid]),
+                sst and (sst.phase .. " endTime=" .. string.format("%.1f", sst.endTime - GetTime())) or "nil",
+                bf and tostring(bf.sephuzIconF:IsShown()) or "no bar"))
+        end
+    end
+end
