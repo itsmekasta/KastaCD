@@ -40,6 +40,19 @@ local SOLAR_BEAM_SPELL_ID       = 78675
 local LIGHT_OF_THE_SUN_SPELL_ID = 202918
 local LIGHT_OF_THE_SUN_REDUCTION = 15
 
+-- Face Palm: Tiger Palm has a chance to shave time off Fortifying Brew.
+-- The proc chance itself isn't visible in the combat log, so this applies
+-- on every Tiger Palm cast (an approximation, not a per-proc trigger).
+local FORTIFYING_BREW_SPELL_ID = 115203
+local TIGER_PALM_SPELL_ID      = 100780
+local FACE_PALM_SPELL_ID       = 213116
+local FACE_PALM_REDUCTION      = 1
+
+-- Blackout Combo: Keg Smash reduces Fortifying Brew's cooldown further.
+local KEG_SMASH_SPELL_ID          = 121253
+local BLACKOUT_COMBO_SPELL_ID     = 22104
+local BLACKOUT_COMBO_REDUCTION    = 2
+
 local hasOdynsChampion = false
 
 local function RefreshOdynsChampionBuff()
@@ -147,6 +160,18 @@ function HandleCombatLog(...)
     if subEvent == "SPELL_CAST_SUCCESS" and spellId == RAMPAGE_SPELL_ID
     and sourceGUID == UnitGUID("player") and hasOdynsChampion then
         ReduceTrackerCooldown("player", RECKLESSNESS_SPELL_ID, ODYNS_CHAMPION_REDUCTION)
+    end
+
+    -- Face Palm: Tiger Palm shaves time off Fortifying Brew.
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId == TIGER_PALM_SPELL_ID
+    and sourceGUID == UnitGUID("player") and IsPlayerSpell and IsPlayerSpell(FACE_PALM_SPELL_ID) then
+        ReduceTrackerCooldown("player", FORTIFYING_BREW_SPELL_ID, FACE_PALM_REDUCTION)
+    end
+
+    -- Blackout Combo: Keg Smash reduces Fortifying Brew's cooldown further.
+    if subEvent == "SPELL_CAST_SUCCESS" and spellId == KEG_SMASH_SPELL_ID
+    and sourceGUID == UnitGUID("player") and IsPlayerSpell and IsPlayerSpell(BLACKOUT_COMBO_SPELL_ID) then
+        ReduceTrackerCooldown("player", FORTIFYING_BREW_SPELL_ID, BLACKOUT_COMBO_REDUCTION)
     end
 
     -- Crowd-control tracker hook - same rationale as above, checked
