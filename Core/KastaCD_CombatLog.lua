@@ -140,10 +140,12 @@ function HandleCombatLog(...)
         and type(AnnounceInterrupt) == "function" then
             local castName, castSpellId, notInterruptible
             if UnitCastingInfo then
-                castName, _, _, _, _, _, notInterruptible, castSpellId = UnitCastingInfo("target")
+                -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId
+                castName, _, _, _, _, _, _, notInterruptible, castSpellId = UnitCastingInfo("target")
             end
             if not castName and UnitChannelInfo then
-                castName, _, _, _, _, _, _, notInterruptible, castSpellId = UnitChannelInfo("target")
+                -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellId
+                castName, _, _, _, _, _, notInterruptible, castSpellId = UnitChannelInfo("target")
             end
             if castName and not notInterruptible then
                 AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
