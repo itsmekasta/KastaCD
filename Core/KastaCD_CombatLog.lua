@@ -125,6 +125,28 @@ function HandleCombatLog(...)
         end
     end
 
+    -- Sephuz's Secret shouldn't get credited for a racial (Arcane Torrent)
+    -- interrupt on a unit whose class/spec already has a real kick - only
+    -- for units that have no direct interrupt of their own.
+    if subEvent == "SPELL_INTERRUPT" and spellId and INT_SPELLS and INT_SPELLS[spellId]
+    and INT_SPELLS[spellId].isRacial and type(MarkPotentialSephuzSuppression) == "function" then
+        local unit = nil
+        if UnitGUID("player") == sourceGUID then
+            unit = "player"
+        else
+            for i = 1, 4 do
+                local u = "party" .. i
+                if UnitGUID(u) == sourceGUID then
+                    unit = u
+                    break
+                end
+            end
+        end
+        if unit then
+            MarkPotentialSephuzSuppression(unit)
+        end
+    end
+
     -- Interrupt tracker hook - checked regardless of SPELL_DB membership
     -- so Priest/Warlock interrupts not in the main DB are still tracked.
     if subEvent == "SPELL_CAST_SUCCESS" and spellId and INT_SPELLS and INT_SPELLS[spellId] then
@@ -149,6 +171,9 @@ function HandleCombatLog(...)
             end
             if castName and not notInterruptible then
                 AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
+                if type(MarkPotentialSephuzSuppression) == "function" then
+                    MarkPotentialSephuzSuppression("player")
+                end
             end
         end
     end

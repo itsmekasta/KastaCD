@@ -72,6 +72,41 @@ local SEPHUZ_COOLDOWN  = 30
 local sephuzState    = {}  -- [unit] = { phase, startTime, endTime, icon }
 local sephuzEquipped = {}  -- [guid] = true/false, refreshed via inspect
 
+-- Sephuz shouldn't be credited for a racial (Arcane Torrent) interrupt on a
+-- unit whose class/spec already has a real kick - only for units with no
+-- direct interrupt of their own (e.g. Holy Paladin). Since the buff itself
+-- is only detectable via aura scan (no trigger info attached), a qualifying
+-- racial interrupt marks a short pending window; the next new Sephuz proc
+-- seen inside that window is assumed to be the one it caused and is ignored
+-- for its whole duration (matched by its exact expirationTime).
+local sephuzSuppressPending  = {}  -- [unit] = GetTime() deadline
+local sephuzSuppressedExpiry = {}  -- [unit] = expirationTime of the instance being ignored
+
+-- Ground truth first (this unit has actually been witnessed using a
+-- non-racial interrupt), falling back to the class/spec default table.
+local function UnitHasDirectKick(unit)
+    if intBarState[unit] then return true end
+    local _, class = UnitClass(unit)
+    local list = class and INT_DEFAULT[class]
+    if not list then return false end
+    local specId = type(GetUnitSpec) == "function" and GetUnitSpec(unit)
+    for _, entry in ipairs(list) do
+        if not entry.specs then return true end
+        if specId then
+            for _, s in ipairs(entry.specs) do
+                if s == specId then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Called from KastaCD_CombatLog.lua when a racial interrupt lands.
+function MarkPotentialSephuzSuppression(unit)
+    if not unit or not UnitHasDirectKick(unit) then return end
+    sephuzSuppressPending[unit] = GetTime() + 1.5
+end
+
 local function IsWearingSephuz()
     return GetInventoryItemID("player", 11) == SEPHUZ_ITEM_ID
         or GetInventoryItemID("player", 12) == SEPHUZ_ITEM_ID
@@ -102,7 +137,20 @@ end
 local function RefreshSephuzState(unit)
     local icon, duration, expirationTime = ScanSephuzBuff(unit)
     local st = sephuzState[unit]
+
     if icon then
+        -- Already-matched suppressed instance: keep ignoring it until it expires.
+        if sephuzSuppressedExpiry[unit] == expirationTime then
+            return
+        end
+        -- New proc while a suppression is pending: consume the pending flag,
+        -- latch onto this exact instance, and ignore it entirely.
+        local pendingUntil = sephuzSuppressPending[unit]
+        if pendingUntil and GetTime() <= pendingUntil and (not st or st.phase ~= "uptime") then
+            sephuzSuppressPending[unit] = nil
+            sephuzSuppressedExpiry[unit] = expirationTime
+            return
+        end
         sephuzState[unit] = { phase = "uptime", startTime = expirationTime - (duration or 0), endTime = expirationTime, icon = icon }
     elseif st and st.phase == "uptime" then
         local now = GetTime()
@@ -871,10 +919,13 @@ SlashCmdList["KASTACDSEPHUZDEBUG"] = function()
             local guid = UnitGUID(unit)
             local sst  = sephuzState[unit]
             local bf   = intBarFrames[unit]
-            print(string.format("  %s (%s): equipped=%s state=%s shown=%s",
+            print(string.format("  %s (%s): equipped=%s state=%s shown=%s hasDirectKick=%s pending=%s suppressedExpiry=%s",
                 unit, tostring(guid), tostring(guid and sephuzEquipped[guid]),
                 sst and (sst.phase .. " endTime=" .. string.format("%.1f", sst.endTime - GetTime())) or "nil",
-                bf and tostring(bf.sephuzIconF:IsShown()) or "no bar"))
+                bf and tostring(bf.sephuzIconF:IsShown()) or "no bar",
+                tostring(UnitHasDirectKick(unit)),
+                tostring(sephuzSuppressPending[unit]),
+                tostring(sephuzSuppressedExpiry[unit])))
         end
     end
 end
