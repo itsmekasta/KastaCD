@@ -3,21 +3,35 @@
 -- phase transitions on tracked icons.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua
 
--- [guid] = { name, notInterruptible } of the unit's last cast/channel.
+-- [guid] = { name, notInterruptible, spellId } of the unit's last cast/channel.
 local castInterruptCache = {}
 
 function TrackCastInterruptible(unit)
     local guid = unit and UnitGUID(unit)
     if not guid then return end
-    local name, notInterruptible
+    local name, notInterruptible, spellId
     if UnitCastingInfo then
-        name, _, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
+        -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId
+        name, _, _, _, _, _, _, notInterruptible, spellId = UnitCastingInfo(unit)
     end
     if not name and UnitChannelInfo then
-        name, _, _, _, _, _, _, notInterruptible = UnitChannelInfo(unit)
+        -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellId
+        name, _, _, _, _, _, notInterruptible, spellId = UnitChannelInfo(unit)
     end
     if not name then return end
-    castInterruptCache[guid] = { name = name, notInterruptible = notInterruptible }
+    castInterruptCache[guid] = { name = name, notInterruptible = notInterruptible, spellId = spellId }
+end
+
+-- Shared dedup: SPELL_INTERRUPT and the SPELL_CAST_SUCCESS-driven racial
+-- fallback below can both successfully resolve the same real interrupt
+-- (e.g. on servers where SPELL_INTERRUPT turns out to fire fine after
+-- all) - without this, that lands as two chat messages for one kick.
+local lastPlayerInterruptAnnounce = 0
+local function ClaimInterruptAnnounce()
+    local now = GetTime()
+    if now - lastPlayerInterruptAnnounce < 1.0 then return false end
+    lastPlayerInterruptAnnounce = now
+    return true
 end
 
 local function ReduceTrackerCooldown(unit, spellId, seconds)
@@ -80,6 +94,13 @@ SlashCmdList["KASTACDODYNDEBUG"] = function()
     print("|cff00ff00KastaCD Odyn's Champion Debug|r -- hasOdynsChampion=" .. tostring(hasOdynsChampion))
 end
 
+KCD_RACIAL_DEBUG = false
+SLASH_KASTACDRACIALDEBUG1 = "/kcdracialdebug"
+SlashCmdList["KASTACDRACIALDEBUG"] = function()
+    KCD_RACIAL_DEBUG = not KCD_RACIAL_DEBUG
+    print("|cff00ff00KastaCD Racial Interrupt Debug|r -- " .. (KCD_RACIAL_DEBUG and "ON" or "OFF"))
+end
+
 function HandleCombatLog(...)
     -- Some private servers pass fields as direct event args instead of
     -- via CombatLogGetCurrentEventInfo(). Try the API first, fall back.
@@ -112,7 +133,7 @@ function HandleCombatLog(...)
     if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
         local cached = destGUID and castInterruptCache[destGUID]
         local blocked = cached and cached.notInterruptible and cached.name == extraSpellName
-        if not blocked and type(AnnounceInterrupt) == "function" then
+        if not blocked and extraSpellName and extraSpellName ~= "" and type(AnnounceInterrupt) == "function" and ClaimInterruptAnnounce() then
             AnnounceInterrupt(spellName, extraSpellName, destName, extraSpellId, spellId)
         end
 
@@ -155,22 +176,42 @@ function HandleCombatLog(...)
         end
 
         -- Racial fallback (Arcane Torrent): SPELL_INTERRUPT doesn't
-        -- reliably fire for it, so approximate the interrupted spell from
-        -- whatever the target is currently casting/channeling. Only
-        -- announces if that cast is actually interruptible.
+        -- reliably fire for it, so approximate the interrupted spell.
+        -- Preferred source: castInterruptCache, captured proactively at
+        -- UNIT_SPELLCAST_START/CHANNEL_START (KastaCD_Events.lua) - this
+        -- avoids the race where the target's cast bar has already
+        -- cleared by the time this SPELL_CAST_SUCCESS (for the
+        -- interrupt itself) gets processed. Falls back to a live
+        -- UnitCastingInfo/UnitChannelInfo query only if the cache is empty.
         if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
         and type(AnnounceInterrupt) == "function" then
+            local targetGUID = UnitGUID("target")
+            local cached = targetGUID and castInterruptCache[targetGUID]
+
             local castName, castSpellId, notInterruptible
-            if UnitCastingInfo then
-                -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId
-                castName, _, _, _, _, _, _, notInterruptible, castSpellId = UnitCastingInfo("target")
+            if cached then
+                castName, notInterruptible, castSpellId = cached.name, cached.notInterruptible, cached.spellId
             end
-            if not castName and UnitChannelInfo then
-                -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellId
-                castName, _, _, _, _, _, notInterruptible, castSpellId = UnitChannelInfo("target")
+
+            if not castName then
+                if UnitCastingInfo then
+                    -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, castID, notInterruptible, spellId
+                    castName, _, _, _, _, _, _, notInterruptible, castSpellId = UnitCastingInfo("target")
+                end
+                if not castName and UnitChannelInfo then
+                    -- name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellId
+                    castName, _, _, _, _, _, notInterruptible, castSpellId = UnitChannelInfo("target")
+                end
+            end
+
+            if KCD_RACIAL_DEBUG then
+                print(string.format("|cff00ff00[KCD racial]|r spellId=%s source=%s castName=%s notInterruptible=%s castSpellId=%s",
+                    tostring(spellId), cached and "cache" or "live", tostring(castName), tostring(notInterruptible), tostring(castSpellId)))
             end
             if castName and not notInterruptible then
-                AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
+                if ClaimInterruptAnnounce() then
+                    AnnounceInterrupt(spellName, castName, UnitName("target"), castSpellId, spellId)
+                end
                 if type(MarkPotentialSephuzSuppression) == "function" then
                     MarkPotentialSephuzSuppression("player")
                 end

@@ -103,6 +103,10 @@ local activeUnits = {}   -- [unitToken] = { npcID, baseColor={r,g,b} or nil, cas
 -- TidyPlates' health bar is a hand-rolled pseudo-StatusBar at
 -- plate.extended.visual.healthbar, not a real Blizzard StatusBar. ElvUI
 -- builds its own parallel frame at plate.unitFrame with a real .HealthBar.
+-- Kui Nameplates attaches its replacement frame at plate.kui (see
+-- Kui_Nameplates/addon.lua's NAME_PLATE_UNIT_ADDED), also a real
+-- StatusBar at .HealthBar (Kui_Nameplates_Core/create.lua) - no special
+-- hook needed, it goes through the same generic path as Blizzard/ElvUI.
 local function GetPlateHealthBar(unitToken)
     local plate = C_NamePlate.GetNamePlateForUnit(unitToken)
     if not plate then return nil end
@@ -112,6 +116,9 @@ local function GetPlateHealthBar(unitToken)
 
     local elvBar = plate.unitFrame and plate.unitFrame.HealthBar
     if elvBar then return elvBar, "elvui" end
+
+    local kuiBar = plate.kui and plate.kui.HealthBar
+    if kuiBar then return kuiBar, "kui" end
 
     local uf = plate.UnitFrame
     return uf and uf.healthBar, "blizzard"

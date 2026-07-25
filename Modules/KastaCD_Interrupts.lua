@@ -677,8 +677,14 @@ function RebuildInterruptBars()
                     intBarFrames[unit] = bf
                 end
 
+                -- The racial ("#racial") row is a secondary bar just for
+                -- the racial ability's own cooldown - Sephuz belongs to
+                -- the player, not to any one bar, so it only ever shows
+                -- on their real kick row to avoid a duplicate ring icon.
                 local showSephuz
-                if baseUnit == "player" and not fakeInfo then
+                if isRacialRow then
+                    showSephuz = false
+                elseif baseUnit == "player" and not fakeInfo then
                     showSephuz = IsWearingSephuz()
                 else
                     local guid = (not fakeInfo) and UnitGUID(baseUnit)
