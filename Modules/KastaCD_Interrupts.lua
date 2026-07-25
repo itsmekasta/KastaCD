@@ -414,6 +414,20 @@ function ClearIntBarState(unit)
     intBarState[unit] = nil
 end
 
+-- Same idea, but for a party slot whose *occupant* changed (a different
+-- character now sits in e.g. "party1") rather than the same person
+-- respeccing. That's not just stale data going wrong, it belongs to
+-- someone else entirely, so the racial ("#racial") bar and all
+-- Sephuz per-unit-token state need wiping too. Called from
+-- KastaCD_Events.lua whenever a slot's GUID changes.
+function ClearIntBarStateForRosterSlot(unit)
+    intBarState[unit] = nil
+    intBarState[unit .. "#racial"] = nil
+    sephuzState[unit] = nil
+    sephuzSuppressPending[unit] = nil
+    sephuzSuppressedExpiry[unit] = nil
+end
+
 function RebuildInterruptBars()
     local db = GetIntDB()
 

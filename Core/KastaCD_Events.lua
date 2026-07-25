@@ -52,12 +52,35 @@ local function GetTrackedUnits()
     return units
 end
 
+-- [unit] = last-seen GUID for this party slot. The interrupt/CC/Sephuz
+-- trackers key their witnessed-cast state by unit token ("party1"), not
+-- GUID - when a totally different character ends up in that slot (party
+-- reshuffle, someone leaves and a new person joins the same slot), the
+-- new occupant would otherwise inherit whatever spell/cooldown/spec icon
+-- the previous occupant left behind until it happens to expire on its
+-- own. Diffing against the last-known GUID here and wiping that slot's
+-- state on a mismatch means it self-corrects without a /reload.
+local lastSlotGUID = {}
+local function ClearStaleRosterSlotState()
+    for i = 1, 4 do
+        local unit = "party" .. i
+        local guid = UnitGUID(unit)
+        if lastSlotGUID[unit] ~= guid then
+            lastSlotGUID[unit] = guid
+            if type(ClearIntBarStateForRosterSlot) == "function" then ClearIntBarStateForRosterSlot(unit) end
+            if type(ClearCCBarState) == "function" then ClearCCBarState(unit) end
+        end
+    end
+end
+
 -- SpecPollTicker: re-reads every tracked unit's spec every second rather
 -- than validating a single read - a bad/stale read is overwritten within
 -- ~1s instead of needing complex validation logic.
 local lastInspectRequest = 0
 C_Timer.NewTicker(1.0, function()
     if not HasGroup() then return end
+
+    ClearStaleRosterSlotState()
 
     for _, unit in ipairs(GetTrackedUnits()) do
         PollUnitSpec(unit)
@@ -128,6 +151,7 @@ kcdEvent:SetScript("OnEvent", function(self, event, ...)
         end
         C_Timer.After(0.8, function()
             if not HasGroup() or (IsInRaid and IsInRaid()) then ClearIcons(); return end
+            ClearStaleRosterSlotState()
             RefreshMemberGUIDs()
             RebuildIcons()
             if type(RebuildInterruptBars) == "function" then RebuildInterruptBars() end
