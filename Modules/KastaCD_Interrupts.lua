@@ -72,18 +72,9 @@ local SEPHUZ_COOLDOWN  = 30
 local sephuzState    = {}  -- [unit] = { phase, startTime, endTime, icon }
 local sephuzEquipped = {}  -- [guid] = true/false, refreshed via inspect
 
--- Sephuz shouldn't be credited for a racial (Arcane Torrent) interrupt on a
--- unit whose class/spec already has a real kick - only for units with no
--- direct interrupt of their own (e.g. Holy Paladin). Since the buff itself
--- is only detectable via aura scan (no trigger info attached), a qualifying
--- racial interrupt marks a short pending window; the next new Sephuz proc
--- seen inside that window is assumed to be the one it caused and is ignored
--- for its whole duration (matched by its exact expirationTime).
 local sephuzSuppressPending  = {}  -- [unit] = GetTime() deadline
-local sephuzSuppressedExpiry = {}  -- [unit] = expirationTime of the instance being ignored
+local sephuzSuppressedExpiry = {}  -- [unit] = expirationTime being ignored
 
--- Ground truth first (this unit has actually been witnessed using a
--- non-racial interrupt), falling back to the class/spec default table.
 local function UnitHasDirectKick(unit)
     if intBarState[unit] then return true end
     local _, class = UnitClass(unit)
@@ -101,7 +92,6 @@ local function UnitHasDirectKick(unit)
     return false
 end
 
--- Called from KastaCD_CombatLog.lua when a racial interrupt lands.
 function MarkPotentialSephuzSuppression(unit)
     if not unit or not UnitHasDirectKick(unit) then return end
     sephuzSuppressPending[unit] = GetTime() + 1.5
@@ -112,8 +102,6 @@ local function IsWearingSephuz()
         or GetInventoryItemID("player", 12) == SEPHUZ_ITEM_ID
 end
 
--- Called from KastaCD_Events.lua's INSPECT_READY handler. Returns true if
--- the equipped state actually changed, so callers know to rebuild.
 function RefreshSephuzEquipped(unit)
     local guid = UnitGUID(unit)
     if not guid then return false end
@@ -139,12 +127,9 @@ local function RefreshSephuzState(unit)
     local st = sephuzState[unit]
 
     if icon then
-        -- Already-matched suppressed instance: keep ignoring it until it expires.
         if sephuzSuppressedExpiry[unit] == expirationTime then
             return
         end
-        -- New proc while a suppression is pending: consume the pending flag,
-        -- latch onto this exact instance, and ignore it entirely.
         local pendingUntil = sephuzSuppressPending[unit]
         if pendingUntil and GetTime() <= pendingUntil and (not st or st.phase ~= "uptime") then
             sephuzSuppressPending[unit] = nil
@@ -154,7 +139,9 @@ local function RefreshSephuzState(unit)
         sephuzState[unit] = { phase = "uptime", startTime = expirationTime - (duration or 0), endTime = expirationTime, icon = icon }
     elseif st and st.phase == "uptime" then
         local now = GetTime()
-        sephuzState[unit] = { phase = "cooldown", startTime = now, endTime = now + SEPHUZ_COOLDOWN, icon = st.icon }
+        local cdEnd = st.startTime + SEPHUZ_COOLDOWN
+        if cdEnd < now then cdEnd = now end
+        sephuzState[unit] = { phase = "cooldown", startTime = now, endTime = cdEnd, icon = st.icon }
     end
 end
 
@@ -414,12 +401,8 @@ function ClearIntBarState(unit)
     intBarState[unit] = nil
 end
 
--- Same idea, but for a party slot whose *occupant* changed (a different
--- character now sits in e.g. "party1") rather than the same person
--- respeccing. That's not just stale data going wrong, it belongs to
--- someone else entirely, so the racial ("#racial") bar and all
--- Sephuz per-unit-token state need wiping too. Called from
--- KastaCD_Events.lua whenever a slot's GUID changes.
+-- Same, but also wipes the "#racial" bar and Sephuz state - for when a
+-- party slot's occupant changes entirely, not just a respec.
 function ClearIntBarStateForRosterSlot(unit)
     intBarState[unit] = nil
     intBarState[unit .. "#racial"] = nil

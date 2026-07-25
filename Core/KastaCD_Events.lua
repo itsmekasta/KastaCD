@@ -52,14 +52,8 @@ local function GetTrackedUnits()
     return units
 end
 
--- [unit] = last-seen GUID for this party slot. The interrupt/CC/Sephuz
--- trackers key their witnessed-cast state by unit token ("party1"), not
--- GUID - when a totally different character ends up in that slot (party
--- reshuffle, someone leaves and a new person joins the same slot), the
--- new occupant would otherwise inherit whatever spell/cooldown/spec icon
--- the previous occupant left behind until it happens to expire on its
--- own. Diffing against the last-known GUID here and wiping that slot's
--- state on a mismatch means it self-corrects without a /reload.
+-- [unit] = last-seen GUID for this party slot, so occupant swaps clear
+-- stale per-unit-token tracker state instead of needing a /reload.
 local lastSlotGUID = {}
 local function ClearStaleRosterSlotState()
     for i = 1, 4 do

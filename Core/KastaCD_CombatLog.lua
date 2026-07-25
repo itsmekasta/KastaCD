@@ -3,8 +3,7 @@
 -- phase transitions on tracked icons.
 -- Depends on: KastaCD_SpellDB.lua, KastaCD_DB.lua, KastaCD_Tracking.lua
 
--- [guid] = { name, notInterruptible, spellId } of the unit's last cast/channel.
-local castInterruptCache = {}
+local castInterruptCache = {}  -- [guid] = { name, notInterruptible, spellId }
 
 function TrackCastInterruptible(unit)
     local guid = unit and UnitGUID(unit)
@@ -22,10 +21,6 @@ function TrackCastInterruptible(unit)
     castInterruptCache[guid] = { name = name, notInterruptible = notInterruptible, spellId = spellId }
 end
 
--- Shared dedup: SPELL_INTERRUPT and the SPELL_CAST_SUCCESS-driven racial
--- fallback below can both successfully resolve the same real interrupt
--- (e.g. on servers where SPELL_INTERRUPT turns out to fire fine after
--- all) - without this, that lands as two chat messages for one kick.
 local lastPlayerInterruptAnnounce = 0
 local function ClaimInterruptAnnounce()
     local now = GetTime()
@@ -54,15 +49,11 @@ local SOLAR_BEAM_SPELL_ID       = 78675
 local LIGHT_OF_THE_SUN_SPELL_ID = 202918
 local LIGHT_OF_THE_SUN_REDUCTION = 15
 
--- Face Palm: Tiger Palm has a chance to shave time off Fortifying Brew.
--- The proc chance itself isn't visible in the combat log, so this applies
--- on every Tiger Palm cast (an approximation, not a per-proc trigger).
 local FORTIFYING_BREW_SPELL_ID = 115203
 local TIGER_PALM_SPELL_ID      = 100780
 local FACE_PALM_SPELL_ID       = 213116
 local FACE_PALM_REDUCTION      = 1
 
--- Blackout Combo: Keg Smash reduces Fortifying Brew's cooldown further.
 local KEG_SMASH_SPELL_ID          = 121253
 local BLACKOUT_COMBO_SPELL_ID     = 22104
 local BLACKOUT_COMBO_REDUCTION    = 2
@@ -146,9 +137,6 @@ function HandleCombatLog(...)
         end
     end
 
-    -- Sephuz's Secret shouldn't get credited for a racial (Arcane Torrent)
-    -- interrupt on a unit whose class/spec already has a real kick - only
-    -- for units that have no direct interrupt of their own.
     if subEvent == "SPELL_INTERRUPT" and spellId and INT_SPELLS and INT_SPELLS[spellId]
     and INT_SPELLS[spellId].isRacial and type(MarkPotentialSephuzSuppression) == "function" then
         local unit = nil
@@ -175,14 +163,6 @@ function HandleCombatLog(...)
             HandleInterruptCast(sourceGUID, spellId)
         end
 
-        -- Racial fallback (Arcane Torrent): SPELL_INTERRUPT doesn't
-        -- reliably fire for it, so approximate the interrupted spell.
-        -- Preferred source: castInterruptCache, captured proactively at
-        -- UNIT_SPELLCAST_START/CHANNEL_START (KastaCD_Events.lua) - this
-        -- avoids the race where the target's cast bar has already
-        -- cleared by the time this SPELL_CAST_SUCCESS (for the
-        -- interrupt itself) gets processed. Falls back to a live
-        -- UnitCastingInfo/UnitChannelInfo query only if the cache is empty.
         if INT_SPELLS[spellId].isRacial and sourceGUID == UnitGUID("player")
         and type(AnnounceInterrupt) == "function" then
             local targetGUID = UnitGUID("target")

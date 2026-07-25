@@ -409,10 +409,7 @@ function IsSpellKnownForUnit(unit, spellId)
         return true
     end
 
-    -- isTalent entries need ground truth (witnessed cast or a confirmed
-    -- inspect scan) - never guessed from spec alone. Mutually exclusive
-    -- picks (e.g. Monk's Dampen Harm vs Diffuse Magic) share the same
-    -- specs list and would otherwise all show as "known" at once.
+    -- isTalent entries need ground truth, never guessed from spec alone.
     if data.isTalent then
         return false
     end
