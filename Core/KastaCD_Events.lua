@@ -99,6 +99,20 @@ C_Timer.NewTicker(1.0, function()
     RebuildIcons()
 end)
 
+-- KNOWN_UNIT_SPELLS/UNIT_SPEC_CACHE/castInterruptCache grow for every
+-- unit witnessed casting a tracked ability, not just party members -
+-- runs regardless of group state since that includes solo/world/pvp.
+C_Timer.NewTicker(60, function()
+    local keep = {}
+    keep[UnitGUID("player")] = true
+    for i = 1, 4 do
+        local guid = UnitGUID("party" .. i)
+        if guid then keep[guid] = true end
+    end
+    if type(PruneStaleUnitCaches) == "function" then PruneStaleUnitCaches(keep) end
+    if type(PruneCastInterruptCache) == "function" then PruneCastInterruptCache(keep) end
+end)
+
 kcdEvent:SetScript("OnEvent", function(self, event, ...)
     -- ── ADDON_LOADED ───────────────────────────────────────────
     if event == "ADDON_LOADED" then

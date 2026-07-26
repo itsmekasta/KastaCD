@@ -353,6 +353,17 @@ function ClearSpecCache()
     for k in pairs(UNIT_SPEC_CACHE) do UNIT_SPEC_CACHE[k] = nil end
 end
 
+-- Both caches grow for every unit whose relevant cast is witnessed, not
+-- just party members - drops anyone not in keepGUIDs.
+function PruneStaleUnitCaches(keepGUIDs)
+    for guid in pairs(KNOWN_UNIT_SPELLS) do
+        if not keepGUIDs[guid] then KNOWN_UNIT_SPELLS[guid] = nil end
+    end
+    for guid in pairs(UNIT_SPEC_CACHE) do
+        if guid ~= "player" and not keepGUIDs[guid] then UNIT_SPEC_CACHE[guid] = nil end
+    end
+end
+
 -- Spec filter: true if spell has no spec restriction or specId matches.
 -- Unknown specId hides spec-gated spells rather than showing them all.
 local function SpellMatchesSpec(data, specId)

@@ -21,6 +21,12 @@ function TrackCastInterruptible(unit)
     castInterruptCache[guid] = { name = name, notInterruptible = notInterruptible, spellId = spellId }
 end
 
+function PruneCastInterruptCache(keepGUIDs)
+    for guid in pairs(castInterruptCache) do
+        if not keepGUIDs[guid] then castInterruptCache[guid] = nil end
+    end
+end
+
 local lastPlayerInterruptAnnounce = 0
 local function ClaimInterruptAnnounce()
     local now = GetTime()
